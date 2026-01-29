@@ -64,7 +64,15 @@ public enum ConfigOption {
     // Complex options - Nested configurations
     ALIASES("commands.aliases", ConfigType.CONFIG, false, "Command aliases configuration"),
     TRANSFORMS("playback.transforms", ConfigType.CONFIG, false, "Audio source transforms configuration"),
-    AUDIO_SOURCES("playback.audioSources", ConfigType.CONFIG, false, "Audio sources configuration (nested booleans)");
+    AUDIO_SOURCES("playback.audioSources", ConfigType.CONFIG, false, "Audio sources configuration (nested booleans)"),
+    
+    // GUI options
+    GUI_THEME("gui.theme", ConfigType.STRING, false, "GUI theme: light, dark, darcula, intellij"),
+    GUI_FONT_SIZE("gui.fontSize", ConfigType.INT, false, "Base font size for GUI components (8-24)"),
+    
+    // Performance options
+    NAS_BUFFER_MS("performance.nasBufferMs", ConfigType.INT, false, "NAS buffer duration in ms (protects against GC pauses)"),
+    FRAME_BUFFER_MS("performance.frameBufferMs", ConfigType.INT, false, "Lavaplayer frame buffer duration in ms");
     
     private final String key;
     private final ConfigType type;

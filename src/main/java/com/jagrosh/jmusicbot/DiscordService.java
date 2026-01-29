@@ -2,6 +2,7 @@ package com.jagrosh.jmusicbot;
 
 import com.jagrosh.jdautilities.command.CommandClient;
 import com.jagrosh.jdautilities.commons.waiter.EventWaiter;
+import com.jagrosh.jmusicbot.audio.VoiceConnectionMonitor;
 import com.jagrosh.jmusicbot.entities.Prompt;
 import com.jagrosh.jmusicbot.entities.UserInteraction;
 import com.jagrosh.jmusicbot.utils.OtherUtil;
@@ -41,7 +42,8 @@ public class DiscordService {
                 .setAudioModuleConfig(
                         new AudioModuleConfig()
                                 .withDaveSessionFactory(new JDaveSessionFactory())
-                                .withAudioSendFactory(new NativeAudioSendFactory())
+                                // 800ms buffer provides protection against GC pauses up to 800ms
+                                .withAudioSendFactory(new NativeAudioSendFactory(config.getNasBufferMs()))
                 )
                 .setEnableShutdownHook(true)
                 .build();
@@ -57,6 +59,9 @@ public class DiscordService {
         if (!"@mention".equals(config.getPrefix())) {
             LOG.info("You currently have a custom prefix set. If it's not working, ensure 'MESSAGE CONTENT INTENT' is enabled.");
         }
+        
+        // Register voice connection monitor for diagnostics
+        VoiceConnectionMonitor.getInstance().register(jda);
 
         return jda;
     }

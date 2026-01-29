@@ -4,7 +4,7 @@ name: Validate Branch Naming
 # Runs only on pull requests
 on:
   pull_request:
-    types: [opened, synchronize, reopened, edited]
+    types: [opened]
 
 # Cancel in-progress runs for the same PR
 concurrency:

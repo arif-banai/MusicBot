@@ -42,6 +42,9 @@ public class PlayerManager extends DefaultAudioPlayerManager
     {
         BotConfig config = bot.getConfig();
         
+        // Configure frame buffer for GC protection (default 2000ms = 2 seconds of audio buffered)
+        setFrameBufferDuration(config.getFrameBufferMs());
+        
         // Register transformative audio sources
         TransformativeAudioSourceManager.createTransforms(config.getTransforms())
                 .forEach(this::registerSourceManager);

@@ -9,8 +9,10 @@ services:
     # or uncomment the user line below to run as your host user.
     # user: "${UID:-10001}:${GID:-10001}"
     environment:
-      # Optional: additional JVM options (e.g., memory settings)
-      # - JAVA_OPTS=-Xmx512m -Xms256m
+      # JVM options for audio performance. Defaults to ZGC with 512MB heap.
+      # Override to adjust memory or use different GC:
+      # - JAVA_OPTS=-Xms1g -Xmx1g -XX:+UseZGC -XX:+ZGenerational -XX:+AlwaysPreTouch
+      {}
     volumes:
       # Mount your config directory. Ensure UID 10001 has read/write access:
       #   mkdir -p /your/path/to/musicbot && chown 10001:10001 /your/path/to/musicbot

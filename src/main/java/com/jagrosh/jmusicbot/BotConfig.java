@@ -16,6 +16,8 @@
 package com.jagrosh.jmusicbot;
 
 import static com.jagrosh.jmusicbot.config.model.ConfigOption.*;
+import static com.jagrosh.jmusicbot.config.model.ConfigOption.GUI_THEME;
+import static com.jagrosh.jmusicbot.config.model.ConfigOption.GUI_FONT_SIZE;
 
 import java.nio.file.Path;
 import java.util.Set;
@@ -57,10 +59,10 @@ public class BotConfig {
     private Path path = null;
     private String token, prefix, altprefix, helpWord, playlistsFolder, logLevel,
             successEmoji, warningEmoji, errorEmoji, loadingEmoji, searchingEmoji,
-            evalEngine;
+            evalEngine, guiTheme;
     private boolean stayInChannel, songInGame, npImages, updatealerts, useEval, dbots, useYouTubeOauth;
     private long owner, maxSeconds, aloneTimeUntilStop;
-    private int maxYTPlaylistPages;
+    private int maxYTPlaylistPages, guiFontSize, nasBufferMs, frameBufferMs;
     private double skipratio;
     private OnlineStatus status;
     private Activity game;
@@ -269,6 +271,14 @@ public class BotConfig {
         
         skipratio = SKIP_RATIO.getDouble(config);
         dbots = owner == 113156185389092864L;
+        
+        // GUI options
+        guiTheme = GUI_THEME.getString(config);
+        guiFontSize = GUI_FONT_SIZE.getInt(config);
+        
+        // Performance options
+        nasBufferMs = NAS_BUFFER_MS.getInt(config);
+        frameBufferMs = FRAME_BUFFER_MS.getInt(config);
     }
     
     /**
@@ -491,5 +501,21 @@ public class BotConfig {
         if (enabledAudioSources.isEmpty())
             return false;
         return enabledAudioSources.contains(source);
+    }
+
+    public String getGuiTheme() {
+        return guiTheme;
+    }
+
+    public int getGuiFontSize() {
+        return guiFontSize;
+    }
+    
+    public int getNasBufferMs() {
+        return nasBufferMs;
+    }
+    
+    public int getFrameBufferMs() {
+        return frameBufferMs;
     }
 }

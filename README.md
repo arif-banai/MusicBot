@@ -131,10 +131,54 @@ Check the [Docker Compose Example](docker-compose.example.yml) for more details.
   - Use `ghcr.io/arif-banai/musicbot:latest` for the latest build from the default branch
   - Use `ghcr.io/arif-banai/musicbot:0.6.1` (replace with actual version) to pin a specific release version
   - **Recommendation:** For production, pin your image tag rather than using `latest`
-- **JAVA_OPTS:** You can optionally set `JAVA_OPTS` environment variable to pass additional JVM arguments (e.g., `-Xmx512m -Xms256m` for memory settings).
+- **JAVA_OPTS:** The container uses optimized JVM flags by default (ZGC, 512MB heap). Override with `JAVA_OPTS` if needed. See [Performance Tuning](#performance-tuning) for details.
 
 
 To view published images, visit: `https://github.com/arif-banai/MusicBot/pkgs/container/musicbot`
+
+## Performance Tuning
+
+For optimal audio quality with minimal stuttering, the following JVM and configuration options are recommended.
+
+### JVM Flags (Recommended)
+
+The bot works best with ZGC (Z Garbage Collector) which provides sub-millisecond pause times:
+
+```bash
+java -Xms512m -Xmx512m \
+     -XX:+UseZGC -XX:+ZGenerational \
+     -XX:+AlwaysPreTouch \
+     -Dnogui=true \
+     --enable-native-access=ALL-UNNAMED \
+     -jar JMusicBot-*.jar
+```
+
+**Flag explanations:**
+- `-Xms512m -Xmx512m`: Fixed heap size prevents resizing pauses
+- `-XX:+UseZGC -XX:+ZGenerational`: Sub-millisecond GC pauses (requires Java 21+)
+- `-XX:+AlwaysPreTouch`: Pre-allocates memory at startup to avoid page faults
+
+The Docker image uses these flags by default. To override, set `JAVA_OPTS`:
+```yaml
+environment:
+  - JAVA_OPTS=-Xms1g -Xmx1g -XX:+UseZGC -XX:+ZGenerational -XX:+AlwaysPreTouch
+```
+
+### Audio Buffer Configuration
+
+The bot includes configurable audio buffers that protect against GC pauses. These can be tuned in `config.txt`:
+
+```hocon
+performance {
+  # NAS buffer duration in ms (protects against JVM pauses up to this duration)
+  nasBufferMs = 800
+  
+  # Lavaplayer frame buffer duration in ms (amount of decoded audio to buffer)
+  frameBufferMs = 2000
+}
+```
+
+Higher values provide more protection against stuttering but add latency. The defaults (800ms NAS, 2000ms frame buffer) should work well for most setups.
 
 ## Development Workflow
 

@@ -83,7 +83,7 @@ public class ConfigUpdater {
      * @param configPath the path to the config file being backed up
      * @return a path that doesn't exist yet
      */
-    private static Path findAvailableBackupPath(Path configPath) {
+    public static Path findAvailableBackupPath(Path configPath) {
         String fileName = configPath.getFileName().toString();
         Path baseBackupPath = configPath.resolveSibling(fileName + BACKUP_SUFFIX);
         

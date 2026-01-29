@@ -21,6 +21,7 @@ import com.jagrosh.jmusicbot.Bot;
 import com.jagrosh.jmusicbot.audio.AudioHandler;
 import com.jagrosh.jmusicbot.audio.QueuedTrack;
 import com.jagrosh.jmusicbot.audio.RequestMetadata;
+import com.jagrosh.jmusicbot.audio.TrackLoadingMonitor;
 import com.jagrosh.jmusicbot.commands.MusicCommand;
 import com.jagrosh.jmusicbot.utils.FormatUtil;
 import com.jagrosh.jmusicbot.utils.TimeUtil;
@@ -70,8 +71,10 @@ public class SearchCmd extends MusicCommand
             event.replyError("Please include a query.");
             return;
         }
+        String query = searchPrefix + event.getArgs();
         event.reply(searchingEmoji+" Searching... `["+event.getArgs()+"]`", 
-                m -> bot.getPlayerManager().loadItemOrdered(event.getGuild(), searchPrefix + event.getArgs(), new ResultHandler(m,event)));
+                m -> bot.getPlayerManager().loadItemOrdered(event.getGuild(), query, 
+                    TrackLoadingMonitor.wrap(query, new ResultHandler(m,event))));
     }
     
     private class ResultHandler implements AudioLoadResultHandler 

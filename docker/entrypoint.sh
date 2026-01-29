@@ -20,10 +20,14 @@ else
 fi
 echo "[INFO] ========================================"
 
+# Default JVM options for optimal audio performance (ZGC with sub-ms pauses)
+# Users can override by setting JAVA_OPTS environment variable
+: "${JAVA_OPTS:=-Xms512m -Xmx512m -XX:+UseZGC -XX:+ZGenerational -XX:+AlwaysPreTouch}"
+
 # Build argv
 set -- java -Dnogui=true --enable-native-access=ALL-UNNAMED
 
-# Append JAVA_OPTS if provided (space-separated)
+# Append JAVA_OPTS (either default or user-provided)
 if [ -n "${JAVA_OPTS:-}" ]; then
   # shellcheck disable=SC2086
   set -- "$@" $JAVA_OPTS

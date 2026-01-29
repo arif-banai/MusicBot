@@ -47,7 +47,16 @@ download() {
 }
 
 run() {
-    java -Dnogui=true --enable-native-access=ALL-UNNAMED -jar $(ls -t JMusicBot* | head -1)
+    # JVM flags for optimal audio performance:
+    # -Xms512m -Xmx512m: Fixed heap size prevents resizing pauses
+    # -XX:+UseZGC -XX:+ZGenerational: Sub-millisecond GC pauses (Java 21+)
+    # -XX:+AlwaysPreTouch: Pre-allocate memory at startup to avoid page faults
+    java -Xms512m -Xmx512m \
+         -XX:+UseZGC -XX:+ZGenerational \
+         -XX:+AlwaysPreTouch \
+         -Dnogui=true \
+         --enable-native-access=ALL-UNNAMED \
+         -jar $(ls -t JMusicBot* | head -1)
 }
 
 while

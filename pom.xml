@@ -3,7 +3,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.arifbanai</groupId>
     <artifactId>JMusicBot</artifactId>
-    <version>0.6.2</version>
+    <version>0.6.3-alpha-new-gui</version>
     <packaging>jar</packaging>
 
     <name>JMusicBot</name>
@@ -317,6 +317,21 @@
             <artifactId>jackson-databind</artifactId>
         </dependency>
 
+        <!-- GUI Dependencies -->
+        <!-- FlatLaf Look and Feel - Modern flat Swing L&F -->
+        <!-- Source: https://github.com/JFormDesigner/FlatLaf -->
+        <dependency>
+            <groupId>com.formdev</groupId>
+            <artifactId>flatlaf</artifactId>
+            <version>${flatlaf.version}</version>
+        </dependency>
+        <!-- FlatLaf Extras - SVG icons, UI inspector, and more -->
+        <dependency>
+            <groupId>com.formdev</groupId>
+            <artifactId>flatlaf-extras</artifactId>
+            <version>${flatlaf.version}</version>
+        </dependency>
+
         <!-- Testing Dependencies -->
         <!-- Version managed by junit-bom in dependencyManagement -->
         <dependency>
@@ -450,6 +465,13 @@
                                         <include>**</include>
                                     </includes>
                                 </filter>
+                                <!-- Keep FlatLaf resources intact (themes, properties, native libs) -->
+                                <filter>
+                                    <artifact>com.formdev:*</artifact>
+                                    <includes>
+                                        <include>**</include>
+                                    </includes>
+                                </filter>
                             </filters>
                             <transformers>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.AppendingTransformer">
@@ -569,6 +591,7 @@
         <jsoup.version>1.22.1</jsoup.version>
         <mockito.version>5.21.0</mockito.version>
         <hamcrest.version>3.0</hamcrest.version>
+        <flatlaf.version>3.7</flatlaf.version>
 
         <!-- BOM versions -->
         <jackson-bom.version>2.20.1</jackson-bom.version>
@@ -788,6 +811,13 @@
                                         </filter>
                                         <filter>
                                             <artifact>org.slf4j:*</artifact>
+                                            <includes>
+                                                <include>**</include>
+                                            </includes>
+                                        </filter>
+                                        <!-- Keep FlatLaf resources intact (themes, properties, native libs) -->
+                                        <filter>
+                                            <artifact>com.formdev:*</artifact>
                                             <includes>
                                                 <include>**</include>
                                             </includes>

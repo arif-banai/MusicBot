@@ -20,7 +20,7 @@ import com.jagrosh.jmusicbot.audio.AloneInVoiceHandler;
 import com.jagrosh.jmusicbot.audio.AudioHandler;
 import com.jagrosh.jmusicbot.audio.NowPlayingHandler;
 import com.jagrosh.jmusicbot.audio.PlayerManager;
-import com.jagrosh.jmusicbot.gui.GUI;
+import javax.swing.JFrame;
 import com.jagrosh.jmusicbot.playlist.PlaylistLoader;
 import com.jagrosh.jmusicbot.settings.SettingsManager;
 import com.jagrosh.jmusicbot.utils.InstanceLock;
@@ -53,7 +53,7 @@ public class Bot
     
     private boolean shuttingDown = false;
     private JDA jda;
-    private GUI gui;
+    private JFrame gui;
     
     public Bot(EventWaiter waiter, BotConfig config, SettingsManager settings)
     {
@@ -173,7 +173,7 @@ public class Bot
         this.jda = jda;
     }
     
-    public void setGUI(GUI gui)
+    public void setGUI(JFrame gui)
     {
         this.gui = gui;
     }

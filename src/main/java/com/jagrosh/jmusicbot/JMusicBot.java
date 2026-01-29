@@ -28,7 +28,8 @@ import com.jagrosh.jdautilities.commons.waiter.EventWaiter;
 import com.jagrosh.jmusicbot.commands.CommandFactory;
 import com.jagrosh.jmusicbot.entities.Prompt;
 import com.jagrosh.jmusicbot.entities.UserInteraction;
-import com.jagrosh.jmusicbot.gui.GUI;
+import com.jagrosh.jmusicbot.gui.MainFrame;
+import com.jagrosh.jmusicbot.gui.theme.ThemeManager;
 import com.jagrosh.jmusicbot.settings.SettingsManager;
 import com.jagrosh.jmusicbot.utils.ConsoleUtil;
 import com.jagrosh.jmusicbot.utils.InstanceLock;
@@ -81,6 +82,22 @@ public class JMusicBot
         // create user interaction handler for startup
         UserInteraction userInteraction = new Prompt("JMusicBot");
         
+        // Initialize FlatLaf theme BEFORE any Swing components are created
+        // This must happen before ConsoleUtil.redirectSystemStreams() which creates JTextArea
+        if(!userInteraction.isNoGUI())
+        {
+            try 
+            {
+                // Initialize with default dark theme - will be updated after config loads
+                ThemeManager.initialize("dark", 12);
+                LOG.info("FlatLaf theme initialized");
+            }
+            catch(Exception e)
+            {
+                LOG.warn("Could not initialize FlatLaf theme, using system Look and Feel: {}", e.getMessage());
+            }
+        }
+        
         // Redirect System.out/err to GUI console early (before config loading)
         // so that all logs, including those from config loading, appear in GUI
         if(!userInteraction.isNoGUI())
@@ -124,18 +141,31 @@ public class JMusicBot
         SettingsManager settings = new SettingsManager();
         Bot bot = new Bot(waiter, config, settings);
         
+        // Apply theme from config (updates from default if different)
+        if(!userInteraction.isNoGUI())
+        {
+            try
+            {
+                ThemeManager.initialize(config.getGuiTheme(), config.getGuiFontSize());
+            }
+            catch(Exception e)
+            {
+                LOG.warn("Could not apply theme from config: {}", e.getMessage());
+            }
+        }
+        
         // Initialize GUI (ConsolePanel will reuse the already-redirected streams)
         if(!userInteraction.isNoGUI())
         {
             try 
             {
-                GUI gui = new GUI(bot);
-                bot.setGUI(gui);
-                gui.init();
+                MainFrame mainFrame = new MainFrame(bot);
+                bot.setGUI(mainFrame);
+                mainFrame.init();
             }
             catch(Exception e)
             {
-                LOG.error("Could not start GUI. Use -Dnogui=true for server environments.");
+                LOG.error("Could not start GUI. Use -Dnogui=true for server environments.", e);
             }
         }
         
