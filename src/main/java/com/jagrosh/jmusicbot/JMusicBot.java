@@ -15,17 +15,9 @@
  */
 package com.jagrosh.jmusicbot;
 
-import ch.qos.logback.classic.Level;
-import net.dv8tion.jda.api.JDA;
-import net.dv8tion.jda.api.Permission;
-import net.dv8tion.jda.api.exceptions.ErrorResponseException;
-import net.dv8tion.jda.api.requests.GatewayIntent;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import com.jagrosh.jdautilities.command.CommandClient;
 import com.jagrosh.jdautilities.commons.waiter.EventWaiter;
-import com.jagrosh.jmusicbot.commands.CommandFactory;
+import com.jagrosh.jmusicbot.commands.v1.CommandFactory;
 import com.jagrosh.jmusicbot.entities.Prompt;
 import com.jagrosh.jmusicbot.entities.UserInteraction;
 import com.jagrosh.jmusicbot.gui.GUI;
@@ -33,6 +25,13 @@ import com.jagrosh.jmusicbot.settings.SettingsManager;
 import com.jagrosh.jmusicbot.utils.ConsoleUtil;
 import com.jagrosh.jmusicbot.utils.InstanceLock;
 import com.jagrosh.jmusicbot.utils.OtherUtil;
+import net.dv8tion.jda.api.JDA;
+import net.dv8tion.jda.api.Permission;
+import net.dv8tion.jda.api.exceptions.ErrorResponseException;
+import net.dv8tion.jda.api.requests.GatewayIntent;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 
 /**
  *
@@ -69,7 +68,9 @@ public class JMusicBot
     {
         if(args.length > 0) {
             if (args[0].equalsIgnoreCase("generate-config")) {
-                BotConfig.writeDefaultConfig();
+                // Use headless prompt for config generation (nogui=true, noprompt=true)
+                UserInteraction userInteraction = new Prompt(null, null, true, true);
+                BotConfig.writeDefaultConfig(userInteraction);
                 return;
             }
         }
@@ -97,7 +98,7 @@ public class JMusicBot
         
         // Check for another running instance
         if (!InstanceLock.tryAcquire()) {
-            userInteraction.alert(Prompt.Level.ERROR, "JMusicBot",
+            userInteraction.alert(UserInteraction.Level.ERROR, "JMusicBot",
                     "Another instance of JMusicBot is already running.\n" +
                     "Running multiple instances with the same configuration causes duplicate responses to commands.\n" +
                     "Please close the other instance first.");
@@ -117,12 +118,12 @@ public class JMusicBot
 
         // set log level from config
         ((ch.qos.logback.classic.Logger) LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME)).setLevel(
-                Level.toLevel(config.getLogLevel(), Level.INFO));
+                ch.qos.logback.classic.Level.toLevel(config.getLogLevel(), ch.qos.logback.classic.Level.INFO));
         
         // set up the listener
         EventWaiter waiter = new EventWaiter();
         SettingsManager settings = new SettingsManager();
-        Bot bot = new Bot(waiter, config, settings);
+        Bot bot = new Bot(waiter, config, settings, userInteraction);
         
         // Initialize GUI (ConsolePanel will reuse the already-redirected streams)
         if(!userInteraction.isNoGUI())
@@ -136,10 +137,13 @@ public class JMusicBot
             catch(Exception e)
             {
                 LOG.error("Could not start GUI. Use -Dnogui=true for server environments.");
+                userInteraction.alert(UserInteraction.Level.ERROR, "JMusicBot",
+                        "Could not start GUI.\nUse -Dnogui=true for server environments.");
             }
         }
         
         CommandClient client = CommandFactory.createCommandClient(config, settings, bot);
+        bot.setCommandClient(client);
 
         // Now that GUI/Logging is ready, initialize the player manager
         bot.getPlayerManager().init();
@@ -152,13 +156,13 @@ public class JMusicBot
         }
         catch(IllegalArgumentException ex)
         {
-            userInteraction.alert(Prompt.Level.ERROR, "JMusicBot",
+            userInteraction.alert(UserInteraction.Level.ERROR, "JMusicBot",
                     "Invalid configuration. Check your token.\nConfig Location: " + config.getConfigLocation());
             System.exit(1);
         }
         catch(ErrorResponseException ex)
         {
-            userInteraction.alert(Prompt.Level.ERROR, "JMusicBot", "Invalid response from Discord. Check your internet connection.");
+            userInteraction.alert(UserInteraction.Level.ERROR, "JMusicBot", "Invalid response from Discord. Check your internet connection.");
             System.exit(1);
         }
         catch(Exception ex)

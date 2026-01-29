@@ -23,6 +23,14 @@ package com.jagrosh.jmusicbot.entities;
  * @author Arif Banai (arif-banai)
  */
 public interface UserInteraction {
+    
+    /**
+     * Severity levels for alert messages.
+     */
+    enum Level {
+        INFO, WARNING, ERROR
+    }
+    
     /**
      * Prompts the user for input.
      * 
@@ -38,7 +46,7 @@ public interface UserInteraction {
      * @param context The context/category of the alert
      * @param message The message to display
      */
-    void alert(Prompt.Level level, String context, String message);
+    void alert(Level level, String context, String message);
     
     /**
      * Checks if running in no-GUI mode.

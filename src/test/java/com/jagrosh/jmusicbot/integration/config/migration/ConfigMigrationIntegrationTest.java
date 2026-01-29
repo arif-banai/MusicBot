@@ -22,15 +22,12 @@ import com.jagrosh.jmusicbot.config.model.ConfigUpdateType;
 import com.jagrosh.jmusicbot.config.update.ConfigUpdater;
 import com.jagrosh.jmusicbot.config.migration.ConfigMigration;
 import com.jagrosh.jmusicbot.testutil.config.LegacyConfigBuilder;
-import com.jagrosh.jmusicbot.testutil.config.LegacyConfigTestData;
 import com.jagrosh.jmusicbot.testutil.config.V1ConfigBuilder;
 import com.typesafe.config.Config;
 import com.typesafe.config.ConfigFactory;
 import com.typesafe.config.parser.ConfigDocument;
 import com.typesafe.config.parser.ConfigDocumentFactory;
 
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;

@@ -16,8 +16,8 @@
 package com.jagrosh.jmusicbot.utils;
 
 import com.jagrosh.jmusicbot.JMusicBot;
-import com.jagrosh.jmusicbot.entities.Prompt;
 import com.jagrosh.jmusicbot.entities.UserInteraction;
+import com.jagrosh.jmusicbot.entities.UserInteraction.Level;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.OnlineStatus;
 import net.dv8tion.jda.api.entities.Activity;
@@ -31,6 +31,7 @@ import okhttp3.Response;
 import okhttp3.ResponseBody;
 
 import java.io.*;
+import java.util.concurrent.TimeUnit;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.net.URLConnection;
@@ -161,7 +162,7 @@ public class OtherUtil
     public static void checkJavaVersion(UserInteraction userInteraction)
     {
         if(!System.getProperty("java.vm.name").contains("64"))
-            userInteraction.alert(Prompt.Level.WARNING, "Java Version", 
+            userInteraction.alert(Level.WARNING, "Java Version", 
                     "It appears that you may not be using a supported Java version. Please use 64-bit java.");
     }
     
@@ -189,7 +190,11 @@ public class OtherUtil
     {
         try
         {
-            OkHttpClient client = new OkHttpClient.Builder().build();
+            OkHttpClient client = new OkHttpClient.Builder()
+                    .connectTimeout(5, TimeUnit.SECONDS)
+                    .readTimeout(5, TimeUnit.SECONDS)
+                    .writeTimeout(5, TimeUnit.SECONDS)
+                    .build();
             // First, try to get the latest release
             Response response = client.newCall(new Request.Builder().get()
                     .url(baseUrl + "/releases/latest").build())
@@ -275,7 +280,7 @@ public class OtherUtil
 
         if(latestVersion != null && isNewerVersion(version, latestVersion))
         {
-            userInteraction.alert(Prompt.Level.WARNING, "JMusicBot Version", String.format(NEW_VERSION_AVAILABLE, version, latestVersion));
+            userInteraction.alert(Level.WARNING, "JMusicBot Version", String.format(NEW_VERSION_AVAILABLE, version, latestVersion));
         }
     }
 

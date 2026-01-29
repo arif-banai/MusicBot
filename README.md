@@ -16,12 +16,17 @@
 
 A cross-platform Discord music bot with a clean interface, and that is easy to set up and run yourself!
 
-## ⚠️ Important Notice (Java 25)
+## ⚠️ Check your Java Version and other requirements
 
-*   **Java 25 Minimum:** The bot now requires **Java 25 or higher**. Please update your hosting environment (check `java -version`) before running the new JAR.
+This version of JMusicBot changes/updates various dependencies. To ensure your bot continues to function correctly, please note the following mandatory changes:
+
+*   **Java 25 Minimum:** The bot now requires **Java 25 or higher**. 
+
+*   **LibDave/udpqueue:** You **must** have **glibc >= 2.38**. *If you are using Docker, this is already handled for you.*
 *   **Privileged Gateway Intents:** You **must** enable the **Message Content Intent** in your [Discord Developer Portal](https://discord.com/developers/applications).
     *   *Navigate to: Your Application > Bot > Privileged Gateway Intents > Toggle "Message Content Intent" to ON.*
     *   *Without this, the bot will not see your commands.*
+
 
 [![Setup](http://i.imgur.com/VvXYp5j.png)](https://jmusicbot.com/setup)
 
@@ -38,7 +43,7 @@ A cross-platform Discord music bot with a clean interface, and that is easy to s
   * Playlist support (both web/youtube, and local)
 
 ## Supported sources and formats
-JMusicBot supports all sources and formats supported by [lavaplayer](https://github.com/sedmelluq/lavaplayer#supported-formats):
+JMusicBot supports all sources and formats supported by [lavaplayer](https://github.com/lavalink-devs/lavaplayer#supported-formats):
 ### Sources
   * YouTube
   * SoundCloud
@@ -62,6 +67,36 @@ JMusicBot supports all sources and formats supported by [lavaplayer](https://git
 
 ## Setup
 Please see the [Setup Page](https://jmusicbot.com/setup) to run this bot yourself!
+
+## Running Directly (Without Docker)
+
+When running JMusicBot directly (not in Docker), make sure to pass these JVM flags:
+
+```bash
+java -Dnogui=true --enable-native-access=ALL-UNNAMED -jar JMusicBot-0.6.2-All.jar
+```
+
+### Linux System Requirements
+
+**Important:** Your system **must have glibc version 2.38 or higher**. Failure to meet this requirement will result in errors when using JDave and udpqueue.
+
+> **Note:** Ubuntu 24.04 "Noble" and Debian 13 "Trixie" already include a compatible glibc version out of the box.
+
+You can check your glibc version with:
+```bash
+ldd --version
+```
+
+On Debian/Ubuntu-based systems, you may also need to install the following native audio library dependencies:
+
+```bash
+# Install required native library dependencies
+sudo apt-get update
+sudo apt-get install -y libopus0 libsodium23
+```
+
+
+If your version is below 2.38, you will need to upgrade your system or use a compatible runtime. (You can also use Docker, which is recommended.)
 
 ## Docker
 
@@ -128,7 +163,7 @@ Check the [Docker Compose Example](docker-compose.example.yml) for more details.
 - **Config Persistence:** The `/musicbot` volume **must** be mounted for your configuration to persist. The bot reads and writes `config.txt` from `/musicbot` (the container's working directory).
 - **First Run:** If `config.txt` doesn't exist, the bot will generate a default one automatically. You'll need to edit it with your bot token before the bot can start.
 - **Image Tags:** 
-  - Use `ghcr.io/arif-banai/musicbot:latest` for the latest build from the default branch
+  - Use `ghcr.io/arif-banai/musicbot:latest` for the latest build from the master branch
   - Use `ghcr.io/arif-banai/musicbot:0.6.1` (replace with actual version) to pin a specific release version
   - **Recommendation:** For production, pin your image tag rather than using `latest`
 - **JAVA_OPTS:** You can optionally set `JAVA_OPTS` environment variable to pass additional JVM arguments (e.g., `-Xmx512m -Xms256m` for memory settings).
@@ -149,7 +184,16 @@ This project follows a **trunk-based development** workflow. The `master` branch
 Branch names are automatically validated by CI to ensure consistency. For detailed information about the development workflow, branch naming rules, and best practices, see [DEVELOPMENT_WORKFLOW.md](docs/DEVELOPMENT_WORKFLOW.md).
 
 ## Questions/Suggestions/Bug Reports
-**Please read the [Issues List](https://github.com/arif-banai/MusicBot/issues) before suggesting a feature**. If you have a question, need troubleshooting help, or want to brainstorm a new feature, please start a [Discussion](https://github.com/arif-banai/MusicBot/discussions). If you'd like to suggest a feature or report a reproducible bug, please open an [Issue](https://github.com/arif-banai/MusicBot/issues) on this repository. If you like this bot, be sure to add a star to the libraries that make this possible: [**JDA**](https://github.com/DV8FromTheWorld/JDA) and [**lavaplayer**](https://github.com/lavalink-devs/lavaplayer)!
+**Please read the [Issues List](https://github.com/arif-banai/MusicBot/issues) before suggesting a feature**. 
+
+If you have a question, need troubleshooting help, or want to brainstorm a new feature, please start a [Discussion](https://github.com/arif-banai/MusicBot/discussions).
+
+The Discord server is also available for questions and suggestions. [Click here to join](https://discord.gg/cyyUxNmmx6).
+
+ If you'd like to suggest a feature or report a reproducible bug, please open an [Issue](https://github.com/arif-banai/MusicBot/issues) on this repository. If you like this bot, be sure to add a star to the libraries that make this possible: 
+ - [**JDA**](https://github.com/DV8FromTheWorld/JDA)
+ - [**lavaplayer**](https://github.com/lavalink-devs/lavaplayer)
+ - [**youtube-source**](https://github.com/lavalink-devs/youtube-source)
 
 ## Editing
 This bot (and the source code here) might not be easy to edit for inexperienced programmers. The main purpose of having the source public is to show the capabilities of the libraries, to allow others to understand how the bot works, and to allow those knowledgeable about java, JDA, and Discord bot development to contribute. There are many requirements and dependencies required to edit and compile it, and there will not be support provided for people looking to make changes on their own. Instead, consider making a feature request (see the above section). If you choose to make edits, please do so in accordance with the Apache 2.0 License.

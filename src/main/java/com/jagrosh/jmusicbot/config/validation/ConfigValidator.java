@@ -17,8 +17,8 @@ package com.jagrosh.jmusicbot.config.validation;
 
 import java.nio.file.Path;
 
-import com.jagrosh.jmusicbot.entities.Prompt;
 import com.jagrosh.jmusicbot.entities.UserInteraction;
+import com.jagrosh.jmusicbot.entities.UserInteraction.Level;
 
 /**
  * Handles validation of required configuration values.
@@ -40,7 +40,7 @@ public class ConfigValidator {
                     + "\nhttps://github.com/jagrosh/MusicBot/wiki/Getting-a-Bot-Token."
                     + "\nBot Token: ");
             if (newToken == null) {
-                alertWithConfigLocation(userInteraction, Prompt.Level.WARNING, 
+                alertWithConfigLocation(userInteraction, Level.WARNING, 
                         "No token provided! Exiting.", configPath);
                 return ValidationResult.invalid();
             }
@@ -71,7 +71,7 @@ public class ConfigValidator {
             } catch (NumberFormatException | NullPointerException ex) {
                 // Fall through to error
             }
-            alertWithConfigLocation(userInteraction, Prompt.Level.ERROR, 
+            alertWithConfigLocation(userInteraction, Level.ERROR, 
                     "Invalid User ID! Exiting.", configPath);
             return ValidationResult.invalid();
         }
@@ -81,7 +81,7 @@ public class ConfigValidator {
     /**
      * Shows an alert with the config file location appended.
      */
-    private static void alertWithConfigLocation(UserInteraction userInteraction, Prompt.Level level, 
+    private static void alertWithConfigLocation(UserInteraction userInteraction, Level level, 
             String message, Path configPath) {
         userInteraction.alert(level, CONTEXT, 
                 message + "\n\nConfig Location: " + configPath.toAbsolutePath().toString());

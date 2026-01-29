@@ -20,7 +20,7 @@ import com.jagrosh.jmusicbot.BotConfig;
 import com.jagrosh.jmusicbot.MockUserInteraction;
 import com.jagrosh.jmusicbot.audio.AudioSource;
 import com.jagrosh.jmusicbot.config.io.ConfigIO;
-import com.jagrosh.jmusicbot.entities.Prompt;
+import com.jagrosh.jmusicbot.entities.UserInteraction.Level;
 import com.jagrosh.jmusicbot.testutil.config.V1ConfigBuilder;
 import com.typesafe.config.Config;
 import org.junit.jupiter.api.DisplayName;
@@ -225,7 +225,7 @@ class BotConfigMigrationIntegrationTest extends BaseConfigTest {
                 // User should have been alerted about the migration failure
                 MockUserInteraction.AlertCall lastAlert = mockUserInteraction.getLastAlert();
                 assertNotNull(lastAlert, "Expected an alert to be shown");
-                assertEquals(Prompt.Level.ERROR, lastAlert.getLevel());
+                assertEquals(Level.ERROR, lastAlert.getLevel());
                 assertEquals("Config Migration", lastAlert.getContext());
                 assertTrue(lastAlert.getMessage().contains("migration"),
                     "Alert message should mention migration: " + lastAlert.getMessage());

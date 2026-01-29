@@ -71,7 +71,7 @@ jobs:
         if: ${{ github.event.inputs.run_tests != 'false' }}
         run: |
           COMMIT_TIME=$(git log -1 --format=%cI)
-          mvn --batch-mode --update-snapshots verify -Pdocker -Dproject.build.outputTimestamp=$COMMIT_TIME
+          mvn --batch-mode verify -Pdocker -Dproject.build.outputTimestamp=$COMMIT_TIME
 
       - name: Sanitize tag suffix
         id: sanitize

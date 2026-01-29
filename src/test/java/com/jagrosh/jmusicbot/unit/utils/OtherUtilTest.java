@@ -238,9 +238,16 @@ public class OtherUtilTest
     @DisplayName("getLatestVersion returns null when API returns empty response")
     void testGetLatestVersion_EmptyResponse() throws IOException
     {
+        // First request returns empty object (no tag_name)
         mockWebServer.enqueue(new MockResponse()
                 .setResponseCode(200)
                 .setBody("{}")
+                .setHeader("Content-Type", "application/json"));
+
+        // Second request (fallback to all releases) also returns empty
+        mockWebServer.enqueue(new MockResponse()
+                .setResponseCode(200)
+                .setBody("[]")
                 .setHeader("Content-Type", "application/json"));
 
         String baseUrl = "http://localhost:" + mockWebServer.getPort() + "/repos/test/repo";
@@ -253,6 +260,12 @@ public class OtherUtilTest
     @DisplayName("getLatestVersion returns null when API call fails")
     void testGetLatestVersion_ApiFailure() throws IOException
     {
+        // First request fails
+        mockWebServer.enqueue(new MockResponse()
+                .setResponseCode(500)
+                .setBody("Internal Server Error"));
+
+        // Second request also fails
         mockWebServer.enqueue(new MockResponse()
                 .setResponseCode(500)
                 .setBody("Internal Server Error"));
@@ -311,5 +324,14 @@ public class OtherUtilTest
         String result = OtherUtil.getLatestVersion(baseUrl);
 
         assertEquals("0.6.2", result);
+    }
+
+    @Test
+    @DisplayName("makeNonEmpty returns the string if not empty, otherwise returns zero-width space")
+    public void testMakeNonEmpty()
+    {
+        assertEquals("test", OtherUtil.makeNonEmpty("test"));
+        assertEquals("\u200B", OtherUtil.makeNonEmpty(null));
+        assertEquals("\u200B", OtherUtil.makeNonEmpty(""));
     }
 }

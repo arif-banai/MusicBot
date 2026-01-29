@@ -15,6 +15,10 @@
  */
 package com.jagrosh.jmusicbot;
 
+import com.jagrosh.jmusicbot.audio.AudioHandler;
+
+import com.jagrosh.jmusicbot.commands.SlashCommandRegistry;
+import com.jagrosh.jmusicbot.entities.UserInteraction.Level;
 import com.jagrosh.jmusicbot.utils.OtherUtil;
 import com.jagrosh.jmusicbot.utils.YoutubeOauth2TokenHandler;
 import net.dv8tion.jda.api.JDA;
@@ -24,15 +28,21 @@ import net.dv8tion.jda.api.entities.channel.concrete.PrivateChannel;
 import net.dv8tion.jda.api.entities.channel.concrete.VoiceChannel;
 import net.dv8tion.jda.api.events.guild.GuildJoinEvent;
 import net.dv8tion.jda.api.events.guild.voice.GuildVoiceUpdateEvent;
+import net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent;
 import net.dv8tion.jda.api.events.message.MessageDeleteEvent;
 import net.dv8tion.jda.api.events.session.ReadyEvent;
+import net.dv8tion.jda.api.events.session.SessionDisconnectEvent;
 import net.dv8tion.jda.api.events.session.ShutdownEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
+import net.dv8tion.jda.api.requests.CloseCode;
+import net.dv8tion.jda.api.utils.messages.MessageEditData;
+import com.jagrosh.jmusicbot.service.MusicService;
 import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 /**
  *
@@ -53,9 +63,19 @@ public class Listener extends ListenerAdapter
         if(event.getJDA().getGuildCache().isEmpty())
         {
             Logger log = LoggerFactory.getLogger("MusicBot");
+            String inviteUrl = event.getJDA().getInviteUrl(JMusicBot.RECOMMENDED_PERMS);
             log.warn("This bot is not on any guilds! Use the following link to add the bot to your guilds!");
-            log.warn(event.getJDA().getInviteUrl(JMusicBot.RECOMMENDED_PERMS));
+            log.warn(inviteUrl);
+            bot.getUserInteraction().alert(Level.WARNING, "Setup",
+                    "This bot is not on any guilds!\n\nUse this link to add the bot to your server:\n" + inviteUrl);
         }
+        
+        // Register slash commands if they have changed
+        if(bot.getCommandClient() != null)
+        {
+            SlashCommandRegistry.registerIfChanged(event.getJDA(), bot.getCommandClient());
+        }
+        
         credit(event.getJDA());
         event.getJDA().getGuilds().forEach((Guild guild) ->
         {
@@ -118,9 +138,127 @@ public class Listener extends ListenerAdapter
     }
 
     @Override
+    public void onButtonInteraction(ButtonInteractionEvent event)
+    {
+        if (!event.getComponentId().equals("stop") && !event.getComponentId().equals("pause") && !event.getComponentId().equals("skip")
+                && !event.getComponentId().equals("previous") && !event.getComponentId().equals("shuffle")
+                && !event.getComponentId().equals("repeat") && !event.getComponentId().equals("voldown")
+                && !event.getComponentId().equals("volup"))
+            return;
+
+        if (event.getGuild() == null || event.getMember() == null) return;
+
+        AudioHandler handler = (AudioHandler) event.getGuild().getAudioManager().getSendingHandler();
+        if (handler == null)
+        {
+            event.reply("There is no music playing!").setEphemeral(true).queue();
+            return;
+        }
+
+        // Permissions check
+        if (!event.getMember().getVoiceState().inAudioChannel() ||
+                !event.getMember().getVoiceState().getChannel().equals(event.getGuild().getSelfMember().getVoiceState().getChannel()))
+        {
+            event.reply("You must be in the same voice channel to use this!").setEphemeral(true).queue();
+            return;
+        }
+
+        MusicService musicService = bot.getMusicService();
+        MusicService.OutputAdapter adapter = new MusicService.OutputAdapter() {
+            @Override
+            public void replySuccess(String content) {
+                event.reply(content).setEphemeral(true).queue();
+            }
+
+            @Override
+            public void replyError(String content) {
+                event.reply(content).setEphemeral(true).queue();
+            }
+
+            @Override
+            public void replyWarning(String content) {
+                event.reply(content).setEphemeral(true).queue();
+            }
+
+            @Override
+            public void editMessage(String content) {
+                event.editMessage(content).queue();
+            }
+
+            @Override
+            public void editMessage(String content, Consumer<net.dv8tion.jda.api.entities.Message> onSuccess) {
+                event.editMessage(content).queue(hook -> hook.retrieveOriginal().queue(onSuccess));
+            }
+
+            @Override
+            public void editNowPlaying(AudioHandler handler) {
+                event.editMessage(MessageEditData.fromCreateData(handler.getNowPlaying(event.getJDA()))).queue();
+            }
+
+            @Override
+            public void editNoMusic(AudioHandler handler) {
+                event.editMessage(MessageEditData.fromCreateData(handler.getNoMusicPlaying(event.getJDA()))).queue();
+            }
+
+            @Override
+            public void onShowHelp() {
+                // Not used for buttons
+            }
+        };
+
+        switch (event.getComponentId())
+        {
+            case "previous":
+                musicService.previous(event.getGuild(), event.getMember(), adapter);
+                break;
+            case "shuffle":
+                musicService.shuffle(event.getGuild(), event.getMember(), 0, adapter);
+                break;
+            case "repeat":
+                musicService.cycleRepeatMode(event.getGuild(), event.getMember(), adapter);
+                break;
+            case "voldown":
+                musicService.adjustVolume(event.getGuild(), event.getMember(), -10, adapter);
+                break;
+            case "volup":
+                musicService.adjustVolume(event.getGuild(), event.getMember(), 10, adapter);
+                break;
+            case "stop":
+                musicService.stop(event.getGuild(), event.getMember(), adapter);
+                break;
+            case "pause":
+                musicService.pause(event.getGuild(), event.getMember(), adapter);
+                break;
+            case "skip":
+                musicService.skip(event.getGuild(), event.getMember(), adapter);
+                break;
+        }
+    }
+
+    @Override
     public void onGuildVoiceUpdate(@NotNull GuildVoiceUpdateEvent event)
     {
         bot.getAloneInVoiceHandler().onVoiceUpdate(event);
+    }
+
+    @Override
+    public void onSessionDisconnect(@NotNull SessionDisconnectEvent event)
+    {
+        CloseCode closeCode = event.getCloseCode();
+        if (closeCode == CloseCode.DISALLOWED_INTENTS)
+        {
+            bot.getUserInteraction().alert(
+                Level.ERROR,
+                "JMusicBot",
+                "Your bot is missing required Discord intents!\n\n" +
+                "To fix this:\n" +
+                "1. Go to https://discord.com/developers/applications\n" +
+                "2. Select your bot application\n" +
+                "3. Go to 'Bot' settings\n" +
+                "4. Enable 'MESSAGE CONTENT INTENT' under Privileged Gateway Intents\n" +
+                "5. Save changes and restart JMusicBot"
+            );
+        }
     }
 
     @Override

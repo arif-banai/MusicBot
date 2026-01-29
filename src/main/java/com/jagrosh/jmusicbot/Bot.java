@@ -15,14 +15,18 @@
  */
 package com.jagrosh.jmusicbot;
 
+import com.jagrosh.jdautilities.command.CommandClient;
 import com.jagrosh.jdautilities.commons.waiter.EventWaiter;
 import com.jagrosh.jmusicbot.audio.AloneInVoiceHandler;
 import com.jagrosh.jmusicbot.audio.AudioHandler;
 import com.jagrosh.jmusicbot.audio.NowPlayingHandler;
 import com.jagrosh.jmusicbot.audio.PlayerManager;
+import com.jagrosh.jmusicbot.entities.UserInteraction;
 import com.jagrosh.jmusicbot.gui.GUI;
 import com.jagrosh.jmusicbot.playlist.PlaylistLoader;
 import com.jagrosh.jmusicbot.settings.SettingsManager;
+import com.jagrosh.jmusicbot.service.MusicService;
+import com.jagrosh.jmusicbot.service.SearchService;
 import com.jagrosh.jmusicbot.utils.InstanceLock;
 import com.jagrosh.jmusicbot.utils.YoutubeOauth2TokenHandler;
 import net.dv8tion.jda.api.JDA;
@@ -48,18 +52,23 @@ public class Bot
     private final PlaylistLoader playlists;
     private final NowPlayingHandler nowplaying;
     private final AloneInVoiceHandler aloneInVoiceHandler;
+    private final MusicService musicService;
+    private final SearchService searchService;
     private final YoutubeOauth2TokenHandler youTubeOauth2TokenHandler;
+    private final UserInteraction userInteraction;
     private final Instant startTime;
     
     private boolean shuttingDown = false;
     private JDA jda;
     private GUI gui;
+    private CommandClient commandClient;
     
-    public Bot(EventWaiter waiter, BotConfig config, SettingsManager settings)
+    public Bot(EventWaiter waiter, BotConfig config, SettingsManager settings, UserInteraction userInteraction)
     {
         this.waiter = waiter;
         this.config = config;
         this.settings = settings;
+        this.userInteraction = userInteraction;
         this.playlists = new PlaylistLoader(config);
         this.threadpool = Executors.newSingleThreadScheduledExecutor();
         this.startTime = Instant.now();
@@ -72,6 +81,8 @@ public class Bot
         this.nowplaying.init();
         this.aloneInVoiceHandler = new AloneInVoiceHandler(this);
         this.aloneInVoiceHandler.init();
+        this.musicService = new MusicService(this);
+        this.searchService = new SearchService(this);
     }
     
     public BotConfig getConfig()
@@ -113,7 +124,22 @@ public class Bot
     {
         return aloneInVoiceHandler;
     }
-    
+
+    public MusicService getMusicService()
+    {
+        return musicService;
+    }
+
+    public SearchService getSearchService()
+    {
+        return searchService;
+    }
+
+    public UserInteraction getUserInteraction()
+    {
+        return userInteraction;
+    }
+
     public JDA getJDA()
     {
         return jda;
@@ -176,6 +202,16 @@ public class Bot
     public void setGUI(GUI gui)
     {
         this.gui = gui;
+    }
+
+    public void setCommandClient(CommandClient commandClient)
+    {
+        this.commandClient = commandClient;
+    }
+
+    public CommandClient getCommandClient()
+    {
+        return commandClient;
     }
 
     public YoutubeOauth2TokenHandler getYouTubeOauth2Handler() {

@@ -16,6 +16,7 @@
 package com.jagrosh.jmusicbot.unit;
 
 import dev.lavalink.youtube.YoutubeAudioSourceManager;
+import dev.lavalink.youtube.clients.skeleton.Client;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -217,21 +218,27 @@ class AudioSourceOAuthTest {
             // With OAuth enabled
             Object[] oauthClients = (Object[]) buildClients.invoke(null, true);
             assertNotNull(oauthClients, "Should return clients for OAuth mode");
-            assertEquals(5, oauthClients.length, "OAuth mode should use 5 clients (3 metadata-only: AndroidVr, MWeb, Web; 2 OAuth: TvHtml5Embedded, Tv)");
+            assertEquals(5, oauthClients.length, "OAuth mode should use 5 clients (AndroidVr, MWeb, Web, TvHtml5Embedded, Tv)");
             
-            // Verify client types - first 3 are metadata-only (playback disabled)
+            // Verify client types
             assertEquals("AndroidVr", oauthClients[0].getClass().getSimpleName(),
-                "First OAuth client should be AndroidVr (metadata-only)");
+                "First OAuth client should be AndroidVr");
             assertEquals("MWeb", oauthClients[1].getClass().getSimpleName(),
-                "Second OAuth client should be MWeb (metadata-only)");
+                "Second OAuth client should be MWeb");
             assertEquals("Web", oauthClients[2].getClass().getSimpleName(),
-                "Third OAuth client should be Web (metadata-only)");
-            
-            // Last 2 are OAuth clients for streaming
+                "Third OAuth client should be Web");
             assertEquals("TvHtml5Embedded", oauthClients[3].getClass().getSimpleName(),
-                "Fourth OAuth client should be TvHtml5Embedded (OAuth streaming)");
+                "Fourth OAuth client should be TvHtml5Embedded");
             assertEquals("Tv", oauthClients[4].getClass().getSimpleName(),
-                "Fifth OAuth client should be Tv (OAuth streaming)");
+                "Fifth OAuth client should be Tv");
+            
+            // Verify first 3 clients have playback disabled (metadataOnly)
+            for (int i = 0; i < 3; i++) {
+                Client client = (Client) oauthClients[i];
+                assertFalse(client.getOptions().getPlayback(), 
+                    String.format("OAuth client %d (%s) should have playback disabled", 
+                        i, client.getClass().getSimpleName()));
+            }
         }
 
         @Test

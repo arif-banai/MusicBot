@@ -107,7 +107,7 @@ jobs:
       - name: Build with Maven
         run: |
           COMMIT_TIME=$(git log -1 --format=%cI)
-          mvn --batch-mode --update-snapshots verify -Dproject.build.outputTimestamp=$COMMIT_TIME
+          mvn --batch-mode verify -Dproject.build.outputTimestamp=$COMMIT_TIME
 
       - name: Rename JAR
         run: mv target/*-All.jar JMusicBot-${{ github.event.inputs.version_number }}.jar

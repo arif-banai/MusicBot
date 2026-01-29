@@ -13,8 +13,10 @@ public class NowPlayingInfo {
     public final long position;
     public final long duration;
     public final int volume;
+    public final int queueSize;
+    public final String footerInfo;
 
-    public NowPlayingInfo(AudioTrack track, Guild guild, boolean isPaused, int volume) {
+    public NowPlayingInfo(AudioTrack track, Guild guild, boolean isPaused, int volume, int queueSize, String footerInfo) {
         this.track = track;
         this.guild = guild;
         this.isPaused = isPaused;
@@ -25,5 +27,7 @@ public class NowPlayingInfo {
                 ? 0
                 : track.getDuration();
         this.volume = volume;
+        this.queueSize = queueSize;
+        this.footerInfo = footerInfo;
     }
 }

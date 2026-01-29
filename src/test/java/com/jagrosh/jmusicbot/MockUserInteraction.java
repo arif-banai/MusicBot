@@ -15,7 +15,6 @@
  */
 package com.jagrosh.jmusicbot;
 
-import com.jagrosh.jmusicbot.entities.Prompt;
 import com.jagrosh.jmusicbot.entities.UserInteraction;
 
 import java.util.ArrayList;
@@ -90,7 +89,7 @@ public class MockUserInteraction implements UserInteraction {
     }
     
     @Override
-    public void alert(Prompt.Level level, String context, String message) {
+    public void alert(Level level, String context, String message) {
         alertCalls.add(new AlertCall(level, context, message));
     }
     
@@ -141,17 +140,17 @@ public class MockUserInteraction implements UserInteraction {
      * Represents an alert call.
      */
     public static class AlertCall {
-        private final Prompt.Level level;
+        private final Level level;
         private final String context;
         private final String message;
         
-        public AlertCall(Prompt.Level level, String context, String message) {
+        public AlertCall(Level level, String context, String message) {
             this.level = level;
             this.context = context;
             this.message = message;
         }
         
-        public Prompt.Level getLevel() {
+        public Level getLevel() {
             return level;
         }
         

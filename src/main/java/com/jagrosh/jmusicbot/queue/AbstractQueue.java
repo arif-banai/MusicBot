@@ -29,9 +29,11 @@ public abstract class AbstractQueue<T extends Queueable>
     protected AbstractQueue(AbstractQueue<T> queue)
     {
         this.list = queue != null ? queue.getList() : new LinkedList<>();
+        this.history = queue != null ? queue.getHistory() : new HistoryQueue<>();
     }
 
     protected final List<T> list;
+    protected final HistoryQueue<T> history;
 
     public abstract int add(T item);
 
@@ -48,7 +50,40 @@ public abstract class AbstractQueue<T extends Queueable>
     }
 
     public T pull() {
+        if (list.isEmpty())
+            return null;
         return list.remove(0);
+    }
+
+    public void addToHistory(T item)
+    {
+        history.add(item);
+    }
+
+    public void setMaxHistorySize(int size)
+    {
+        history.setMaxSize(size);
+    }
+
+    public T removeLastPlayed()
+    {
+        return history.removeFirst();
+    }
+
+    /**
+     * Rewinds the queue by taking the last played item from history
+     * and optionally pushing the current item back to the front of the queue.
+     * @param current The currently playing item to push back to the queue
+     * @return The previous item to play, or null if history is empty
+     */
+    public T rewind(T current)
+    {
+        T prev = history.removeFirst();
+        if (prev != null && current != null)
+        {
+            list.add(0, current);
+        }
+        return prev;
     }
 
     public boolean isEmpty()
@@ -59,6 +94,11 @@ public abstract class AbstractQueue<T extends Queueable>
     public List<T> getList()
     {
         return list;
+    }
+
+    public HistoryQueue<T> getHistory()
+    {
+        return history;
     }
 
     public T get(int index) {
@@ -89,12 +129,18 @@ public abstract class AbstractQueue<T extends Queueable>
         list.clear();
     }
 
+    public void clearAll()
+    {
+        list.clear();
+        history.clear();
+    }
+
     public int shuffle(long identifier)
     {
         List<Integer> iset = new ArrayList<>();
         for(int i=0; i<list.size(); i++)
         {
-            if(list.get(i).getIdentifier()==identifier)
+            if(identifier == 0 || list.get(i).getIdentifier()==identifier)
                 iset.add(i);
         }
         for(int j=0; j<iset.size(); j++)

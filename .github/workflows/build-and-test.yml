@@ -45,7 +45,7 @@ jobs:
       - name: Build and Test with Coverage
         run: |
           COMMIT_TIME=$(git log -1 --format=%cI)
-          mvn --batch-mode --update-snapshots verify -Pcoverage -Dproject.build.outputTimestamp=$COMMIT_TIME
+          mvn --batch-mode verify -Pcoverage -Dproject.build.outputTimestamp=$COMMIT_TIME
 
       - name: Upload Coverage to Codecov
         uses: codecov/codecov-action@v5

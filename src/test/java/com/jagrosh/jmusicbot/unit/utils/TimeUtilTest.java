@@ -115,4 +115,15 @@ public class TimeUtilTest
         assertNotNull(seek);
         assertEquals(3000, seek.milliseconds);
     }
+
+    @Test
+    public void testFormatTime()
+    {
+        assertEquals("LIVE", TimeUtil.formatTime(Long.MAX_VALUE));
+        assertEquals("00:00", TimeUtil.formatTime(0));
+        assertEquals("00:05", TimeUtil.formatTime(5000));
+        assertEquals("00:59", TimeUtil.formatTime(59000));
+        assertEquals("01:00", TimeUtil.formatTime(60000));
+        assertEquals("1:01:01", TimeUtil.formatTime(3661000));
+    }
 }
