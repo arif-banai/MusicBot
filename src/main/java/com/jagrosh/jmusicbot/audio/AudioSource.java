@@ -36,10 +36,9 @@ import com.sedmelluq.discord.lavaplayer.source.vimeo.VimeoAudioSourceManager;
 import dev.lavalink.youtube.YoutubeAudioSourceManager;
 import dev.lavalink.youtube.YoutubeSourceOptions;
 import dev.lavalink.youtube.clients.AndroidVr;
-import dev.lavalink.youtube.clients.ClientOptions;
 import dev.lavalink.youtube.clients.MWeb;
 import dev.lavalink.youtube.clients.Tv;
-import dev.lavalink.youtube.clients.TvHtml5Embedded;
+import dev.lavalink.youtube.clients.TvHtml5Simply;
 import dev.lavalink.youtube.clients.Web;
 import dev.lavalink.youtube.clients.skeleton.Client;
 import org.slf4j.Logger;
@@ -270,34 +269,28 @@ public enum AudioSource
      * 
      * <p>When OAuth is enabled, we use a combination of clients:
      * <ul>
-     *   <li><b>Web (metadata-only)</b> - Primary client for loading video metadata (direct URLs,
-     *       search, playlists). Configured with {@code playback = false} so it won't be used
-     *       for streaming. Being non-embedded, it can handle videos that reject embedded context
-     *       with "video unavailable" errors.</li>
-     *   <li><b>TvHtml5Embedded</b> - OAuth-compatible fallback for loading, primary for streaming.
-     *       Uses embedded player context which works for most videos.</li>
+     *   <li><b>AndroidVr, MWeb, Web</b> - Primary clients for loading and playback.
+     *       These clients can often play public videos without OAuth while the TV OAuth
+     *       client remains available for videos that need account context.</li>
+     *   <li><b>TvHtml5Simply</b> - fallback for loading and primary streaming client.
+     *       Replaces the retired TVHTML5 embedded client.</li>
      *   <li><b>Tv</b> - OAuth-compatible streaming-only client. Used as fallback for loading
      *       audio stream formats during playback.</li>
      * </ul>
      * 
-     * <p>The key insight: OAuth is only required for streaming (getting playback URLs), not for
-     * loading metadata. So we can use the non-OAuth Web client for metadata loading (with
-     * playback disabled) and OAuth clients for streaming.
+     * <p>Keep non-OAuth-capable playback clients enabled even in OAuth mode. If OAuth has
+     * not been authorised yet, disabling these clients forces every playback attempt through
+     * TV clients and makes common "Sign in to confirm you're not a bot" failures more likely.
      */
     private static Client[] buildYoutubeClients(boolean useOauth)
     {
         if (useOauth)
         {
-            // Clients configured for metadata loading only (no playback/streaming)
-            // This handles direct URLs without embedded player restrictions
-            ClientOptions metadataOnly = new ClientOptions();
-            metadataOnly.setPlayback(false);
-            
             return new Client[] { 
-                new AndroidVr(metadataOnly), // metadata loading (non-embedded, non-OAuth)
-                new MWeb(metadataOnly),      // metadata loading (non-embedded, non-OAuth)
-                new Web(metadataOnly),       // metadata loading (non-embedded, non-OAuth)
-                new TvHtml5Embedded(),       // Fallback: loading + primary streaming (OAuth)
+                new AndroidVr(),            // loading + playback (non-embedded, non-OAuth)
+                new MWeb(),                 // loading + playback (non-embedded, non-OAuth)
+                new Web(),                  // loading + playback (non-embedded, non-OAuth)
+                new TvHtml5Simply(),         // Fallback: loading + primary streaming
                 new Tv()                     // Fallback: streaming only (OAuth)
             };
         }

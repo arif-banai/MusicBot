@@ -277,11 +277,11 @@
             <artifactId>lavaplayer</artifactId>
             <version>${lavaplayer.version}</version>
         </dependency>
-        <!-- YouTube Source Fork Dependency -->
+        <!-- YouTube Source Dependency -->
         <dependency>
-            <groupId>com.github.arif-banai.youtube-source</groupId>
-            <artifactId>common</artifactId>
-            <version>5512253</version>
+            <groupId>dev.lavalink.youtube</groupId>
+            <artifactId>v2</artifactId>
+            <version>${youtube-source.version}</version>
         </dependency>
         <!-- Dropping JLyrics since it is not being maintained / not working anymore -->
         <!-- <dependency>
@@ -563,7 +563,7 @@
         <jdave.version>0.1.5</jdave.version>
         <udpqueue.version>0.2.12</udpqueue.version>
         <lavaplayer.version>2.2.6</lavaplayer.version>
-        <youtube-source.version>1.16.0</youtube-source.version>
+        <youtube-source.version>1.18.1</youtube-source.version>
         <logback.version>1.5.25</logback.version>
         <typesafe-config.version>1.4.3</typesafe-config.version>
         <jsoup.version>1.22.1</jsoup.version>
