@@ -10,3 +10,6 @@ nb*.xml
 /.cursor/
 dependency-reduced-pom.xml
 *.lock
+*.dll
+*.so
+*.dylib

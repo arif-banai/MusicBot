@@ -19,9 +19,11 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.util.Arrays;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.function.BiConsumer;
 
+import com.jagrosh.jmusicbot.utils.BgUtil;
 import com.sedmelluq.discord.lavaplayer.container.MediaContainerRegistry;
 import com.sedmelluq.discord.lavaplayer.player.DefaultAudioPlayerManager;
 import com.sedmelluq.discord.lavaplayer.source.AudioSourceManagers;
@@ -34,6 +36,7 @@ import com.sedmelluq.discord.lavaplayer.source.soundcloud.SoundCloudAudioSourceM
 import com.sedmelluq.discord.lavaplayer.source.twitch.TwitchStreamAudioSourceManager;
 import com.sedmelluq.discord.lavaplayer.source.vimeo.VimeoAudioSourceManager;
 import dev.lavalink.youtube.YoutubeAudioSourceManager;
+import dev.lavalink.youtube.YoutubeSource;
 import dev.lavalink.youtube.YoutubeSourceOptions;
 import dev.lavalink.youtube.clients.AndroidVr;
 import dev.lavalink.youtube.clients.ClientOptions;
@@ -42,6 +45,7 @@ import dev.lavalink.youtube.clients.Tv;
 import dev.lavalink.youtube.clients.TvHtml5Embedded;
 import dev.lavalink.youtube.clients.Web;
 import dev.lavalink.youtube.clients.skeleton.Client;
+import dev.lavalink.youtube.http.YoutubeAccessTokenTracker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -75,6 +79,7 @@ public enum AudioSource
         (manager, config) -> {
             YoutubeAudioSourceManager yt = setupYoutubeAudioSourceManager(
                 config.useYouTubeOauth(),
+                config.generatePOT(),
                 config.getMaxYTPlaylistPages()
             );
             manager.registerSourceManager(yt);
@@ -228,10 +233,11 @@ public enum AudioSource
      * Sets up and configures a YouTube audio source manager.
      * 
      * @param useOauth whether to use OAuth2 authentication
+     * @param generatePOT whether to use a POT provider
      * @param maxYTPlaylistPages maximum number of playlist pages to load
      * @return the configured YouTube audio source manager
      */
-    private static YoutubeAudioSourceManager setupYoutubeAudioSourceManager(boolean useOauth, int maxYTPlaylistPages)
+    private static YoutubeAudioSourceManager setupYoutubeAudioSourceManager(boolean useOauth, boolean generatePOT, int maxYTPlaylistPages)
     {
         final Logger logger = LoggerFactory.getLogger(AudioSource.class);
         
@@ -245,6 +251,33 @@ public enum AudioSource
         {
             applyOAuth(yt, logger);
         }
+
+        if (generatePOT)
+        {
+            yt.getContextFilter().setTokenTracker(new YoutubeAccessTokenTracker(yt.getHttpInterfaceManager()) {
+                private static final Logger log = LoggerFactory.getLogger(YoutubeAccessTokenTracker.class);
+                public String lastVisitorId;
+
+                @Override
+                public String getVisitorId() {
+                    String visitorId = super.getVisitorId();
+                    if (!Objects.equals(visitorId, lastVisitorId)) {
+                        lastVisitorId = visitorId;
+                        if (BgUtil.isPresent()) {
+                            BgUtil.PotResult potResult = BgUtil.parsePOT(BgUtil.generateJson(visitorId));
+                            if (potResult.poToken() != null) {
+                                YoutubeSource.setPoTokenAndVisitorData(potResult.poToken(), potResult.contentBinding());
+                                log.info("PoToken generated: {}", potResult.poToken());
+                            }
+                        } else {
+                            log.warn("Couldn't use POT provider. The library may be missing.");
+                        }
+                    }
+                    return visitorId;
+                }
+            });
+        }
+
         return yt;
     }
     

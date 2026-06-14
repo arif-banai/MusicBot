@@ -178,7 +178,7 @@ class AudioSourceOAuthTest {
             // but we can verify the method completes without throwing
             assertDoesNotThrow(() -> {
                 YoutubeAudioSourceManager result = (YoutubeAudioSourceManager) 
-                    setupMethod.invoke(null, true, 10);
+                    setupMethod.invoke(null, true, false, 10);
                 assertNotNull(result, "Should return a configured YoutubeAudioSourceManager");
             }, "setupYoutubeAudioSourceManager should complete without throwing when OAuth is enabled");
         }
@@ -191,7 +191,7 @@ class AudioSourceOAuthTest {
             // Call with useOauth=false - this should NOT trigger OAuth
             assertDoesNotThrow(() -> {
                 YoutubeAudioSourceManager result = (YoutubeAudioSourceManager) 
-                    setupMethod.invoke(null, false, 10);
+                    setupMethod.invoke(null, false, false, 10);
                 assertNotNull(result, "Should return a configured YoutubeAudioSourceManager");
             }, "setupYoutubeAudioSourceManager should complete without OAuth when disabled");
         }
@@ -199,7 +199,7 @@ class AudioSourceOAuthTest {
         private Method getSetupYoutubeAudioSourceManagerMethod() throws NoSuchMethodException {
             Class<?> audioSourceClass = com.jagrosh.jmusicbot.audio.AudioSource.class;
             Method method = audioSourceClass.getDeclaredMethod("setupYoutubeAudioSourceManager", 
-                boolean.class, int.class);
+                boolean.class, boolean.class, int.class);
             method.setAccessible(true);
             return method;
         }

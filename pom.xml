@@ -316,6 +316,12 @@
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
         </dependency>
+        <!-- Source: https://github.com/java-native-access/jna -->
+        <dependency>
+            <groupId>net.java.dev.jna</groupId>
+            <artifactId>jna</artifactId>
+            <version>5.13.0</version>
+        </dependency>
 
         <!-- Testing Dependencies -->
         <!-- Version managed by junit-bom in dependencyManagement -->
