@@ -13,7 +13,7 @@ Container runs as non-root (UID 10001). Ensure config folder is writable by this
   <Category>MediaApp:Music</Category>
   <WebUI/>
   <TemplateURL>https://raw.githubusercontent.com/YOUR_USERNAME/MusicBot/main/unraid/musicbot.xml</TemplateURL>
-  <Icon>https://raw.githubusercontent.com/arif-banai/MusicBot/master/docs/images/icon.png</Icon>
+  <Icon>https://imgur.com/zrE80HY.png</Icon>
   <Config Name="Config folder" Target="/musicbot" Default="/mnt/user/appdata/musicbot" Mode="rw" Description="Folder for config.txt, playlists, and bot files. Default config.txt is auto-generated on first run." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/musicbot</Config>
   <Config Name="JAVA_OPTS" Target="JAVA_OPTS" Default="" Mode="" Description="Optional JVM options. e.g. -Xms256m -Xmx512m" Type="Variable" Display="advanced" Required="false" Mask="false"/>
 </Container>
