@@ -4,7 +4,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.arifbanai</groupId>
     <artifactId>JMusicBot</artifactId>
-    <version>0.7.0</version>
+    <version>0.7.1-alpha-latest-yt-source-snapshot</version>
     <packaging>jar</packaging>
 
     <name>JMusicBot</name>
@@ -79,6 +79,15 @@
             <id>arbjergDev</id>
             <name>Lavalink Repository</name>
             <url>https://maven.lavalink.dev/releases</url>
+        </repository>
+        <repository>
+            <id>arbjergDevSnapshots</id>
+            <name>Lavalink Snapshots Repository</name>
+            <url>https://maven.lavalink.dev/snapshots</url>
+            <snapshots>
+                <enabled>true</enabled>
+                <updatePolicy>always</updatePolicy>
+            </snapshots>
         </repository>
         <repository>
             <id>chew</id>
@@ -587,7 +596,7 @@
         <jdave.version>0.1.7</jdave.version>
         <udpqueue.version>0.2.12</udpqueue.version>
         <lavaplayer.version>2.2.7</lavaplayer.version>
-        <youtube-source.version>1.18.1</youtube-source.version>
+        <youtube-source.version>c46ab888ee12bc4bcb37c8ebcaf180e85ae30368-SNAPSHOT</youtube-source.version>
         <logback.version>1.5.25</logback.version>
         <typesafe-config.version>1.4.3</typesafe-config.version>
         <jsoup.version>1.22.1</jsoup.version>
