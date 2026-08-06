@@ -36,7 +36,6 @@ import com.sedmelluq.discord.lavaplayer.source.vimeo.VimeoAudioSourceManager;
 import dev.lavalink.youtube.YoutubeAudioSourceManager;
 import dev.lavalink.youtube.YoutubeSourceOptions;
 import dev.lavalink.youtube.clients.AndroidVrWithThumbnail;
-import dev.lavalink.youtube.clients.ClientOptions;
 import dev.lavalink.youtube.clients.MWebWithThumbnail;
 import dev.lavalink.youtube.clients.Tv;
 import dev.lavalink.youtube.clients.TvHtml5SimplyWithThumbnail;
@@ -268,13 +267,11 @@ public enum AudioSource
      * 
      * <p>When OAuth is enabled, we use a combination of clients:
      * <ul>
-     *   <li><b>AndroidVrWithThumbnail</b> - Metadata loading (non-embedded, non-OAuth)</li>
-     *   <li><b>MWebWithThumbnail</b> - Metadata loading (non-embedded, non-OAuth)</li>
-     *   <li><b>Web</b> - Metadata loading (non-embedded, non-OAuth)</li>
-     *   <li><b>Tv</b> - OAuth-compatible streaming-only client. Used as fallback for loading
-     *       audio stream formats during playback.</li>
-     *   <li><b>TvHtml5SimplyWithThumbnail</b> - *Not oAuth compatible* Used as fallback for loading
-     *       audio stream formats during playback.</li>
+     *   <li><b>AndroidVrWithThumbnail</b> - Non-embedded playback fallback with Opus support.</li>
+     *   <li><b>MWebWithThumbnail</b> - Non-embedded playback fallback.</li>
+     *   <li><b>WebWithThumbnail</b> - Non-embedded playback fallback.</li>
+     *   <li><b>Tv</b> - OAuth-compatible playback client.</li>
+     *   <li><b>TvHtml5SimplyWithThumbnail</b> - Non-OAuth playback fallback.</li>
      * </ul>
      * 
      * <p>
@@ -283,17 +280,12 @@ public enum AudioSource
     {
         if (useOauth)
         {
-            // Clients configured for metadata loading only (no playback/streaming)
-            // This handles direct URLs without embedded player restrictions
-            ClientOptions metadataOnly = new ClientOptions();
-            metadataOnly.setPlayback(false);
-            
             return new Client[] {
-                new AndroidVrWithThumbnail(metadataOnly), // metadata loading (non-embedded, non-OAuth)
-                new MWebWithThumbnail(metadataOnly),      // metadata loading (non-embedded, non-OAuth)
-                new WebWithThumbnail(metadataOnly),       // metadata loading (non-embedded, non-OAuth)
-                new Tv(),
-                new TvHtml5SimplyWithThumbnail()
+                new AndroidVrWithThumbnail(),       // audio-capable fallback for long-form playback
+                new MWebWithThumbnail(),            // audio-capable fallback for long-form playback
+                new WebWithThumbnail(),             // audio-capable fallback for long-form playback
+                new Tv(),                            // OAuth-compatible playback
+                new TvHtml5SimplyWithThumbnail()     // non-OAuth playback fallback
             };
         }
         // Clients are required even without OAuth to properly handle YouTube URLs

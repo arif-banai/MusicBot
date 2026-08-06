@@ -245,11 +245,11 @@ class AudioSourceOAuthTest {
                 "Fourth OAuth client should be Tv");
             assertEquals("TvHtml5SimplyWithThumbnail", oauthClients[4].getClass().getSimpleName(),
                 "Fifth OAuth client should be TvHtml5SimplyWithThumbnail");
-            // Verify first 3 clients have playback disabled (metadataOnly)
+            // Verify all OAuth-mode clients remain eligible for playback fallback.
             for (int i = 0; i < 3; i++) {
                 Client client = (Client) oauthClients[i];
-                assertFalse(client.getOptions().getPlayback(), 
-                    String.format("OAuth client %d (%s) should have playback disabled", 
+                assertTrue(client.getOptions().getPlayback(),
+                    String.format("OAuth client %d (%s) should have playback enabled",
                         i, client.getClass().getSimpleName()));
             }
         }
