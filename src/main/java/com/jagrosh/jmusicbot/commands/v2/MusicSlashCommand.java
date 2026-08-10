@@ -30,7 +30,7 @@ public abstract class MusicSlashCommand extends SlashCommand
         boolean valid = MusicCommandValidator.validate(
                 event.getGuild(),
                 event.getMember(),
-                event.getTextChannel(),
+                event.getGuildChannel(),
                 settings,
                 bot,
                 event.getJDA(),

@@ -40,6 +40,7 @@ import net.dv8tion.jda.api.entities.channel.concrete.PrivateChannel;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.entities.channel.concrete.VoiceChannel;
 import net.dv8tion.jda.api.entities.channel.unions.AudioChannelUnion;
+import net.dv8tion.jda.api.entities.channel.unions.GuildMessageChannelUnion;
 import net.dv8tion.jda.api.events.guild.GuildJoinEvent;
 import net.dv8tion.jda.api.events.guild.voice.GuildVoiceUpdateEvent;
 import net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent;
@@ -150,7 +151,7 @@ public class ListenerTestFixture
         user = mock(User.class);
         selfMember = mock(SelfMember.class);
         selfUser = mock(SelfUser.class);
-        textChannel = mock(TextChannel.class);
+        textChannel = mock(TextChannel.class, withSettings().extraInterfaces(GuildMessageChannelUnion.class));
         audioManager = mock(AudioManager.class);
         audioHandler = mock(AudioHandler.class);
         audioPlayer = mock(AudioPlayer.class);

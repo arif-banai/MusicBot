@@ -38,6 +38,7 @@ import net.dv8tion.jda.api.entities.User;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.entities.channel.concrete.VoiceChannel;
 import net.dv8tion.jda.api.entities.channel.unions.AudioChannelUnion;
+import net.dv8tion.jda.api.entities.channel.unions.GuildMessageChannelUnion;
 import net.dv8tion.jda.api.events.interaction.command.CommandAutoCompleteInteractionEvent;
 import net.dv8tion.jda.api.interactions.AutoCompleteQuery;
 import net.dv8tion.jda.api.interactions.InteractionHook;
@@ -132,7 +133,9 @@ public class SlashCommandTestFixture
         member = mock(Member.class);
         user = mock(User.class);
         selfMember = mock(SelfMember.class);
-        textChannel = mock(TextChannel.class);
+        // The command channel is also exposed through JDA's guild-channel union.
+        // This lets tests exercise the same path used by voice-channel text chat.
+        textChannel = mock(TextChannel.class, withSettings().extraInterfaces(GuildMessageChannelUnion.class));
         audioManager = mock(AudioManager.class);
         audioHandler = mock(AudioHandler.class);
         selfVoiceState = mock(GuildVoiceState.class);
@@ -190,6 +193,7 @@ public class SlashCommandTestFixture
         when(event.getGuild()).thenReturn(guild);
         when(event.getMember()).thenReturn(member);
         when(event.getTextChannel()).thenReturn(textChannel);
+        when(event.getGuildChannel()).thenReturn((GuildMessageChannelUnion) textChannel);
         when(event.getUser()).thenReturn(user);
 
         // Client defaults
