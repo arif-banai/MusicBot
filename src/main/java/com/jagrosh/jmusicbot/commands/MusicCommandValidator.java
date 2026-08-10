@@ -10,6 +10,7 @@ import net.dv8tion.jda.api.entities.Member;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.entities.channel.concrete.VoiceChannel;
 import net.dv8tion.jda.api.entities.channel.middleman.AudioChannel;
+import net.dv8tion.jda.api.entities.channel.middleman.GuildMessageChannel;
 import net.dv8tion.jda.api.exceptions.PermissionException;
 
 /**
@@ -36,7 +37,7 @@ public final class MusicCommandValidator
      *
      * @param guild         The guild where the command was invoked
      * @param member        The member who invoked the command
-     * @param textChannel   The text channel where the command was invoked
+     * @param commandChannel The message-capable guild channel where the command was invoked
      * @param settings      The guild settings
      * @param bot           The bot instance
      * @param jda           The JDA instance (for checking if music is playing)
@@ -45,14 +46,14 @@ public final class MusicCommandValidator
      * @param errorHandler  Callback for error messages
      * @return true if validation passed, false if an error was sent
      */
-    public static boolean validate(Guild guild, Member member, TextChannel textChannel,
+    public static boolean validate(Guild guild, Member member, GuildMessageChannel commandChannel,
                                    Settings settings, Bot bot, JDA jda,
                                    boolean bePlaying, boolean beListening,
                                    ErrorHandler errorHandler)
     {
         // Check text channel restriction
         TextChannel requiredChannel = settings.getTextChannel(guild);
-        if (requiredChannel != null && !textChannel.equals(requiredChannel))
+        if (requiredChannel != null && !commandChannel.equals(requiredChannel))
         {
             errorHandler.onTextChannelError(requiredChannel);
             return false;
