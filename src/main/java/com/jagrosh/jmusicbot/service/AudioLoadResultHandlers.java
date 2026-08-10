@@ -30,7 +30,7 @@ import net.dv8tion.jda.api.components.actionrow.ActionRow;
 import net.dv8tion.jda.api.components.buttons.Button;
 import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.Member;
-import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
+import net.dv8tion.jda.api.entities.channel.middleman.GuildMessageChannel;
 import net.dv8tion.jda.api.entities.emoji.Emoji;
 import net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent;
 import net.dv8tion.jda.api.utils.messages.MessageEditBuilder;
@@ -64,10 +64,10 @@ public final class AudioLoadResultHandlers
         protected final Member member;
         protected final String args;
         protected final boolean ytsearch;
-        protected final TextChannel channel;
+        protected final GuildMessageChannel channel;
 
         protected BaseResultHandler(MusicService musicService, Bot bot, MusicService.OutputAdapter output,
-                                     Guild guild, Member member, String args, boolean ytsearch, TextChannel channel)
+                                     Guild guild, Member member, String args, boolean ytsearch, GuildMessageChannel channel)
         {
             this.musicService = musicService;
             this.bot = bot;
@@ -133,7 +133,7 @@ public final class AudioLoadResultHandlers
         private static final String CANCEL = "\uD83D\uDEAB"; // 🚫
 
         public PlayResultHandler(MusicService musicService, Bot bot, MusicService.OutputAdapter output,
-                                  Guild guild, Member member, String args, boolean ytsearch, TextChannel channel)
+                                  Guild guild, Member member, String args, boolean ytsearch, GuildMessageChannel channel)
         {
             super(musicService, bot, output, guild, member, args, ytsearch, channel);
         }
@@ -290,7 +290,7 @@ public final class AudioLoadResultHandlers
     public static class PlayNextResultHandler extends BaseResultHandler
     {
         public PlayNextResultHandler(MusicService musicService, Bot bot, MusicService.OutputAdapter output,
-                                      Guild guild, Member member, String args, boolean ytsearch, TextChannel channel)
+                                      Guild guild, Member member, String args, boolean ytsearch, GuildMessageChannel channel)
         {
             super(musicService, bot, output, guild, member, args, ytsearch, channel);
         }
