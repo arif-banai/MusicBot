@@ -54,7 +54,7 @@ class AudioSourceUnitTest {
             AudioSource[] platformSources = {
                 AudioSource.YOUTUBE, AudioSource.SOUNDCLOUD, AudioSource.BANDCAMP,
                 AudioSource.VIMEO, AudioSource.TWITCH, AudioSource.BEAM,
-                AudioSource.GETYARN, AudioSource.NICO
+                AudioSource.GETYARN, AudioSource.NICO, AudioSource.BILIBILI
             };
             
             // Catch-all sources that should be registered last
@@ -90,6 +90,22 @@ class AudioSourceUnitTest {
             
             assertTrue(soundcloudIndex < httpIndex,
                 "SoundCloud should appear before HTTP in the sorted list");
+        }
+
+        @Test
+        @DisplayName("BILIBILI is registered as a platform-specific source before HTTP")
+        void bilibiliIsPlatformSpecific() {
+            assertEquals("bilibili", AudioSource.BILIBILI.getConfigName());
+            assertTrue(AudioSource.BILIBILI.getRegistrationPriority()
+                            < AudioSource.HTTP.getRegistrationPriority(),
+                "Bilibili must be registered before the HTTP catch-all, or HTTP claims its URLs");
+        }
+
+        @Test
+        @DisplayName("BILIBILI resolves from its config name case-insensitively")
+        void bilibiliResolvesFromConfigName() {
+            assertEquals(Optional.of(AudioSource.BILIBILI), AudioSource.fromConfigName("bilibili"));
+            assertEquals(Optional.of(AudioSource.BILIBILI), AudioSource.fromConfigName("BiliBili"));
         }
 
         @Test
