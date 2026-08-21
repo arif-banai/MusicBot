@@ -86,7 +86,10 @@ public enum ConfigOption {
     PROXY_PORT("proxy.port", ConfigType.INT, false, "Proxy server port"),
     PROXY_LAVAPLAYER("proxy.lavaplayer", ConfigType.BOOLEAN, false, "Route Lavaplayer audio requests through proxy"),
     PROXY_JDA("proxy.jda", ConfigType.BOOLEAN, false, "Route JDA Discord API traffic through proxy"),
-    PROXY_GITHUB("proxy.github", ConfigType.BOOLEAN, false, "Route GitHub version checks through proxy");
+    PROXY_GITHUB("proxy.github", ConfigType.BOOLEAN, false, "Route GitHub version checks through proxy"),
+	
+    // Search options
+	USE_SEARCH_SELECTION("use_search_selection", ConfigType.BOOLEAN, false, "Present a selection menu for search queries instead of auto-playing top result");
     
     private final String key;
     private final ConfigType type;

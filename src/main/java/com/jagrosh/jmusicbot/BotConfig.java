@@ -74,6 +74,7 @@ public class BotConfig {
     private Set<AudioSource> enabledAudioSources;
 
     private boolean valid = false;
+    private boolean useSearchSelection = false;
 
     public BotConfig(UserInteraction userInteraction) {
         this.userInteraction = userInteraction;
@@ -273,6 +274,9 @@ public class BotConfig {
         playlistsFolder = PLAYLISTS_FOLDER.getString(config);
         aliases = ALIASES.getConfig(config);
         transforms = TRANSFORMS.getConfig(config);
+        
+        // Handle search selection option safely
+        useSearchSelection = USE_SEARCH_SELECTION.getBoolean(config);
         
         // Handle audiosources - pass migrated user config to check which sources were explicitly set
         loadAudioSources(config, migratedUserConfig);
@@ -604,5 +608,13 @@ public class BotConfig {
     
     public boolean proxyGithub() {
         return proxyGithub;
+    }
+    
+    /**
+     * Returns whether search queries should present a interactive selection menu.
+     */
+    public boolean useSearchSelection()
+    {
+        return useSearchSelection;
     }
 }

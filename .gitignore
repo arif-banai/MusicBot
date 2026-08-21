@@ -4,6 +4,7 @@
 /test/
 *.json
 *.txt
+!requirements.txt
 nb*.xml
 
 # IDEs
@@ -25,3 +26,6 @@ Thumbs.db
 
 # Other
 *.lock
+
+# Python Virtual Environment & Caches 
+.venv/

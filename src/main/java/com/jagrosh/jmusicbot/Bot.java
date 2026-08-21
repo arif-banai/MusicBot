@@ -27,6 +27,7 @@ import com.jagrosh.jmusicbot.entities.UserInteraction;
 import javax.swing.JFrame;
 import com.jagrosh.jmusicbot.playlist.PlaylistLoader;
 import com.jagrosh.jmusicbot.settings.SettingsManager;
+import com.jagrosh.jmusicbot.spotify.SpotifyBridge;
 import com.jagrosh.jmusicbot.service.MusicService;
 import com.jagrosh.jmusicbot.service.SearchService;
 import com.jagrosh.jmusicbot.utils.InstanceLock;
@@ -86,6 +87,8 @@ public class Bot
         this.aloneInVoiceHandler.init();
         this.musicService = new MusicService(this);
         this.searchService = new SearchService(this);
+        
+        SpotifyBridge.init(config);
         
         // Initialize audio load wrapper - use NO_OP when GUI is disabled to avoid monitoring overhead
         this.audioLoadWrapper = isNoGUI() 

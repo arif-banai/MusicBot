@@ -20,6 +20,7 @@ A cross-platform Discord music bot with a clean interface, and that is easy to s
 
 This version of JMusicBot changes/updates various dependencies. To ensure your bot continues to function correctly, please note the following mandatory changes:
 
+*   **Python 3.10+ Minimum:** The bot requires **Python 3.10+ or higher**.
 *   **Java 25 Minimum:** The bot now requires **Java 25 or higher**. 
 
 *   **LibDave/udpqueue:** You **must** have **glibc >= 2.38**. *If you are using Docker, this is already handled for you.*
@@ -45,6 +46,7 @@ This version of JMusicBot changes/updates various dependencies. To ensure your b
 ## Supported sources and formats
 JMusicBot supports all sources and formats supported by [lavaplayer](https://github.com/lavalink-devs/lavaplayer#supported-formats):
 ### Sources
+  * Spotify (*Spotify Metadata --> YouTube Audio*)
   * YouTube
   * SoundCloud
   * Bandcamp
@@ -70,17 +72,56 @@ Please see the [Setup Page](https://jmusicbot.com/setup) to run this bot yoursel
 
 ## Running Directly (Without Docker)
 
-When running JMusicBot directly (not in Docker), make sure to pass these JVM flags:
+To begin with:
+
+### Linux
+
+```bash
+# Create the virtual environment (replace "python3.12" with your installed version)
+python3.12 -m venv .venv
+
+# Activate the environment
+source .venv/bin/activate
+
+# Install required dependencies
+pip install -r requirements.txt
+
+# Deactivate the environment after installation
+deactivate
+```
+
+### Windows
+
+```powershell
+# Create the virtual environment (use 'py -m venv .venv' or 'python -m venv .venv')
+python -m venv .venv
+
+# Activate the environment (Command Prompt / CMD)
+.venv\Scripts\activate.bat
+
+# OR Activate the environment (PowerShell)
+.venv\Scripts\Activate.ps1
+
+# Install required dependencies
+pip install -r requirements.txt
+
+# Deactivate the environment after installation
+deactivate
+```
+> **Note for Windows PowerShell users:** If you get an `Execution_Policies` script restriction error when activating, run `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process` first in your session.
 
 **Linux / macOS / Windows (CMD):**
 ```bash
-java -Dfile.encoding=UTF-8 -Dnogui=true --enable-native-access=ALL-UNNAMED -jar JMusicBot-0.6.2-All.jar
+java -Dfile.encoding=UTF-8 -Dnogui=true --enable-native-access=ALL-UNNAMED -jar JMusicBot-x.y.z-All.jar
 ```
 
 **Windows (PowerShell):** PowerShell treats `-D` as its own parameter. Quote each JVM option so they are passed to `java` correctly:
 ```powershell
-java "-Dfile.encoding=UTF-8" "-Dnogui=true" "--enable-native-access=ALL-UNNAMED" "-jar" ".\JMusicBot-0.6.2-All.jar"
+java "-Dfile.encoding=UTF-8" "-Dnogui=true" "--enable-native-access=ALL-UNNAMED" "-jar" ".\JMusicBot-x.y.z-All.jar"
 ```
+
+> **Note:** Replace `JMusicBot-x.y.z-All.jar` with your actual compiled JAR file name.
+
 Alternatively, use the stop-parsing token so the rest of the line is passed literally: `java --% -Dfile.encoding=UTF-8 -Dnogui=true ...`
 
 `-Dfile.encoding=UTF-8` ensures non-English characters (Cyrillic, Japanese, etc.) display correctly in Discord. On Windows or older JDKs, omitting it can cause mojibake in slash-command autocomplete and embeds.

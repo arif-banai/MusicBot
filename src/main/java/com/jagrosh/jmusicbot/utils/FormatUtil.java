@@ -18,11 +18,14 @@ package com.jagrosh.jmusicbot.utils;
 import com.jagrosh.jmusicbot.audio.RequestMetadata.UserInfo;
 import com.sedmelluq.discord.lavaplayer.source.local.LocalAudioTrack;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
+
+import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.entities.Role;
 import net.dv8tion.jda.api.entities.User;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.entities.channel.concrete.VoiceChannel;
 
+import java.awt.Color;
 import java.util.List;
 
 /**
@@ -158,5 +161,68 @@ public class FormatUtil {
         return entry + (trackInfo.uri != null && trackInfo.uri.startsWith("http")
                 ? "[**" + safeTitle + "**](" + trackInfo.uri + ")"
                 : "**" + safeTitle + "**");
+    }
+    
+    /**
+     * Builds a standardized Discord embed message displaying a numbered list of candidate audio tracks.
+     * <p>
+     * Constructs an {@link EmbedBuilder} formatted with track indices, artist names, hyperlinked 
+     * sanitized titles, and formatted durations. Uses the first track's artwork URL as a thumbnail 
+     * when available.
+     * </p>
+     *
+     * @param tracks the list of candidate {@link AudioTrack} objects to present for selection
+     * @return a pre-configured {@link EmbedBuilder} ready to be rendered and sent in a Discord channel
+     */
+    public static EmbedBuilder createMultiTrackEmbed(List<AudioTrack> tracks)
+    {
+        EmbedBuilder builder = new EmbedBuilder().setColor(Color.decode("#070707")).setTitle("🎵 Track Selection");
+
+        if (!tracks.isEmpty() && tracks.get(0).getInfo().artworkUrl != null)
+        {
+            builder.setThumbnail(tracks.get(0).getInfo().artworkUrl);
+        }
+
+        for (int i = 0; i < tracks.size(); i++)
+        {
+            AudioTrack track = tracks.get(i);
+
+            String safeTitle = getFormattedTitle(track.getInfo().title);
+
+            String fieldName = "`" + (i + 1) + ".` " + track.getInfo().author;
+            String fieldValue = "[" + safeTitle + "](" + track.getInfo().uri + ") `("
+                    + TimeUtil.formatTime(track.getDuration()) + ")`";
+
+            builder.addField(fieldName, fieldValue, false);
+        }
+
+        return builder;
+    }
+    
+    /**
+     * Sanitizes and truncates an audio track title for clean display in Discord embeds.
+     * <p>
+     * Removes square brackets, trims surrounding whitespace, and caps the title length to a maximum
+     * of 50 characters to prevent layout overflow in embed fields.
+     * </p>
+     *
+     * @param title the raw track title to sanitize and format
+     * @return the cleaned, truncated title ending with {@code "..."} if truncated, or {@code "Unknown Title"} if null
+     */
+    public static String getFormattedTitle(String title)
+    {
+        if (title == null)
+        {
+            return "Unknown Title";
+        }
+
+        String trimmedTitle = title.trim().replaceAll("[\\[\\]]", "");
+        int maxLength = 50; // title + " " + (1:00:00)
+        if (trimmedTitle.length() > maxLength)
+        {
+            return trimmedTitle.substring(0, maxLength) + "...";
+        }
+
+        return trimmedTitle;
     }
 }

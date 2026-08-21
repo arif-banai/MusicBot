@@ -25,6 +25,8 @@ import com.sedmelluq.discord.lavaplayer.tools.FriendlyException;
 import com.sedmelluq.discord.lavaplayer.tools.FriendlyException.Severity;
 import com.sedmelluq.discord.lavaplayer.track.AudioPlaylist;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
+
+import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.Permission;
 import net.dv8tion.jda.api.components.actionrow.ActionRow;
 import net.dv8tion.jda.api.components.buttons.Button;
@@ -37,6 +39,8 @@ import net.dv8tion.jda.api.utils.messages.MessageEditBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -131,6 +135,9 @@ public final class AudioLoadResultHandlers
     {
         private static final String LOAD = "\uD83D\uDCE5"; // 📥
         private static final String CANCEL = "\uD83D\uDEAB"; // 🚫
+        
+        private static final String ID_SEARCH_TRACK_PREFIX = "search:track_";
+        private static final String ID_SEARCH_CANCEL = "search:cancel";
 
         public PlayResultHandler(MusicService musicService, Bot bot, MusicService.OutputAdapter output,
                                   Guild guild, Member member, String args, boolean ytsearch, TextChannel channel)
@@ -230,28 +237,155 @@ public final class AudioLoadResultHandlers
             loadSingle(track, null);
         }
 
+        /**
+         * Handles the resolution and queuing logic when an {@link AudioPlaylist} is loaded.
+         *
+         * <p>The payload is evaluated through the following priority rules:
+         * <ul>
+         *   <li><b>Search Results:</b> If {@code use_search_selection} is enabled in configuration and 
+         *       more than one result exists, presents an interactive track selection prompt. Otherwise, 
+         *       automatically enqueues the top match.</li>
+         *   <li><b>Single-Item Playlists:</b> If the playlist contains exactly one entry, immediately 
+         *       queues it as a single track.</li>
+         *   <li><b>Pre-selected Track:</b> If LavaPlayer identified a specific target track within the playlist 
+         *       (e.g., via a timestamp link), queues that explicit track.</li>
+         *   <li><b>Standard Playlists:</b> Batch-loads all items into the guild queue and displays 
+         *       the summary result.</li>
+         * </ul>
+         *
+         * @param playlist the loaded {@link AudioPlaylist} containing the track results
+         */
         @Override
-        public void playlistLoaded(AudioPlaylist playlist)
-        {
-            LOG.debug("Playlist loaded: guild={}, name=\"{}\", tracks={}",
-                    guild.getId(), playlist.getName(), playlist.getTracks().size());
+		public void playlistLoaded(AudioPlaylist playlist)
+		{
+			LOG.debug("Playlist loaded: guild={}, name=\"{}\", tracks={}", guild.getId(), playlist.getName(),
+					playlist.getTracks().size());
 
-            if (playlist.getTracks().size() == 1 || playlist.isSearchResult())
-            {
-                AudioTrack single = playlist.getSelectedTrack() == null ? playlist.getTracks().get(0) : playlist.getSelectedTrack();
-                loadSingle(single, null);
-            }
-            else if (playlist.getSelectedTrack() != null)
-            {
-                AudioTrack single = playlist.getSelectedTrack();
-                loadSingle(single, playlist);
-            }
-            else
-            {
-                int count = loadPlaylist(playlist, null);
-                handlePlaylistLoadResult(playlist, count);
-            }
-        }
+			if (playlist.isSearchResult())
+			{
+				if (bot.getConfig().useSearchSelection() && playlist.getTracks().size() > 1)
+				{
+					 List<AudioTrack> tracks = playlist.getTracks();
+					 int limit = Math.min(3, tracks.size());
+					 List<AudioTrack> topTracks = new ArrayList<>(tracks.subList(0, limit));
+					 displayTrackSelection(topTracks, playlist);
+					 return;
+				}
+
+				AudioTrack single = playlist.getSelectedTrack() == null 
+						? playlist.getTracks().get(0) 
+						: playlist.getSelectedTrack();
+				loadSingle(single, null);
+			} 
+			else if (playlist.getTracks().size() == 1)
+			{
+				AudioTrack single = playlist.getSelectedTrack() == null 
+						? playlist.getTracks().get(0) 
+						: playlist.getSelectedTrack();
+				loadSingle(single, playlist);
+			} 
+			else if (playlist.getSelectedTrack() != null)
+			{
+				AudioTrack single = playlist.getSelectedTrack();
+				loadSingle(single, playlist);
+			} 
+			else
+			{
+				int count = loadPlaylist(playlist, null);
+				handlePlaylistLoadResult(playlist, count);
+			}
+		}
+
+        /**
+         * Renders an interactive track selection menu allowing the member to choose a track from search results.
+         * <p>
+         * Constructs an embed listing the top matching tracks along with numbered selection buttons and a 
+         * cancel option. Listens for user interaction via {@link com.jagrosh.jdautilities.commons.waiter.EventWaiter}
+         * for up to 30 seconds. Upon selection, enqueues the chosen track using {@link MusicService} and updates
+         * the Discord message with the queueing result while clearing interactive components.
+         * </p>
+         *
+         * @param topTracks the list of candidate {@link AudioTrack} objects presented to the user
+         * @param playlist  the parent {@link AudioPlaylist} context associated with the search, if available
+         */
+		private void displayTrackSelection(List<AudioTrack> topTracks, AudioPlaylist playlist)
+		{
+			List<AudioTrack> tracks = new ArrayList<>(topTracks);
+
+			List<Button> buttons = new ArrayList<>();
+			for (int i = 0; i < tracks.size(); i++)
+			{
+				buttons.add(Button.secondary(ID_SEARCH_TRACK_PREFIX + i, String.valueOf(i + 1)));
+			}
+
+			EmbedBuilder selectionEmbed = FormatUtil.createMultiTrackEmbed(tracks);
+			buttons.add(Button.danger(ID_SEARCH_CANCEL, Emoji.fromUnicode(CANCEL)).withLabel("Cancel"));
+
+			MessageEditBuilder editBuilder = new MessageEditBuilder().setEmbeds(selectionEmbed.build())
+					.setComponents(ActionRow.of(buttons));
+
+			output.editMessage("\u2800", m -> {
+				m.editMessage(editBuilder.build()).queue(msg -> {
+					bot.getWaiter().waitForEvent(ButtonInteractionEvent.class,
+							e -> e.getMessageId().equals(msg.getId()) && e.getUser().getIdLong() == member.getIdLong()
+									&& (e.getComponentId().startsWith(ID_SEARCH_TRACK_PREFIX)
+											|| e.getComponentId().equals(ID_SEARCH_CANCEL)),
+							e -> {
+								String componentId = e.getComponentId();
+
+								if (componentId.equals(ID_SEARCH_CANCEL))
+								{
+									e.editMessage(bot.getConfig().getWarning() + " Selection cancelled.")
+											.setComponents().setEmbeds().queue();
+									return;
+								}
+
+								if (componentId.startsWith(ID_SEARCH_TRACK_PREFIX))
+								{
+									try
+									{
+										int index = Integer
+												.parseInt(componentId.substring(ID_SEARCH_TRACK_PREFIX.length()));
+										if (index < 0 || index >= tracks.size())
+										{
+											LOG.warn("Out of bounds track index {} selected in guild {}", index,
+													guild.getId());
+											return;
+										}
+
+										AudioTrack track = tracks.get(index);
+
+										MusicService.TrackAddResult addResult = musicService.addTrackToQueue(guild,
+												member, track, args, channel);
+
+										if (addResult == null)
+										{
+											String tooLongMsg = FormatUtil.filter(bot.getConfig().getWarning() + " "
+													+ musicService.formatTooLongError(track));
+											e.editMessage(tooLongMsg).setComponents().setEmbeds().queue();
+											return;
+										}
+
+										String addMsg = FormatUtil.filter(
+												bot.getConfig().getSuccess() + " " + addResult.formattedMessage);
+										e.editMessage(addMsg).setComponents().setEmbeds().queue();
+									} catch (NumberFormatException ex)
+									{
+										LOG.error("Failed to parse track index from component ID: {}", componentId, ex);
+									}
+								}
+
+							}, 30, TimeUnit.SECONDS, () -> {
+								msg.editMessage(bot.getConfig().getWarning() + " Selection timed out.").setComponents()
+										.setEmbeds().queue(null,
+												error -> LOG.debug(
+														"Failed to update timed out selection message in guild {}",
+														guild.getId(), error));
+							});
+
+				});
+			});
+		}
 
         private void handlePlaylistLoadResult(AudioPlaylist playlist, int count)
         {
