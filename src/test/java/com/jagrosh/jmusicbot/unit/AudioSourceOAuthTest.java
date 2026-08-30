@@ -17,6 +17,7 @@ package com.jagrosh.jmusicbot.unit;
 
 import com.jagrosh.jmusicbot.BotConfig;
 import dev.lavalink.youtube.YoutubeAudioSourceManager;
+import dev.lavalink.youtube.YoutubeSourceOptions;
 import dev.lavalink.youtube.clients.skeleton.Client;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -276,18 +277,18 @@ class AudioSourceOAuthTest {
         }
 
         @Test
-        @DisplayName("YouTube options include remote cipher when OAuth is enabled")
-        void youtubeOptionsIncludeRemoteCipherForOAuth() throws Exception {
+        @DisplayName("YouTube options always include the remote cipher, regardless of OAuth")
+        void youtubeOptionsAlwaysIncludeRemoteCipher() throws Exception {
             Method buildOptions = getBuildYoutubeOptionsMethod();
             
-            BotConfig mockConfig = createMockConfig(true, 10);
+            YoutubeSourceOptions options = (YoutubeSourceOptions) buildOptions.invoke(null);
             
-            // We can't easily verify the internal state of YoutubeSourceOptions,
-            // but we can verify the method completes without throwing
-            assertDoesNotThrow(() -> {
-                Object options = buildOptions.invoke(null, mockConfig);
-                assertNotNull(options, "Should return options for OAuth mode");
-            });
+            assertNotNull(options, "Should return options");
+            assertEquals("https://cipher.kikkia.dev/", options.getRemoteCipherUrl(),
+                "Remote cipher must always be configured; youtube-source no longer maintains "
+                    + "local signature extraction, so deciphering has to be offloaded");
+            assertEquals("jmusicbot", options.getRemoteCipherUserAgent(),
+                "Remote cipher user agent should identify the bot");
         }
         
         private Method getBuildYoutubeClientsMethod() throws NoSuchMethodException {
@@ -299,7 +300,7 @@ class AudioSourceOAuthTest {
         
         private Method getBuildYoutubeOptionsMethod() throws NoSuchMethodException {
             Class<?> audioSourceClass = com.jagrosh.jmusicbot.audio.AudioSource.class;
-            Method method = audioSourceClass.getDeclaredMethod("buildYoutubeOptions", BotConfig.class);
+            Method method = audioSourceClass.getDeclaredMethod("buildYoutubeOptions");
             method.setAccessible(true);
             return method;
         }
