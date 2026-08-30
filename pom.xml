@@ -80,6 +80,19 @@
             <name>Lavalink Repository</name>
             <url>https://maven.lavalink.dev/releases</url>
         </repository>
+        <!-- Snapshots: youtube-source ships fixes here well ahead of tagged releases,
+             and YouTube breakages routinely need them. See youtube-source.version. -->
+        <repository>
+            <id>lavalinkSnapshots</id>
+            <name>Lavalink Snapshot Repository</name>
+            <url>https://maven.lavalink.dev/snapshots</url>
+            <releases>
+                <enabled>false</enabled>
+            </releases>
+            <snapshots>
+                <enabled>true</enabled>
+            </snapshots>
+        </repository>
         <repository>
             <id>chew</id>
             <name>m2-chew</name>
@@ -587,7 +600,10 @@
         <jdave.version>0.1.7</jdave.version>
         <udpqueue.version>0.2.12</udpqueue.version>
         <lavaplayer.version>2.2.7</lavaplayer.version>
-        <youtube-source.version>1.18.1</youtube-source.version>
+        <!-- Pinned to a main-branch snapshot: the TV client's Cobalt User-Agent is rejected by
+             YouTube ("The page needs to be reloaded"), fixed by b33460b3 which is in no release
+             yet (1.18.2 predates it). See youtube-source#226 and #240. -->
+        <youtube-source.version>f45bbb7aebfcbc1c553769e04af6cd43afa8b7c3-SNAPSHOT</youtube-source.version>
         <logback.version>1.5.25</logback.version>
         <typesafe-config.version>1.4.3</typesafe-config.version>
         <jsoup.version>1.22.1</jsoup.version>

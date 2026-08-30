@@ -232,7 +232,7 @@ public enum AudioSource
         final Logger logger = LoggerFactory.getLogger(AudioSource.class);
         
         boolean useOauth = config.useYouTubeOauth();
-        YoutubeSourceOptions options = buildYoutubeOptions(config);
+        YoutubeSourceOptions options = buildYoutubeOptions();
         Client[] clients = buildYoutubeClients(useOauth);
 
         YoutubeAudioSourceManager yt = new YoutubeAudioSourceManager(options, clients);
@@ -247,18 +247,22 @@ public enum AudioSource
     
     /**
      * Builds YouTube source options.
+     *
+     * <p>The remote cipher server is always enabled, independent of OAuth. youtube-source no
+     * longer maintains local signature extraction, so {@code LocalSignatureCipherManager}
+     * fails against current YouTube player scripts ("must find sig function") whether or not
+     * OAuth is in use. Deciphering has to be offloaded to a cipher server.
+     *
+     * @see <a href="https://github.com/lavalink-devs/youtube-source/issues/240">youtube-source#240</a>
      */
-    private static YoutubeSourceOptions buildYoutubeOptions(BotConfig config)
+    private static YoutubeSourceOptions buildYoutubeOptions()
     {
         YoutubeSourceOptions options = new YoutubeSourceOptions()
                 .setAllowSearch(true)
                 .setAllowDirectVideoIds(true)
                 .setAllowDirectPlaylistIds(true);
         
-        if (config.useYouTubeOauth())
-        {
-            options.setRemoteCipher("https://cipher.kikkia.dev/", null, "jmusicbot");
-        }
+        options.setRemoteCipher("https://cipher.kikkia.dev/", null, "jmusicbot");
         
         return options;
     }
