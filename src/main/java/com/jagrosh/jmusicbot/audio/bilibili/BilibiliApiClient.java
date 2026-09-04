@@ -54,7 +54,11 @@ public class BilibiliApiClient
     private static final Logger LOGGER = LoggerFactory.getLogger(BilibiliApiClient.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    private static final String VIEW_URL = "https://api.bilibili.com/x/web-interface/view?";
+    /**
+     * The WBI variant. Bilibili brought the unsigned {@code x/web-interface/view} under
+     * risk control in early September 2026, and it has answered HTTP 412 ever since.
+     */
+    private static final String VIEW_URL = "https://api.bilibili.com/x/web-interface/wbi/view?";
     private static final String PLAYURL_SIGNED = "https://api.bilibili.com/x/player/wbi/playurl?";
     private static final String PLAYURL_PLAIN = "https://api.bilibili.com/x/player/playurl?";
     private static final String SEARCH_URL = "https://api.bilibili.com/x/web-interface/wbi/search/type?";
@@ -76,7 +80,12 @@ public class BilibiliApiClient
      */
     public BilibiliVideo loadVideo(HttpInterface http, String id, int page) throws IOException
     {
-        return BilibiliResponseParser.parseView(getJson(http, VIEW_URL + buildViewQuery(id)), page);
+        String mixinKey = mixinKey(http);
+        String query = mixinKey != null
+                ? buildViewQuery(id, mixinKey, System.currentTimeMillis() / 1000L)
+                : buildUnsignedViewQuery(id);
+
+        return BilibiliResponseParser.parseView(getJson(http, VIEW_URL + query), page);
     }
 
     /**
@@ -144,14 +153,35 @@ public class BilibiliApiClient
     }
 
     /**
-     * Builds the {@code view} query, which identifies a video by {@code aid} or {@code bvid}.
+     * Builds the WBI-signed {@code view} query.
      */
-    public static String buildViewQuery(String id)
+    public static String buildViewQuery(String id, String mixinKey, long wtsSeconds)
     {
-        if(id.regionMatches(true, 0, "av", 0, 2))
-            return "aid=" + encode(id.substring(2));
+        return WbiSigner.sign(viewParams(id), mixinKey, wtsSeconds);
+    }
 
-        return "bvid=" + encode(id);
+    /**
+     * Builds the unsigned {@code view} query used when a signing key is unavailable. The WBI
+     * endpoint still answers without a signature, so this degrades rather than breaks.
+     */
+    public static String buildUnsignedViewQuery(String id)
+    {
+        Map.Entry<String, String> param = viewParams(id).entrySet().iterator().next();
+        return encode(param.getKey()) + "=" + encode(param.getValue());
+    }
+
+    /**
+     * Identifies a video by {@code aid} or {@code bvid}, whichever the id form calls for.
+     */
+    private static Map<String, String> viewParams(String id)
+    {
+        Map<String, String> params = new LinkedHashMap<>();
+        if(id.regionMatches(true, 0, "av", 0, 2))
+            params.put("aid", id.substring(2));
+        else
+            params.put("bvid", id);
+
+        return params;
     }
 
     /**

@@ -55,8 +55,19 @@ class BilibiliApiClientTest
     @DisplayName("uses aid for av ids and bvid for BV ids")
     void selectsIdParameter()
     {
-        assertEquals("aid=170001", BilibiliApiClient.buildViewQuery("av170001"));
-        assertEquals("bvid=BV1DTbv6xEHK", BilibiliApiClient.buildViewQuery("BV1DTbv6xEHK"));
+        assertEquals("aid=170001", BilibiliApiClient.buildUnsignedViewQuery("av170001"));
+        assertEquals("bvid=BV1DTbv6xEHK", BilibiliApiClient.buildUnsignedViewQuery("BV1DTbv6xEHK"));
+    }
+
+    @Test
+    @DisplayName("signs the view query, which the plain endpoint's risk control now requires")
+    void buildsSignedViewQuery()
+    {
+        assertEquals("bvid=BV1DTbv6xEHK&wts=1755400000&w_rid=5f94615885f2ee37b38f22b141df7f76",
+                BilibiliApiClient.buildViewQuery("BV1DTbv6xEHK", MIXIN_KEY, 1755400000L));
+
+        assertEquals("aid=170001&wts=1755400000&w_rid=3549f09727df8b40a060137c8d36e2ba",
+                BilibiliApiClient.buildViewQuery("av170001", MIXIN_KEY, 1755400000L));
     }
 
     @Test
