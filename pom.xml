@@ -501,6 +501,7 @@
                     <includes>
                         <include>**/unit/**/*Test.java</include>
                         <include>**/unit/**/*Tests.java</include>
+                        <include>**/audio/*Test.java</include>
                     </includes>
                 </configuration>
             </plugin>
