@@ -306,6 +306,36 @@ public class MusicServiceTest
 
             verify(fixture.getAudioPlayer()).stopTrack();
         }
+
+        @Test
+        @DisplayName("playNowFromUrl() unpauses the player: Play now means play")
+        void playNowFromUrl_unpausesPlayer()
+        {
+            String url = "https://example.com/track";
+            AudioTrack track = loadedTrack();
+            fixture.withPausedTrack();
+
+            musicService.playNowFromUrl(fixture.getGuild(), fixture.getMember(), url,
+                    fixture.getTextChannel(), output);
+            captureLoadHandler(url).trackLoaded(track);
+
+            verify(fixture.getAudioPlayer()).setPaused(false);
+        }
+
+        @Test
+        @DisplayName("playNowFromUrl() cancels any open yt-dlp prompt for the track it's replacing")
+        void playNowFromUrl_cancelsOpenYtDlpPrompt()
+        {
+            String url = "https://example.com/track";
+            AudioTrack track = loadedTrack();
+            fixture.withPlayingTrack();
+
+            musicService.playNowFromUrl(fixture.getGuild(), fixture.getMember(), url,
+                    fixture.getTextChannel(), output);
+            captureLoadHandler(url).trackLoaded(track);
+
+            verify(fixture.getAudioHandler()).cancelCurrentTrackYtDlpPrompt();
+        }
     }
 
     // ==================== Previous Operation Tests ====================
@@ -1410,25 +1440,27 @@ public class MusicServiceTest
             musicService.playPlaylistNow(fixture.getGuild(), fixture.getMember(), "mix",
                     fixture.getTextChannel(), output);
 
-            verify(fixture.getAudioHandler()).clearQueuePreserveHistoryKeepPlaying();
+            verify(fixture.getAudioHandler()).beginQueueReplacement();
             verify(fixture.getAudioHandler(), never()).stopAndClearQueuePreserveHistory();
+            verify(fixture.getAudioHandler()).endQueueReplacement();
             verify(fixture.getNowPlayingHandler()).requestReconcile(eq(fixture.getGuild().getIdLong()), anyString());
             output.assertSuccessMessageContains("Now playing playlist `mix` (queue replaced)");
         }
 
         @Test
-        @DisplayName("playPlaylistNow() replaces the current track without the empty-queue disconnect, while something is playing")
-        void playPlaylistNow_whileSomethingPlaying_stopsOldTrackAfterQueueIsLoaded_neverViaFullStop()
+        @DisplayName("playPlaylistNow() queues each loaded track, then asks AudioHandler to replace the captured original track")
+        void playPlaylistNow_whileSomethingPlaying_queuesThenAsksHandlerToReplaceByIdentity()
         {
             com.jagrosh.jmusicbot.playlist.PlaylistLoader.Playlist playlist = mock(com.jagrosh.jmusicbot.playlist.PlaylistLoader.Playlist.class);
             AudioTrack firstTrack = mock(AudioTrack.class);
             when(firstTrack.getInfo()).thenReturn(new AudioTrackInfo("First", "Author", 180000L, "id", false, "https://example.com/1"));
+            AudioTrack originalTrack = mock(AudioTrack.class);
             when(fixture.getPlaylistLoader().getPlaylistResult("mix"))
                     .thenReturn(com.jagrosh.jmusicbot.playlist.PlaylistLoader.PlaylistResult.success(playlist));
             when(playlist.getName()).thenReturn("mix");
             when(playlist.getTracks()).thenReturn(List.of(firstTrack));
             when(playlist.getErrors()).thenReturn(List.of());
-            when(fixture.getAudioPlayer().getPlayingTrack()).thenReturn(mock(AudioTrack.class));
+            when(fixture.getAudioPlayer().getPlayingTrack()).thenReturn(originalTrack);
 
             doAnswer(invocation ->
             {
@@ -1444,19 +1476,22 @@ public class MusicServiceTest
             musicService.playPlaylistNow(fixture.getGuild(), fixture.getMember(), "mix",
                     fixture.getTextChannel(), output);
 
-            // The queue must be cleared (and replacement tracks queued) before the old track is
-            // stopped, or the stop would race an empty queue and trigger the disconnect path.
-            InOrder inOrder = inOrder(fixture.getAudioHandler(), fixture.getAudioPlayer());
-            inOrder.verify(fixture.getAudioHandler()).clearQueuePreserveHistoryKeepPlaying();
+            // The queue must be loaded (addTrack) before AudioHandler is asked to replace the
+            // original track, and beginQueueReplacement() must run first of all, or the "replace"
+            // call would have nothing queued to pull from.
+            InOrder inOrder = inOrder(fixture.getAudioHandler());
+            inOrder.verify(fixture.getAudioHandler()).beginQueueReplacement();
             inOrder.verify(fixture.getAudioHandler()).addTrack(any());
-            inOrder.verify(fixture.getAudioPlayer()).stopTrack();
+            inOrder.verify(fixture.getAudioHandler()).replaceCurrentTrackIfStillPlaying(same(originalTrack));
+            inOrder.verify(fixture.getAudioHandler()).endQueueReplacement();
             verify(fixture.getAudioHandler(), never()).stopAndClear();
             verify(fixture.getAudioHandler(), never()).stopAndClearQueuePreserveHistory();
+            verify(fixture.getAudioPlayer(), never()).stopTrack();
         }
 
         @Test
-        @DisplayName("playPlaylistNow() never stops the player when nothing was playing")
-        void playPlaylistNow_whileIdle_neverStopsPlayer()
+        @DisplayName("playPlaylistNow() asks AudioHandler to replace with a null original when nothing was playing")
+        void playPlaylistNow_whileIdle_asksHandlerToReplaceWithNullOriginal()
         {
             com.jagrosh.jmusicbot.playlist.PlaylistLoader.Playlist playlist = mock(com.jagrosh.jmusicbot.playlist.PlaylistLoader.Playlist.class);
             when(fixture.getPlaylistLoader().getPlaylistResult("mix"))
@@ -1481,8 +1516,8 @@ public class MusicServiceTest
         }
 
         @Test
-        @DisplayName("playPlaylistNow() with zero tracks loaded warns and never stops the player")
-        void playPlaylistNow_withZeroTracksLoaded_warnsAndNeverStopsPlayer()
+        @DisplayName("playPlaylistNow() with zero tracks loaded warns, ends the replacement, and never does a full stop")
+        void playPlaylistNow_withZeroTracksLoaded_warnsAndEndsReplacementWithoutFullStop()
         {
             com.jagrosh.jmusicbot.playlist.PlaylistLoader.Playlist playlist = mock(com.jagrosh.jmusicbot.playlist.PlaylistLoader.Playlist.class);
             when(fixture.getPlaylistLoader().getPlaylistResult("empty"))
@@ -1503,6 +1538,8 @@ public class MusicServiceTest
                     fixture.getTextChannel(), output);
 
             output.assertWarningMessageContains("No tracks were loaded");
+            verify(fixture.getAudioHandler()).endQueueReplacement();
+            verify(fixture.getAudioHandler(), never()).replaceCurrentTrackIfStillPlaying(any());
             verify(fixture.getAudioPlayer(), never()).stopTrack();
             verify(fixture.getAudioHandler(), never()).stopAndClear();
             verify(fixture.getAudioHandler(), never()).stopAndClearQueuePreserveHistory();
@@ -2065,6 +2102,32 @@ public class MusicServiceTest
                     fixture.getTextChannel(), output);
 
             verify(fixture.getAudioPlayer()).stopTrack();
+        }
+
+        @Test
+        @DisplayName("playFromHistoryNow() unpauses the player: Play now means play")
+        void playFromHistoryNow_unpausesPlayer()
+        {
+            setUpHistoryWithOneEntry(historyEntryAt(1));
+            fixture.withPausedTrack();
+
+            musicService.playFromHistoryNow(fixture.getGuild(), fixture.getMember(), 1,
+                    fixture.getTextChannel(), output);
+
+            verify(fixture.getAudioPlayer()).setPaused(false);
+        }
+
+        @Test
+        @DisplayName("playFromHistoryNow() cancels any open yt-dlp prompt for the track it's replacing")
+        void playFromHistoryNow_cancelsOpenYtDlpPrompt()
+        {
+            setUpHistoryWithOneEntry(historyEntryAt(1));
+            fixture.withPlayingTrack();
+
+            musicService.playFromHistoryNow(fixture.getGuild(), fixture.getMember(), 1,
+                    fixture.getTextChannel(), output);
+
+            verify(fixture.getAudioHandler()).cancelCurrentTrackYtDlpPrompt();
         }
 
         @Test

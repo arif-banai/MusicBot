@@ -46,6 +46,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -87,6 +88,15 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
      * Every change is a compareAndSet, so exactly one side plays the hold or pulls the queue.
      */
     private final AtomicReference<Handoff> handoff = new AtomicReference<>();
+    /**
+     * "Play now" queue replacement in flight (see {@link #beginQueueReplacement()}): while
+     * true, {@code continueAfterEnd} neither re-queues a repeat clone nor applies the idle-queue
+     * disconnect/default-playlist behaviour for a track end, since the queue is only
+     * momentarily empty while the replacement's first track is still loading over the network.
+     * Cleared by {@link #replaceCurrentTrackIfStillPlaying(AudioTrack)} or
+     * {@link #endQueueReplacement()}, whichever runs first.
+     */
+    private final AtomicBoolean queueReplacementPending = new AtomicBoolean(false);
 
     private enum HandoffKind
     {
@@ -233,20 +243,89 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
     }
 
     /**
-     * Clears the active queues (preserving history) without stopping whatever is currently
-     * playing, for callers that are about to load replacement tracks and then explicitly
-     * replace the current track themselves (see {@link #getPlayer()}{@code .stopTrack()}, called
-     * once the queue is non-empty again). Unlike {@link #stopAndClearQueuePreserveHistory()},
-     * this never leaves the queue briefly empty while a track is ending, so it can't trigger the
-     * idle-queue disconnect in {@code continueAfterEnd}. The currently playing track is left
-     * alone, so its yt-dlp handoff/prompt state is untouched.
+     * Begins a "play now" queue replacement: clears the active queues (preserving history),
+     * cancels any open yt-dlp prompt/handoff for the currently playing track — the same way
+     * {@link #stopAndClearQueuePreserveHistory()} does — and arms a guard that suppresses the
+     * idle-queue disconnect (and repeat-mode re-queue) in {@code continueAfterEnd} while the
+     * replacement's tracks are still loading over the network. The currently playing track is
+     * NOT stopped here.
+     * <p>
+     * Callers must follow up, for every replacement track as it loads, with
+     * {@link #replaceCurrentTrackIfStillPlaying(AudioTrack)} (passing the track that was
+     * playing, or {@code null}, when this method was called), and once loading is done, with
+     * {@link #endQueueReplacement()} — even if nothing was ever queued.
      */
-    public void clearQueuePreserveHistoryKeepPlaying()
+    public synchronized void beginQueueReplacement()
     {
-        LOGGER.debug("Clearing queue for replacement (preserving history and current playback)");
+        LOGGER.debug("Beginning queue replacement (preserving history, deferring the empty-queue check)");
+        queueReplacementPending.set(true);
         queue.clear();
         defaultQueue.clear();
+        resetYtDlpHandoff();
+        cancelYtDlpPrompt();
         cancelYtDlpDownloads();
+    }
+
+    /**
+     * The first-loaded-track half of a "play now" replacement begun with
+     * {@link #beginQueueReplacement()}. Safe to call once per loaded replacement track (only
+     * the first call that finds the guard still armed does anything); later calls are no-ops.
+     * <p>
+     * If {@code original} (the track captured before the replacement began, or {@code null} if
+     * nothing was playing then) is still the currently playing track, pulls the queue head
+     * (the replacement track just queued by the caller) and starts it directly through
+     * {@link #playPrepared(AudioTrack)} — the old track then ends with REPLACED, which
+     * {@code continueAfterEnd} ignores entirely (no pull, no disconnect, no repeat re-queue).
+     * If {@code original} is {@code null} or no longer playing (it already ended naturally
+     * during the load, and {@link #addTrack(QueuedTrack)}'s own idle-start, or a normal
+     * {@code continueAfterEnd} pull, already started the right track), this does nothing but
+     * disarm the guard. Either way, unpauses the player: "Play now" means play.
+     *
+     * @return true if this call actually replaced the current track
+     */
+    public synchronized boolean replaceCurrentTrackIfStillPlaying(AudioTrack original)
+    {
+        if (!queueReplacementPending.getAndSet(false))
+            return false;
+        boolean replaced = false;
+        if (original != null && audioPlayer.getPlayingTrack() == original)
+        {
+            QueuedTrack head = queue.pull();
+            if (head != null)
+            {
+                playPrepared(head.getTrack());
+                replaced = true;
+            }
+        }
+        audioPlayer.setPaused(false);
+        return replaced;
+    }
+
+    /**
+     * Ends a "play now" replacement begun with {@link #beginQueueReplacement()}, once loading
+     * is done (whether or not any track was actually loaded). A no-op if
+     * {@link #replaceCurrentTrackIfStillPlaying(AudioTrack)} already resolved it. If it didn't
+     * (e.g. the playlist loaded zero tracks) and nothing ended up playing, applies the normal
+     * empty-queue behaviour (default playlist, then disconnect unless staying) that was
+     * deferred while the guard was armed.
+     */
+    public synchronized void endQueueReplacement()
+    {
+        if (!queueReplacementPending.getAndSet(false))
+            return;
+        if (audioPlayer.getPlayingTrack() == null && queue.isEmpty())
+            applyEmptyQueueBehaviour();
+    }
+
+    /** Cancels any open yt-dlp prompt/handoff for the currently playing track, without
+     * stopping it or touching the queue — the same way a full stop would. Call before
+     * explicitly replacing the current track outside of {@link #beginQueueReplacement()} (e.g.
+     * a synchronous "play now" such as playing from history or a URL), so an open download
+     * prompt for a gated hold doesn't linger after its track is replaced. */
+    public void cancelCurrentTrackYtDlpPrompt()
+    {
+        resetYtDlpHandoff();
+        cancelYtDlpPrompt();
     }
 
     /**
@@ -575,11 +654,23 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
     }
 
     /** What happens after a track ends: repeat, then the next song (or default playlist, or leaving). */
-    private void continueAfterEnd(AudioPlayer player, AudioTrack track, AudioTrackEndReason endReason)
+    private synchronized void continueAfterEnd(AudioPlayer player, AudioTrack track, AudioTrackEndReason endReason)
     {
+        if (endReason == AudioTrackEndReason.REPLACED)
+        {
+            // The new track was already started directly by an explicit replace (e.g.
+            // "Play now" — see replaceCurrentTrackIfStillPlaying); nothing more to do here.
+            return;
+        }
+
+        // A "play now" queue replacement is loading its first track: the queue is only
+        // momentarily empty (or about to be discarded), so neither the repeat re-queue nor the
+        // idle-queue behaviour below should run yet. See beginQueueReplacement()/endQueueReplacement().
+        boolean replacementPending = queueReplacementPending.get();
+
         RepeatMode repeatMode = manager.getBot().getSettingsManager().getSettings(guildId).getRepeatMode();
         // if the track ended normally, and we're in repeat mode, re-add it to the queue
-        if(endReason==AudioTrackEndReason.FINISHED && repeatMode != RepeatMode.OFF)
+        if(!replacementPending && endReason==AudioTrackEndReason.FINISHED && repeatMode != RepeatMode.OFF)
         {
             QueuedTrack clone = new QueuedTrack(track.makeClone(), track.getUserData(RequestMetadata.class));
             if(repeatMode == RepeatMode.ALL)
@@ -593,26 +684,34 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
                 lastReason = "Repeating the song.";
             }
         }
-        
+
         if(queue.isEmpty())
         {
-            if(!playFromDefault())
-            {
-                lastReason = null;
-                manager.getBot().getNowplayingHandler().onTrackUpdate(guildId, null);
-                if(!manager.getBot().getConfig().getStay())
-                    manager.getBot().closeAudioConnection(guildId);
-                // unpause, in the case when the player was paused and the track has been skipped.
-                // this is to prevent the player being paused next time it's being used.
-                player.setPaused(false);
-            }
+            if (replacementPending)
+                return;
+            applyEmptyQueueBehaviour();
         }
-        else if (endReason != AudioTrackEndReason.REPLACED)
+        else
         {
             QueuedTrack qt = queue.pull();
             if (lastReason == null || (!lastReason.startsWith("Repeating") && !lastReason.startsWith("Skipped")))
                 lastReason = "Playing next song.";
             playPrepared(qt.getTrack());
+        }
+    }
+
+    /** The idle-queue fallback: play the default playlist, or (unless staying) disconnect. */
+    private void applyEmptyQueueBehaviour()
+    {
+        if(!playFromDefault())
+        {
+            lastReason = null;
+            manager.getBot().getNowplayingHandler().onTrackUpdate(guildId, null);
+            if(!manager.getBot().getConfig().getStay())
+                manager.getBot().closeAudioConnection(guildId);
+            // unpause, in the case when the player was paused and the track has been skipped.
+            // this is to prevent the player being paused next time it's being used.
+            audioPlayer.setPaused(false);
         }
     }
 

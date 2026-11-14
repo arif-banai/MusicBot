@@ -1511,11 +1511,15 @@ public class MusicService
         // track immediately, and getPlayingTrack() would then (wrongly) read as "already
         // playing", causing stopTrack() below to stop the track we just started.
         boolean wasPlaying = handler.getPlayer().getPlayingTrack() != null;
+        // "Play now" is about to replace the current track outside of a full stop: cancel any
+        // open yt-dlp prompt/handoff for it first, the same way a full stop would.
+        handler.cancelCurrentTrackYtDlpPrompt();
         handler.addTrackToFront(newQt);
         if (wasPlaying)
         {
             handler.getPlayer().stopTrack();
         }
+        handler.getPlayer().setPaused(false); // "Play now" means play, even if the player was paused
         String title = FormatUtil.getTrackTitle(track);
         output.replySuccess("Now playing **" + FormatUtil.filter(title) + "**");
     }
@@ -1640,19 +1644,27 @@ public class MusicService
         }
 
         AudioHandler finalHandler = handler;
-        // Whether something is already playing, captured before the queue is touched: the
-        // playlist is loaded into the (now empty) queue first, and only once it's non-empty do
-        // we stop the old track, so the queue is never empty while a track is ending and the
-        // idle-queue disconnect in AudioHandler#onTrackEnd never fires.
-        boolean wasPlaying = finalHandler.getPlayer().getPlayingTrack() != null;
-        finalHandler.clearQueuePreserveHistoryKeepPlaying();
+        // Captured before the queue is touched: the track (if any) "Play now" is replacing.
+        // AudioHandler decides what to do with this by identity, not a stale boolean, since the
+        // load happens over the network and this track can end on its own (skip, finish, repeat)
+        // before any replacement track is ready.
+        AudioTrack originalTrack = finalHandler.getPlayer().getPlayingTrack();
+        finalHandler.beginQueueReplacement();
 
         playlist.loadTracks(bot.getPlayerManager(), at -> {
             RequestMetadata metadata = new RequestMetadata(member.getUser(),
                     new RequestMetadata.RequestInfo("playlist " + playlist.getName(), at.getInfo().uri),
                     channel.getIdLong());
             finalHandler.addTrack(new QueuedTrack(at, metadata));
+            // Only the first call (chronologically) that still finds the guard armed does
+            // anything; later calls for the rest of the playlist are harmless no-ops.
+            finalHandler.replaceCurrentTrackIfStillPlaying(originalTrack);
         }, () -> {
+            // No-op if replaceCurrentTrackIfStillPlaying already resolved it. Otherwise (e.g.
+            // zero tracks loaded), applies the normal empty-queue behaviour if nothing is
+            // playing, now that the guard that deferred it is being lifted.
+            finalHandler.endQueueReplacement();
+
             int loadedCount = playlist.getTracks().size();
             int errorCount = playlist.getErrors().size();
             if (loadedCount == 0)
@@ -1669,14 +1681,6 @@ public class MusicService
             if (errorCount > 0)
             {
                 msg.append(" Failed to load ").append(errorCount).append(" item(s).");
-            }
-
-            if (wasPlaying)
-            {
-                // The queue is non-empty now, so stopping the old track makes
-                // AudioHandler#continueAfterEnd pull the playlist's first track via
-                // playPrepared, instead of hitting the empty-queue disconnect path.
-                finalHandler.getPlayer().stopTrack();
             }
 
             output.replySuccess("Now playing playlist `" + playlist.getName() + "` (queue replaced). " + msg);
@@ -1966,6 +1970,13 @@ public class MusicService
                 // started.
                 AudioHandler handlerBefore = getHandler(guild);
                 boolean wasPlaying = handlerBefore != null && handlerBefore.getPlayer().getPlayingTrack() != null;
+                if (handlerBefore != null)
+                {
+                    // "Play now" is about to replace the current track outside of a full stop:
+                    // cancel any open yt-dlp prompt/handoff for it first, the same way a full
+                    // stop would.
+                    handlerBefore.cancelCurrentTrackYtDlpPrompt();
+                }
                 TrackAddResult result = addTrackToFront(guild, member, track, url, channel);
                 if (result == null)
                 {
@@ -1976,6 +1987,10 @@ public class MusicService
                 if (wasPlaying && handler != null)
                 {
                     handler.getPlayer().stopTrack();
+                }
+                if (handler != null)
+                {
+                    handler.getPlayer().setPaused(false); // "Play now" means play, even if the player was paused
                 }
                 output.replySuccess("Now playing **" + FormatUtil.filter(FormatUtil.getTrackTitle(track)) + "**");
             }

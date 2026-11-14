@@ -214,8 +214,8 @@ public class AudioHandlerTest extends TestBase {
         }
 
         @Test
-        @DisplayName("clearQueuePreserveHistoryKeepPlaying() clears the queue without stopping playback")
-        public void testClearQueuePreserveHistoryKeepPlayingDoesNotStop() {
+        @DisplayName("beginQueueReplacement() clears the queue without stopping playback")
+        public void testBeginQueueReplacementDoesNotStop() {
             AudioTrack playingTrack = mock(AudioTrack.class);
             AudioTrackInfo playingInfo = new AudioTrackInfo("Playing", "Author", 1000, "playing-id", false, "uri");
             when(playingTrack.getInfo()).thenReturn(playingInfo);
@@ -228,7 +228,7 @@ public class AudioHandlerTest extends TestBase {
             when(queued.getTrack()).thenReturn(queuedTrack);
             audioHandler.addTrack(queued);
 
-            audioHandler.clearQueuePreserveHistoryKeepPlaying();
+            audioHandler.beginQueueReplacement();
 
             verify(audioPlayer, never()).stopTrack();
             assertTrue(audioHandler.getQueue().isEmpty());
@@ -241,44 +241,191 @@ public class AudioHandlerTest extends TestBase {
     @DisplayName("Queue Replacement While Playing")
     class QueueReplacementTests
     {
-        @Test
-        @DisplayName("replacing the queue while something plays never disconnects: the stop pulls the new first track")
-        public void testQueueReplacementWhilePlayingDoesNotDisconnect() {
+        private AudioTrack track(String identifier)
+        {
+            AudioTrack track = mock(AudioTrack.class);
+            when(track.getInfo()).thenReturn(new AudioTrackInfo("Title " + identifier, "Author", 1000, identifier, false, identifier + "-uri"));
+            return track;
+        }
+
+        private QueuedTrack queued(AudioTrack track)
+        {
+            QueuedTrack qt = mock(QueuedTrack.class);
+            when(qt.getTrack()).thenReturn(track);
+            return qt;
+        }
+
+        @BeforeEach
+        void stubNowPlayingHandler() {
             when(bot.getNowplayingHandler()).thenReturn(mock(com.jagrosh.jmusicbot.audio.NowPlayingHandler.class));
-            AudioTrack oldTrack = mock(AudioTrack.class);
-            AudioTrackInfo oldInfo = new AudioTrackInfo("Old", "Author", 1000, "old-id", false, "old-uri");
-            when(oldTrack.getInfo()).thenReturn(oldInfo);
+        }
+
+        @Test
+        @DisplayName("replacing the current track while something plays never disconnects: the replacement plays directly")
+        public void testQueueReplacementWhilePlayingDoesNotDisconnect() {
+            AudioTrack oldTrack = track("old");
             when(audioPlayer.getPlayingTrack()).thenReturn(oldTrack);
 
-            // Simulate MusicService.playPlaylistNow's fixed order: clear the queue without
-            // stopping playback, queue the replacement track(s), then stop the old track.
-            audioHandler.clearQueuePreserveHistoryKeepPlaying();
-
-            QueuedTrack newQueued = mock(QueuedTrack.class);
-            AudioTrack newTrack = mock(AudioTrack.class);
-            AudioTrackInfo newInfo = new AudioTrackInfo("New", "Author", 1000, "new-id", false, "new-uri");
-            when(newTrack.getInfo()).thenReturn(newInfo);
-            when(newQueued.getTrack()).thenReturn(newTrack);
-            audioHandler.addTrack(newQueued);
+            // Simulate MusicService.playPlaylistNow's fixed order: begin the replacement, queue
+            // the first loaded track, then let AudioHandler replace the current track directly.
+            audioHandler.beginQueueReplacement();
+            AudioTrack newTrack = track("new");
+            audioHandler.addTrack(queued(newTrack));
             assertFalse(audioHandler.getQueue().isEmpty());
 
-            // The real player would call onTrackEnd for the old track once stopTrack() runs.
-            audioHandler.onTrackEnd(audioPlayer, oldTrack, AudioTrackEndReason.STOPPED);
+            boolean replaced = audioHandler.replaceCurrentTrackIfStillPlaying(oldTrack);
 
+            assertTrue(replaced);
             verify(playerManager.getBot(), never()).closeAudioConnection(anyLong());
             verify(audioPlayer).playTrack(newTrack);
         }
 
         @Test
-        @DisplayName("stopping before the replacement queue is loaded (the old bug) leaves the queue empty and disconnects")
-        public void testStopBeforeQueueLoad_demonstratesDisconnectBug() {
-            when(bot.getNowplayingHandler()).thenReturn(mock(com.jagrosh.jmusicbot.audio.NowPlayingHandler.class));
-            AudioTrack oldTrack = mock(AudioTrack.class);
-            AudioTrackInfo oldInfo = new AudioTrackInfo("Old", "Author", 1000, "old-id", false, "old-uri");
-            when(oldTrack.getInfo()).thenReturn(oldInfo);
+        @DisplayName("the old track's late REPLACED end does not skip or re-play the already-started replacement")
+        public void testLateReplacedEndDoesNotSkipReplacement() {
+            AudioTrack oldTrack = track("old");
             when(audioPlayer.getPlayingTrack()).thenReturn(oldTrack);
 
-            // The pre-fix order: stop (and clear) before anything new is queued.
+            audioHandler.beginQueueReplacement();
+            AudioTrack newTrack = track("new");
+            audioHandler.addTrack(queued(newTrack));
+            audioHandler.replaceCurrentTrackIfStillPlaying(oldTrack);
+            verify(audioPlayer, times(1)).playTrack(newTrack);
+
+            // The real player fires this once lavaplayer processes the playTrack() call above.
+            audioHandler.onTrackEnd(audioPlayer, oldTrack, AudioTrackEndReason.REPLACED);
+
+            verify(audioPlayer, times(1)).playTrack(any());
+            verify(playerManager.getBot(), never()).closeAudioConnection(anyLong());
+        }
+
+        @Test
+        @DisplayName("a track ending naturally before the first replacement track loads does not disconnect; the loaded track plays")
+        public void testTrackEndsBeforeFirstItemLoads_noDisconnect_firstItemPlays() {
+            AudioTrack oldTrack = track("old");
+            AudioTrack oldClone = track("old-clone");
+            when(oldTrack.makeClone()).thenReturn(oldClone);
+            when(audioPlayer.getPlayingTrack()).thenReturn(oldTrack);
+
+            audioHandler.beginQueueReplacement();
+
+            // The old track finishes naturally before anything has loaded; the queue is empty,
+            // but the replacement is still pending, so this must not disconnect.
+            audioHandler.onTrackEnd(audioPlayer, oldTrack, AudioTrackEndReason.FINISHED);
+            verify(playerManager.getBot(), never()).closeAudioConnection(anyLong());
+            assertTrue(audioHandler.getQueue().isEmpty(), "Nothing should have been re-queued (e.g. by repeat mode)");
+
+            // Nothing is playing now (the real player would report this).
+            when(audioPlayer.getPlayingTrack()).thenReturn(null);
+
+            AudioTrack firstLoaded = track("first-loaded");
+            audioHandler.addTrack(queued(firstLoaded)); // idle -> plays immediately
+            boolean replaced = audioHandler.replaceCurrentTrackIfStillPlaying(oldTrack); // no-op: oldTrack already gone
+
+            assertFalse(replaced);
+            verify(audioPlayer).playTrack(firstLoaded);
+            verify(playerManager.getBot(), never()).closeAudioConnection(anyLong());
+        }
+
+        @Test
+        @DisplayName("a track ending naturally right after the first replacement track loads does not skip it")
+        public void testTrackEndsAfterFirstItemLoadedButBeforeDone_firstItemNotSkipped() {
+            AudioTrack oldTrack = track("old");
+            when(audioPlayer.getPlayingTrack()).thenReturn(oldTrack);
+
+            audioHandler.beginQueueReplacement();
+            AudioTrack firstLoaded = track("first-loaded");
+            audioHandler.addTrack(queued(firstLoaded));
+            boolean replaced = audioHandler.replaceCurrentTrackIfStillPlaying(oldTrack);
+            assertTrue(replaced);
+            verify(audioPlayer, times(1)).playTrack(firstLoaded);
+
+            // endQueueReplacement() runs once loading is "done"; it must not disturb the track
+            // that's already playing.
+            audioHandler.endQueueReplacement();
+
+            verify(audioPlayer, times(1)).playTrack(any());
+            verify(playerManager.getBot(), never()).closeAudioConnection(anyLong());
+        }
+
+        @Test
+        @DisplayName("replacing the current track unpauses the player: Play now means play")
+        public void testReplaceUnpausesPlayer() {
+            AudioTrack oldTrack = track("old");
+            when(audioPlayer.getPlayingTrack()).thenReturn(oldTrack);
+            when(audioPlayer.isPaused()).thenReturn(true);
+
+            audioHandler.beginQueueReplacement();
+            audioHandler.addTrack(queued(track("new")));
+            audioHandler.replaceCurrentTrackIfStillPlaying(oldTrack);
+
+            verify(audioPlayer).setPaused(false);
+        }
+
+        @Test
+        @DisplayName("an idle start during a pending replacement also unpauses the player")
+        public void testIdleStartDuringReplacementUnpausesPlayer() {
+            when(audioPlayer.getPlayingTrack()).thenReturn(null);
+            when(audioPlayer.isPaused()).thenReturn(true);
+
+            audioHandler.beginQueueReplacement();
+            audioHandler.addTrack(queued(track("first-loaded"))); // idle -> plays immediately
+            audioHandler.replaceCurrentTrackIfStillPlaying(null);
+
+            verify(audioPlayer).setPaused(false);
+        }
+
+        @Test
+        @DisplayName("repeat mode does not re-queue a track that finishes while a replacement is pending")
+        public void testRepeatModeDoesNotRequeueDuringPendingReplacement() {
+            when(settings.getRepeatMode()).thenReturn(RepeatMode.ALL);
+            AudioTrack oldTrack = track("old");
+            AudioTrack oldClone = track("old-clone");
+            when(oldTrack.makeClone()).thenReturn(oldClone);
+            when(audioPlayer.getPlayingTrack()).thenReturn(oldTrack);
+
+            audioHandler.beginQueueReplacement();
+            audioHandler.onTrackEnd(audioPlayer, oldTrack, AudioTrackEndReason.FINISHED);
+
+            assertTrue(audioHandler.getQueue().isEmpty(), "Repeat mode must not re-queue the replaced song while a replacement is pending");
+            verify(playerManager.getBot(), never()).closeAudioConnection(anyLong());
+        }
+
+        @Test
+        @DisplayName("endQueueReplacement() applies the normal empty-queue behaviour when nothing ended up playing (e.g. zero tracks loaded, idle)")
+        public void testEndQueueReplacement_zeroTracksIdle_appliesEmptyQueueBehaviour() {
+            when(audioPlayer.getPlayingTrack()).thenReturn(null);
+
+            audioHandler.beginQueueReplacement();
+            // Nothing ever loaded (e.g. an empty playlist); loading is now "done".
+            audioHandler.endQueueReplacement();
+
+            verify(playerManager.getBot()).closeAudioConnection(GUILD_ID);
+        }
+
+        @Test
+        @DisplayName("endQueueReplacement() leaves a still-playing track alone when zero tracks were loaded")
+        public void testEndQueueReplacement_zeroTracksButSomethingStillPlaying_doesNothing() {
+            AudioTrack oldTrack = track("old");
+            when(audioPlayer.getPlayingTrack()).thenReturn(oldTrack);
+
+            audioHandler.beginQueueReplacement();
+            // Nothing ever loaded, but the original track never ended either.
+            audioHandler.endQueueReplacement();
+
+            verify(playerManager.getBot(), never()).closeAudioConnection(anyLong());
+            verify(audioPlayer, never()).stopTrack();
+        }
+
+        @Test
+        @DisplayName("stopping before the replacement queue is loaded (the old bug) leaves the queue empty and disconnects")
+        public void testStopBeforeQueueLoad_demonstratesDisconnectBug() {
+            AudioTrack oldTrack = track("old");
+            when(audioPlayer.getPlayingTrack()).thenReturn(oldTrack);
+
+            // The pre-fix order: a full stop (and clear) before anything new is queued. This is
+            // what /stop still does on purpose (see StopOperationTests) — guarded here too, to
+            // document exactly which path the fix moved away from for "Play now".
             audioHandler.stopAndClearQueuePreserveHistory();
             // The real player calls onTrackEnd for the stopped track; the queue is still empty.
             audioHandler.onTrackEnd(audioPlayer, oldTrack, AudioTrackEndReason.STOPPED);
@@ -611,6 +758,33 @@ public class AudioHandlerTest extends TestBase {
             QueuedTrack queued = mock(QueuedTrack.class);
             when(queued.getTrack()).thenReturn(track);
             audioHandler.getQueue().add(queued);
+        }
+
+        @Test
+        @DisplayName("beginQueueReplacement() cancels an open yt-dlp prompt for a gated hold that's currently playing")
+        void beginQueueReplacement_cancelsOpenPromptForGatedHold()
+        {
+            LibraryAudioTrack hold = libraryTrack(new CompletableFuture<>());
+            when(audioPlayer.getPlayingTrack()).thenReturn(hold);
+
+            audioHandler.beginQueueReplacement();
+
+            verify(prompt).cancel(GUILD_ID);
+        }
+
+        @Test
+        @DisplayName("cancelCurrentTrackYtDlpPrompt() cancels an open prompt without stopping or clearing the queue")
+        void cancelCurrentTrackYtDlpPrompt_cancelsWithoutStoppingOrClearing()
+        {
+            LibraryAudioTrack hold = libraryTrack(new CompletableFuture<>());
+            when(audioPlayer.getPlayingTrack()).thenReturn(hold);
+            enqueue(track("still-queued"));
+
+            audioHandler.cancelCurrentTrackYtDlpPrompt();
+
+            verify(prompt).cancel(GUILD_ID);
+            verify(audioPlayer, never()).stopTrack();
+            assertEquals(1, audioHandler.getQueue().size());
         }
 
         @Test
