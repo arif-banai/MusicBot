@@ -276,6 +276,45 @@ proxy {
 - Each component can be independently enabled/disabled
 - HTTP proxies are supported (SOCKS proxies are not currently supported)
 
+## yt-dlp Library (optional)
+
+When YouTube refuses to play a song without signing in, the bot can fall back to downloading it with the operator's own [yt-dlp](https://github.com/yt-dlp/yt-dlp) install, saving it into a permanent library folder and playing it from disk instead. Downloaded songs are tracked in a special playlist alongside the library.
+
+### Requirements
+
+- You install yt-dlp yourself, and keep it updated. The bot never installs or updates it.
+- yt-dlp needs a JavaScript runtime (e.g. [Deno](https://deno.com/)) on `PATH` to download from YouTube; install that yourself too.
+- ffmpeg is not required.
+
+### Enabling it
+
+Set `ytdlp.path` in `config.txt` to your yt-dlp executable. Leave it blank (the default) to keep this feature off.
+
+```hocon
+ytdlp {
+  path = "/usr/local/bin/yt-dlp"
+  mode = "prompt"
+}
+```
+
+### Modes
+
+- **`prompt` (default):** when a YouTube song is blocked, the bot pauses it and posts "Download & play" and "Download all YouTube songs in queue" buttons in the request's channel. Only the requester or a DJ can press them. If nobody responds within `promptTimeoutSeconds`, the song is skipped.
+- **`always`:** every YouTube song is downloaded and played through yt-dlp, with no buttons.
+
+### Other settings
+
+| Setting | Default | Description |
+|---|---|---|
+| `libraryFolder` | `"ytdlp-library"` | Folder where downloaded songs are kept |
+| `libraryPlaylist` | `"ytdlp-library"` | Playlist (in `Playlists/`) listing every downloaded song |
+| `delaySeconds` | `5` | Seconds to wait between downloads |
+| `timeoutSeconds` | `300` | Seconds before a single download is cancelled |
+| `extraArgs` | `[]` | Extra arguments passed to yt-dlp, e.g. cookies or PO-token provider options |
+| `promptTimeoutSeconds` | `120` | Seconds to wait for a button press in `prompt` mode before skipping |
+
+Downloading from YouTube may violate YouTube's Terms of Service. Use at your own risk.
+
 ## Development Workflow
 
 This project follows a **trunk-based development** workflow. The `master` branch is always releasable, and all work happens in short-lived branches:
