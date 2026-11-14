@@ -100,7 +100,8 @@ public enum ConfigOption {
     YTDLP_DOWNLOAD_BUTTON("ytdlp.downloadButton", ConfigType.BOOLEAN, false, "Show a Download button on now-playing that saves the current song (DJs only)"),
     YTDLP_MATCHING_ENABLED("ytdlp.matching.enabled", ConfigType.BOOLEAN, false, "Offer a similar song from the library while a requested song plays"),
     YTDLP_MATCHING_DURATION_TOLERANCE_SECONDS("ytdlp.matching.durationToleranceSeconds", ConfigType.INT, false, "Minimum gap allowed between song lengths, in seconds; widens to 10% of the shorter song for longer tracks"),
-    YTDLP_MATCHING_MIN_SCORE("ytdlp.matching.minScore", ConfigType.DOUBLE, false, "How similar cleaned-up titles/artists must be, 0.0-1.0 (higher = stricter)");
+    YTDLP_MATCHING_MIN_SCORE("ytdlp.matching.minScore", ConfigType.DOUBLE, false, "How similar cleaned-up titles/artists must be, 0.0-1.0 (higher = stricter)"),
+    YTDLP_MATCHING_ALIGN_SWITCH("ytdlp.matching.alignSwitch", ConfigType.BOOLEAN, false, "Try to line up Switch to library copy with the same point in the song, instead of starting at 0:00");
     
     private final String key;
     private final ConfigType type;

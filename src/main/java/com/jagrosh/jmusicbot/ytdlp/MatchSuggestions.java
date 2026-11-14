@@ -15,15 +15,22 @@
  */
 package com.jagrosh.jmusicbot.ytdlp;
 
+import java.nio.file.Path;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalDouble;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -32,6 +39,7 @@ import java.util.function.BooleanSupplier;
 import com.jagrosh.jmusicbot.Bot;
 import com.jagrosh.jmusicbot.audio.AudioHandler;
 import com.jagrosh.jmusicbot.audio.QueuedTrack;
+import com.jagrosh.jmusicbot.audio.RecentFrames;
 import com.jagrosh.jmusicbot.audio.RequestMetadata;
 import com.jagrosh.jmusicbot.listener.interaction.ComponentIdParsers;
 import com.jagrosh.jmusicbot.listener.interaction.InteractionGuards;
@@ -79,6 +87,9 @@ public final class MatchSuggestions {
     private final YtDlpService service;
     private final @Nullable YtDlpPrompt prompt;
     private final ScheduledExecutorService scheduler;
+    /** Runs the alignment job off the caller's (JDA event) thread; owned by {@link YtDlpService}. */
+    private final ExecutorService alignmentExecutor;
+    private final Aligner aligner;
     /**
      * The open suggestions per guild, keyed by suggestion id: several can be open at once (one
      * per queued song that matched, plus at most one for the currently playing track).
@@ -121,12 +132,46 @@ public final class MatchSuggestions {
         }
     }
 
+    /** What a Switch (or queued-removed) press tells the user: a public edit of the suggestion
+     *  message, or (queued-gone only) an ephemeral reply that leaves its text alone and clears
+     *  its buttons separately. */
+    private record SwitchOutcome(String reply, boolean ephemeralOnly) {
+        static SwitchOutcome publicEdit(String reply) {
+            return new SwitchOutcome(reply, false);
+        }
+
+        static SwitchOutcome ephemeral(String reply) {
+            return new SwitchOutcome(reply, true);
+        }
+    }
+
+    /**
+     * Seam for the Switch alignment job (see {@code research_notes/2026-11-14-switch-alignment.md}),
+     * so tests can stub it without touching the real decode. The default just calls
+     * {@link AlignmentJob#run}.
+     */
+    @FunctionalInterface
+    public interface Aligner {
+        Aligner DEFAULT = AlignmentJob::run;
+
+        Optional<SwitchAligner.Alignment> run(RecentFrames.Snapshot snapshot, Path libraryFile,
+                                              long streamLengthMs, long libraryLengthMs);
+    }
+
     public MatchSuggestions(Bot bot, YtDlpService service, @Nullable YtDlpPrompt prompt,
-                            ScheduledExecutorService scheduler) {
+                            ScheduledExecutorService scheduler, ExecutorService alignmentExecutor) {
+        this(bot, service, prompt, scheduler, alignmentExecutor, Aligner.DEFAULT);
+    }
+
+    /** @param aligner lets tests stub the alignment job; production always passes {@link Aligner#DEFAULT}. */
+    public MatchSuggestions(Bot bot, YtDlpService service, @Nullable YtDlpPrompt prompt,
+                            ScheduledExecutorService scheduler, ExecutorService alignmentExecutor, Aligner aligner) {
         this.bot = bot;
         this.service = service;
         this.prompt = prompt;
         this.scheduler = scheduler;
+        this.alignmentExecutor = alignmentExecutor;
+        this.aligner = aligner;
     }
 
     /**
@@ -480,79 +525,161 @@ public final class MatchSuggestions {
         }
         // Acknowledge before touching the player/queue; the outcome follows through the hook.
         event.deferEdit().queue(null, error -> { });
-        String reply = switchSuggestion(guild, suggestion);
-        if (NOT_IN_QUEUE.equals(reply)) {
-            // The suggestion message still names a song that no longer makes sense to show as
-            // "switched" or otherwise publicly edited: tell the presser privately instead, and
-            // just clear the buttons (the text is left alone).
-            event.getHook().editOriginalComponents().queue(null, error -> { });
-            event.getHook().sendMessage(reply).setEphemeral(true).queue(null, error -> { });
-        } else {
-            event.getHook().editOriginal(reply).setComponents().queue(null, error -> { });
-        }
+        dispatchSwitch(guild, suggestion, event);
     }
 
     /**
      * Picks the right Switch path: if the suggested track is now playing (whether it was posted
-     * at queue time or at play time), the play-time swap applies, same timestamp and all. A queued
-     * suggestion whose track hasn't started yet swaps the queue slot instead. A play-time
-     * suggestion whose track isn't playing anymore has nothing left to switch: expired.
+     * at queue time or at play time), it tries to line up the library copy with the stream
+     * before swapping, off this (caller's) thread (see {@link #switchPlaying}); the outcome
+     * reaches the hook later. A queued suggestion whose track hasn't started yet swaps the queue
+     * slot instead, starting at 0 (never aligned). A play-time suggestion whose track isn't
+     * playing anymore has nothing left to switch: expired.
      */
-    private String switchSuggestion(Guild guild, Suggestion suggestion) {
+    private void dispatchSwitch(Guild guild, Suggestion suggestion, ButtonInteractionEvent event) {
         AudioHandler handler = handler(guild);
         AudioTrack current = handler == null ? null : handler.getPlayer().getPlayingTrack();
-        if (current == suggestion.track) {
-            return switchToLibraryCopy(guild, suggestion);
+        if (handler != null && current == suggestion.track) {
+            switchPlaying(guild, handler, current, suggestion, event);
+            return;
         }
         if (suggestion.queued) {
-            return switchQueuedEntry(handler, suggestion);
+            respond(event, switchQueuedEntry(handler, suggestion));
+            return;
         }
-        return switchToLibraryCopy(guild, suggestion);
+        respond(event, SwitchOutcome.publicEdit(EXPIRED));
     }
 
-    /** Replaces the requested track with the library copy; returns the message to show. */
-    private String switchToLibraryCopy(Guild guild, Suggestion suggestion) {
-        AudioHandler handler = handler(guild);
-        AudioTrack current = handler == null ? null : handler.getPlayer().getPlayingTrack();
-        if (current != suggestion.track) {
-            return EXPIRED;
-        }
+    /**
+     * Replaces the currently playing {@code current} with its library copy. Snapshots the ring
+     * (when alignment is on) and kicks the alignment job off this thread, with a hard 1 s
+     * timeout; the result reaches {@link #finishSwitchPlaying} later, never from here.
+     */
+    private void switchPlaying(Guild guild, AudioHandler handler, AudioTrack current, Suggestion suggestion,
+                               ButtonInteractionEvent event) {
         Optional<LibraryEntry> entry = service.library().find(suggestion.entry.key());
         if (entry.isEmpty()) {
-            return "The library copy is gone.";
+            respond(event, SwitchOutcome.publicEdit("The library copy is gone."));
+            return;
+        }
+        LibraryEntry target = entry.get();
+        long currentPosMs = safePosition(current);
+        AudioTrackInfo info = current.getInfo();
+        long streamLengthMs = info == null ? 0L : info.length;
+        long libraryLengthMs = target.lengthMs();
+        boolean alignOn = service.settings().alignSwitch();
+        RecentFrames.Snapshot snapshot = alignOn ? handler.snapshotRecentFrames() : null;
+        Path libraryFile = target.file();
+        try {
+            alignmentExecutor.execute(() -> runAlignmentAndFinish(guild, suggestion, target, currentPosMs,
+                    streamLengthMs, libraryLengthMs, alignOn, snapshot, libraryFile, event));
+        } catch (RuntimeException ex) { // e.g. the alignment executor is shut down
+            LOGGER.debug("Couldn't schedule Switch alignment for {}: {}", suggestion.requestedKey, ex.toString());
+            finishSwitchPlaying(guild, suggestion, target, 0L, event);
+        }
+    }
+
+    /**
+     * Runs off the caller's thread: tries the alignment job (unless {@code alignOn} is false)
+     * with a hard 1 s timeout, cancelling it on a timeout so its decode stops; logs the one
+     * summary line for this press, then hands off to {@link #finishSwitchPlaying}.
+     */
+    private void runAlignmentAndFinish(Guild guild, Suggestion suggestion, LibraryEntry target, long currentPosMs,
+                                       long streamLengthMs, long libraryLengthMs, boolean alignOn,
+                                       @Nullable RecentFrames.Snapshot snapshot, @Nullable Path libraryFile,
+                                       ButtonInteractionEvent event) {
+        Optional<SwitchAligner.Alignment> alignment = Optional.empty();
+        String reason = "off";
+        if (alignOn) {
+            reason = "rejected";
+            try {
+                Future<Optional<SwitchAligner.Alignment>> future = alignmentExecutor.submit(
+                        () -> aligner.run(snapshot, libraryFile, streamLengthMs, libraryLengthMs));
+                try {
+                    alignment = future.get(1, TimeUnit.SECONDS);
+                } catch (TimeoutException ex) {
+                    future.cancel(true);
+                    reason = "timeout";
+                } catch (ExecutionException ex) {
+                    future.cancel(true);
+                    reason = "error";
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    future.cancel(true);
+                    reason = "interrupted";
+                }
+            } catch (RuntimeException ex) { // e.g. the alignment executor is shut down
+                reason = "error";
+            }
+        }
+        long startMs = 0L;
+        String outcome;
+        if (alignment.isPresent()) {
+            OptionalLong t = AlignmentJob.targetPosition(currentPosMs, alignment.get(), libraryLengthMs);
+            if (t.isPresent()) {
+                startMs = t.getAsLong();
+                outcome = "accepted";
+            } else {
+                outcome = "fallback(out-of-range)";
+            }
+        } else {
+            outcome = "fallback(" + reason + ")";
+        }
+        LOGGER.info("Switch alignment for {}: r={} margin={} offset={} -> {}", suggestion.requestedKey,
+                alignment.map(a -> String.format(Locale.ROOT, "%.2f", a.r())).orElse("-"),
+                alignment.map(a -> String.format(Locale.ROOT, "%.2f", a.margin())).orElse("-"),
+                alignment.map(a -> String.valueOf(a.offsetMs())).orElse("-"), outcome);
+        finishSwitchPlaying(guild, suggestion, target, startMs, event);
+    }
+
+    /**
+     * Re-checks that {@code suggestion.track} is still playing (it may have changed while the
+     * alignment job ran): if so, replaces it with the library copy at {@code startMs}; otherwise
+     * nothing changes, and the press is reported as expired.
+     */
+    private void finishSwitchPlaying(Guild guild, Suggestion suggestion, LibraryEntry target, long startMs,
+                                     ButtonInteractionEvent event) {
+        AudioHandler handler = handler(guild);
+        AudioTrack current = handler == null ? null : handler.getPlayer().getPlayingTrack();
+        if (handler == null || current != suggestion.track) {
+            respond(event, SwitchOutcome.publicEdit(EXPIRED));
+            return;
         }
         boolean replaced;
         try {
-            LibraryAudioTrack copy = service.linkedCopy(current, suggestion.requestedKey, entry.get());
-            copy.setPosition(startPosition(current, entry.get()));
+            LibraryAudioTrack copy = service.linkedCopy(current, suggestion.requestedKey, target);
+            copy.setPosition(startMs);
             replaced = handler.replaceWithLibraryCopy(current, copy);
         } catch (RuntimeException ex) {
-            LOGGER.warn("Couldn't switch to library song {}: {}", suggestion.entry.key(), ex.toString());
-            return "Couldn't switch to the library copy.";
+            LOGGER.warn("Couldn't switch to library song {}: {}", target.key(), ex.toString());
+            respond(event, SwitchOutcome.publicEdit("Couldn't switch to the library copy."));
+            return;
         }
         if (!replaced) {
-            return EXPIRED;
+            respond(event, SwitchOutcome.publicEdit(EXPIRED));
+            return;
         }
-        service.rememberLink(suggestion.requestedKey, entry.get().key());
-        LOGGER.info("Switched {} to library song {} in guild {}", suggestion.requestedKey, entry.get().key(),
+        service.rememberLink(suggestion.requestedKey, target.key());
+        LOGGER.info("Switched {} to library song {} in guild {}", suggestion.requestedKey, target.key(),
                 suggestion.guildId);
-        return SWITCHED;
+        respond(event, SwitchOutcome.publicEdit(SWITCHED));
     }
 
     /**
      * Swaps the library copy into the queue slot that still holds the suggested track, keeping
      * its position and the requester's metadata, so the stream is never played. The copy starts
-     * from the beginning: there's no "current position" for a song that hasn't started. The swap
-     * only touches the slot found to hold the exact track instance the suggestion was made for.
+     * from the beginning: there's no "current position" for a song that hasn't started (and a
+     * queued Switch never aligns). The swap only touches the slot found to hold the exact track
+     * instance the suggestion was made for.
      */
-    private String switchQueuedEntry(@Nullable AudioHandler handler, Suggestion suggestion) {
+    private SwitchOutcome switchQueuedEntry(@Nullable AudioHandler handler, Suggestion suggestion) {
         AbstractQueue<QueuedTrack> queue = handler == null ? null : handler.getQueue();
         if (queue == null) {
-            return NOT_IN_QUEUE;
+            return SwitchOutcome.ephemeral(NOT_IN_QUEUE);
         }
         Optional<LibraryEntry> entry = service.library().find(suggestion.entry.key());
         if (entry.isEmpty()) {
-            return "The library copy is gone.";
+            return SwitchOutcome.publicEdit("The library copy is gone.");
         }
         AtomicBoolean swapped = new AtomicBoolean(false);
         AtomicReference<RuntimeException> failure = new AtomicReference<>();
@@ -574,30 +701,36 @@ public final class MatchSuggestions {
         RuntimeException ex = failure.get();
         if (ex != null) {
             LOGGER.warn("Couldn't switch queued song to library song {}: {}", suggestion.entry.key(), ex.toString());
-            return "Couldn't switch to the library copy.";
+            return SwitchOutcome.publicEdit("Couldn't switch to the library copy.");
         }
         if (!swapped.get()) {
-            return NOT_IN_QUEUE;
+            // E.g. it was removed, or skipped out of the queue, between the suggestion and this press.
+            return SwitchOutcome.ephemeral(NOT_IN_QUEUE);
         }
         service.rememberLink(suggestion.requestedKey, entry.get().key());
         LOGGER.info("Switched queued {} to library song {} in guild {}", suggestion.requestedKey, entry.get().key(),
                 suggestion.guildId);
-        return SWITCHED;
+        return SwitchOutcome.publicEdit(SWITCHED);
     }
 
-    /** The requested track's position, kept below the library copy's length so it doesn't end at once. */
-    private static long startPosition(AudioTrack current, LibraryEntry entry) {
-        long position;
+    /** Sends a {@link SwitchOutcome}: a public edit of the suggestion message, or (queued-gone
+     *  only) an ephemeral reply with the message's buttons cleared but its text left alone. */
+    private static void respond(ButtonInteractionEvent event, SwitchOutcome outcome) {
+        if (outcome.ephemeralOnly()) {
+            event.getHook().editOriginalComponents().queue(null, error -> { });
+            event.getHook().sendMessage(outcome.reply()).setEphemeral(true).queue(null, error -> { });
+            return;
+        }
+        event.getHook().editOriginal(outcome.reply()).setComponents().queue(null, error -> { });
+    }
+
+    /** {@code track}'s position, or 0 if it can't be read. */
+    private static long safePosition(AudioTrack track) {
         try {
-            position = Math.max(0L, current.getPosition());
+            return Math.max(0L, track.getPosition());
         } catch (RuntimeException ex) {
-            position = 0L;
+            return 0L;
         }
-        long length = entry.lengthMs();
-        if (length > 0 && position >= length - 1_000L) {
-            position = Math.max(0L, length - 1_000L);
-        }
-        return position;
     }
 
     // ---- helpers ----

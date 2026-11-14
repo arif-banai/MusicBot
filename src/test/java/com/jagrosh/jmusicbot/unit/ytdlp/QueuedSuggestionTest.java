@@ -21,6 +21,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.concurrent.AbstractExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -166,10 +167,21 @@ class QueuedSuggestionTest {
 
     private MatchSuggestions suggestions() {
         YtDlpSettings settings = new YtDlpSettings("yt-dlp", Mode.PROMPT, libraryFolder, "ytdlp-library", 0, 300,
-                List.of(), 120, true, true, 5, 0.85);
+                List.of(), 120, true, true, 5, 0.85, true);
         YtDlpService service = new YtDlpService(settings, library, mock(YtDlpDownloader.class),
                 mock(ProcessRunner.class), Runnable::run);
-        return new MatchSuggestions(bot, service, prompt, scheduler);
+        return new MatchSuggestions(bot, service, prompt, scheduler, new DirectExecutor());
+    }
+
+    /** Runs every task synchronously, on the calling thread: these tests don't need real alignment
+     *  threading, only that the play-time Switch path still runs when a queued entry is playing. */
+    private static final class DirectExecutor extends AbstractExecutorService {
+        @Override public void execute(Runnable command) { command.run(); }
+        @Override public void shutdown() { }
+        @Override public List<Runnable> shutdownNow() { return List.of(); }
+        @Override public boolean isShutdown() { return false; }
+        @Override public boolean isTerminated() { return false; }
+        @Override public boolean awaitTermination(long timeout, TimeUnit unit) { return true; }
     }
 
     private static RequestMetadata requestMetadata() {

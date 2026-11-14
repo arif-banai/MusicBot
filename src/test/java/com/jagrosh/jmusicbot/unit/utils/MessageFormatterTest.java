@@ -340,7 +340,7 @@ class MessageFormatterTest
         private YtDlpService ytDlpService(boolean path, boolean downloadButton) {
             YtDlpSettings settings = new YtDlpSettings(path ? "yt-dlp" : "", YtDlpSettings.Mode.PROMPT,
                     libraryFolder, "ytdlp-library", 5, 300, List.of(), 120,
-                    downloadButton, true, 5, 0.85);
+                    downloadButton, true, 5, 0.85, true);
             YtDlpLibrary library = new YtDlpLibrary(libraryFolder, libraryFolder.resolve("pl.txt"));
             return new YtDlpService(settings, library, mock(YtDlpDownloader.class), mock(ProcessRunner.class),
                     Runnable::run);

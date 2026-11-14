@@ -110,7 +110,7 @@ public final class AlignmentJob {
                 int first = ring.length - rows;
                 Optional<Alignment> m = SwitchAligner.match(Arrays.copyOfRange(ring, first, ring.length),
                         libFeatures, lib.startMs(), ringStartMs + first * FRAME_MS);
-                LOGGER.info("Switch alignment {} s query: r={} margin={} offset={} ms", seconds,
+                LOGGER.debug("Switch alignment {} s query: r={} margin={} offset={} ms", seconds,
                         m.map(a -> String.format(Locale.ROOT, "%.2f", a.r())).orElse("-"),
                         m.map(a -> String.format(Locale.ROOT, "%.2f", a.margin())).orElse("-"),
                         m.map(a -> String.valueOf(a.offsetMs())).orElse("-"));

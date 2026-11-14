@@ -46,6 +46,32 @@ class YtDlpSettingsTest {
         assertTrue(settings.matchingEnabled());
         assertEquals(10, settings.durationToleranceSeconds());
         assertEquals(0.85, settings.minScore(), 1e-9);
+        assertTrue(settings.alignSwitch());
+    }
+
+    @Test
+    @DisplayName("alignSwitch defaults to true")
+    void alignSwitch_defaultTrue() {
+        assertTrue(YtDlpSettings.DEFAULT_ALIGN_SWITCH);
+
+        Config config = ConfigFactory.parseResources("reference.conf");
+        YtDlpSettings settings = YtDlpSettings.fromConfig(config);
+
+        assertTrue(settings.alignSwitch());
+    }
+
+    @Test
+    @DisplayName("alignSwitch is read from the matching block, and old configs without it default to true")
+    void alignSwitch_readFromConfig() {
+        Config off = ConfigFactory.parseString("ytdlp.matching.alignSwitch = false")
+                .withFallback(ConfigFactory.parseResources("reference.conf"));
+        Config missing = ConfigFactory.parseString("""
+                ytdlp { path = "", mode = "prompt", libraryFolder = "lib", libraryPlaylist = "lib",
+                        delaySeconds = 5, timeoutSeconds = 300, extraArgs = [], promptTimeoutSeconds = 120 }
+                """);
+
+        assertFalse(YtDlpSettings.fromConfig(off).alignSwitch());
+        assertTrue(YtDlpSettings.fromConfig(missing).alignSwitch());
     }
 
     @Test
@@ -111,6 +137,7 @@ class YtDlpSettingsTest {
         assertTrue(settings.matchingEnabled());
         assertEquals(10, settings.durationToleranceSeconds());
         assertEquals(0.85, settings.minScore(), 1e-9);
+        assertTrue(settings.alignSwitch());
     }
 
     @Test

@@ -73,6 +73,12 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
     private final long guildId;
     /** Listener for audio metrics events. Uses NO_OP implementation in no-GUI mode. */
     private final AudioMetricsListener metricsListener;
+    /**
+     * The last 30 s of Opus frames sent to Discord, used to line up "Switch to library copy"
+     * with the stream (see {@code research_notes/2026-11-14-switch-alignment.md}). Only filled
+     * in while yt-dlp matching and alignment are both on.
+     */
+    private final RecentFrames recentFrames = new RecentFrames(1500);
 
     private AudioFrame lastFrame;
     private AbstractQueue<QueuedTrack> queue;
@@ -947,6 +953,8 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
     @Override
     public void onTrackStart(AudioPlayer player, AudioTrack track)
     {
+        recentFrames.clear();
+
         // Access the metadata object
         var info = track.getInfo();
 
@@ -1191,26 +1199,44 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
     
     // Audio Send Handler methods
     @Override
-    public boolean canProvide() 
+    public boolean canProvide()
     {
         long startNanos = System.nanoTime();
         lastFrame = audioPlayer.provide();
         long latencyNanos = System.nanoTime() - startNanos;
-        
+
         boolean frameAvailable = lastFrame != null;
         metricsListener.onFrameProvided(frameAvailable, latencyNanos);
-        
+        if (frameAvailable && shouldTrackRecentFrames())
+        {
+            recentFrames.add(lastFrame.getData(), lastFrame.getTimecode());
+        }
+
         return frameAvailable;
     }
-    
+
+    /** Whether the Switch alignment ring should be filled in: yt-dlp matching and alignment both on. */
+    private boolean shouldTrackRecentFrames()
+    {
+        YtDlpService ytDlp = ytDlp();
+        return ytDlp != null && ytDlp.isEnabled() && ytDlp.settings().matchingEnabled()
+                && ytDlp.settings().alignSwitch();
+    }
+
+    /** A snapshot of the ring of recently sent Opus frames, for Switch alignment. */
+    public RecentFrames.Snapshot snapshotRecentFrames()
+    {
+        return recentFrames.snapshot();
+    }
+
     /**
      * Gets the performance metrics for this audio handler.
      *
      * @return the performance metrics instance, or null if running in no-GUI mode
      */
     public PerformanceMetrics getPerformanceMetrics() {
-        return metricsListener instanceof PerformanceMetrics 
-            ? (PerformanceMetrics) metricsListener 
+        return metricsListener instanceof PerformanceMetrics
+            ? (PerformanceMetrics) metricsListener
             : null;
     }
 

@@ -22,9 +22,13 @@ import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
 import com.jagrosh.jmusicbot.Bot;
@@ -66,6 +70,8 @@ public final class YtDlpService {
     private volatile @Nullable YtDlpPrompt prompt;
     private volatile @Nullable MatchSuggestions matchSuggestions;
     private volatile @Nullable ScheduledExecutorService ownedScheduler;
+    /** Runs Switch alignment jobs off the scheduler (which is single-threaded); see {@link MatchSuggestions}. */
+    private volatile @Nullable ExecutorService alignmentExecutor;
     /** Runs library index updates off the player and audio threads. */
     private final Executor background;
 
@@ -126,10 +132,19 @@ public final class YtDlpService {
             t.setDaemon(true);
             return t;
         });
+        // Small and bounded: a Switch press needs at most two concurrent tasks here (the wait, and
+        // the alignment job it waits on); it creates threads on demand and lets them die when idle.
+        ExecutorService alignmentExecutor = new ThreadPoolExecutor(0, 4, 60L, TimeUnit.SECONDS,
+                new SynchronousQueue<>(), r -> {
+                    Thread t = new Thread(r, "ytdlp-align");
+                    t.setDaemon(true);
+                    return t;
+                });
         YtDlpService service = new YtDlpService(settings, library, downloader, runner, scheduler);
         service.ownedScheduler = scheduler;
+        service.alignmentExecutor = alignmentExecutor;
         service.prompt = new YtDlpPrompt(bot, service, new PendingPrompts(), scheduler);
-        service.matchSuggestions = new MatchSuggestions(bot, service, service.prompt, scheduler);
+        service.matchSuggestions = new MatchSuggestions(bot, service, service.prompt, scheduler, alignmentExecutor);
         return service;
     }
 
@@ -173,12 +188,16 @@ public final class YtDlpService {
                 + "check ytdlp.path in your config.", settings.path(), failure);
     }
 
-    /** Stops the download worker and the prompt timers. Safe to call more than once. */
+    /** Stops the download worker, the prompt timers and the alignment executor. Safe to call more than once. */
     public void shutdown() {
         downloader.shutdown();
         ScheduledExecutorService scheduler = ownedScheduler;
         if (scheduler != null) {
             scheduler.shutdownNow();
+        }
+        ExecutorService align = alignmentExecutor;
+        if (align != null) {
+            align.shutdownNow();
         }
     }
 

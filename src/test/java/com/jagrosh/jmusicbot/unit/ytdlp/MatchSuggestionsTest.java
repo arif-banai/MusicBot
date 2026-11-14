@@ -21,9 +21,16 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.AbstractExecutorService;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 import com.jagrosh.jmusicbot.Bot;
@@ -37,6 +44,7 @@ import com.jagrosh.jmusicbot.ytdlp.LibraryEntry;
 import com.jagrosh.jmusicbot.ytdlp.MatchSuggestions;
 import com.jagrosh.jmusicbot.ytdlp.ProcessRunner;
 import com.jagrosh.jmusicbot.ytdlp.SongMatcher;
+import com.jagrosh.jmusicbot.ytdlp.SwitchAligner;
 import com.jagrosh.jmusicbot.ytdlp.YtDlpDownloader;
 import com.jagrosh.jmusicbot.ytdlp.YtDlpLibrary;
 import com.jagrosh.jmusicbot.ytdlp.YtDlpPrompt;
@@ -73,6 +81,7 @@ import org.mockito.MockedStatic;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -84,6 +93,7 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -164,18 +174,38 @@ class MatchSuggestionsTest {
     }
 
     private YtDlpSettings settings(String path, boolean matching) {
+        return settings(path, matching, true);
+    }
+
+    private YtDlpSettings settings(String path, boolean matching, boolean alignSwitch) {
         return new YtDlpSettings(path, Mode.PROMPT, libraryFolder, "ytdlp-library", 0, 300, List.of(), 120,
-                true, matching, 5, 0.85);
+                true, matching, 5, 0.85, alignSwitch);
     }
 
     private MatchSuggestions suggestions(YtDlpSettings settings) {
+        return suggestions(settings, new DirectExecutor(), MatchSuggestions.Aligner.DEFAULT);
+    }
+
+    private MatchSuggestions suggestions(YtDlpSettings settings, ExecutorService alignmentExecutor,
+                                         MatchSuggestions.Aligner aligner) {
         YtDlpService service = new YtDlpService(settings, library, mock(YtDlpDownloader.class),
                 mock(ProcessRunner.class), Runnable::run);
-        return new MatchSuggestions(bot, service, prompt, scheduler);
+        return new MatchSuggestions(bot, service, prompt, scheduler, alignmentExecutor, aligner);
     }
 
     private MatchSuggestions suggestions() {
         return suggestions(settings("yt-dlp", true));
+    }
+
+    /** Runs every task synchronously, on the calling thread: keeps the Switch flow's old,
+     *  deterministic ordering for tests that don't care about real alignment threading. */
+    private static final class DirectExecutor extends AbstractExecutorService {
+        @Override public void execute(Runnable command) { command.run(); }
+        @Override public void shutdown() { }
+        @Override public List<Runnable> shutdownNow() { return List.of(); }
+        @Override public boolean isShutdown() { return false; }
+        @Override public boolean isTerminated() { return false; }
+        @Override public boolean awaitTermination(long timeout, TimeUnit unit) { return true; }
     }
 
     private static RequestMetadata requestMetadata() {
@@ -477,7 +507,8 @@ class MatchSuggestionsTest {
     // ---- Switch ----
 
     @Test
-    @DisplayName("Switch links the songs, replaces the stream at the current position, and acknowledges once")
+    @DisplayName("Switch links the songs, replaces the stream (no alignment data: starts at 0:00), and "
+            + "acknowledges once")
     void switch_linksAndReplaces() {
         MatchSuggestions suggestions = suggestions();
         AudioTrack request = playingRequest();
@@ -493,7 +524,9 @@ class MatchSuggestionsTest {
         LibraryAudioTrack copy = (LibraryAudioTrack) replacement.getValue();
         assertEquals(LIB_ID, copy.getKey());
         assertEquals(REQ_ID, copy.getLinkedFrom());
-        assertEquals(42_000L, copy.getPosition());
+        // No real ring/alignment data is available in this test (the handler is a bare mock), so
+        // the alignment job is rejected and the spec default (0:00) applies (controller ruling R2).
+        assertEquals(0L, copy.getPosition());
         assertEquals(requestMetadata().getOwner(), copy.getUserData(RequestMetadata.class).getOwner());
         verify(event, times(1)).deferEdit();
         verify(event.getHook()).editOriginal(argThat((String s) -> s.contains("Switched to the library copy")));
@@ -535,19 +568,136 @@ class MatchSuggestionsTest {
         verify(channel, never()).sendMessage(any(CharSequence.class));
     }
 
+    // ---- Switch alignment ----
+
+    private MatchSuggestions suggestionsWithAligner(MatchSuggestions.Aligner aligner) {
+        return suggestions(settings("yt-dlp", true), new DirectExecutor(), aligner);
+    }
+
     @Test
-    @DisplayName("Switch caps the start position below the library copy's length")
-    void switch_capsPosition() {
-        MatchSuggestions suggestions = suggestions();
+    @DisplayName("an accepted alignment seeks to the current position plus the offset")
+    void switch_alignmentAccepted_seeksToOffset() {
+        MatchSuggestions.Aligner stub = (snap, file, streamLen, libLen) ->
+                Optional.of(new SwitchAligner.Alignment(-3_100L, 0.9, 0.3));
+        MatchSuggestions suggestions = suggestionsWithAligner(stub);
         AudioTrack request = playingRequest();
-        when(request.getPosition()).thenReturn(168_500L);
+        when(request.getPosition()).thenReturn(45_000L);
         suggest(suggestions, request);
 
         suggestions.handlePress(pressEvent(REQUESTER, MESSAGE), switchId());
 
         ArgumentCaptor<AudioTrack> replacement = ArgumentCaptor.forClass(AudioTrack.class);
         verify(handler).replaceWithLibraryCopy(eq(request), replacement.capture());
-        assertTrue(replacement.getValue().getPosition() < 168_000L);
+        assertEquals(45_000L - 3_100L, replacement.getValue().getPosition());
+    }
+
+    @Test
+    @DisplayName("a rejected alignment (empty) starts at 0:00")
+    void switch_alignmentRejected_startsAtZero() {
+        MatchSuggestions.Aligner stub = (snap, file, streamLen, libLen) -> Optional.empty();
+        MatchSuggestions suggestions = suggestionsWithAligner(stub);
+        AudioTrack request = playingRequest();
+        when(request.getPosition()).thenReturn(45_000L);
+        suggest(suggestions, request);
+
+        suggestions.handlePress(pressEvent(REQUESTER, MESSAGE), switchId());
+
+        ArgumentCaptor<AudioTrack> replacement = ArgumentCaptor.forClass(AudioTrack.class);
+        verify(handler).replaceWithLibraryCopy(eq(request), replacement.capture());
+        assertEquals(0L, replacement.getValue().getPosition());
+    }
+
+    @Test
+    @DisplayName("alignSwitch off: starts at 0:00 and the alignment job never runs")
+    void switch_alignSwitchOff_startsAtZero_noJob() {
+        AtomicBoolean called = new AtomicBoolean(false);
+        MatchSuggestions.Aligner stub = (snap, file, streamLen, libLen) -> {
+            called.set(true);
+            return Optional.of(new SwitchAligner.Alignment(-3_100L, 0.9, 0.3));
+        };
+        MatchSuggestions suggestions = suggestions(settings("yt-dlp", true, false), new DirectExecutor(), stub);
+        AudioTrack request = playingRequest();
+        when(request.getPosition()).thenReturn(45_000L);
+        suggest(suggestions, request);
+
+        suggestions.handlePress(pressEvent(REQUESTER, MESSAGE), switchId());
+
+        assertFalse(called.get(), "alignSwitch off must never run the alignment job");
+        ArgumentCaptor<AudioTrack> replacement = ArgumentCaptor.forClass(AudioTrack.class);
+        verify(handler).replaceWithLibraryCopy(eq(request), replacement.capture());
+        assertEquals(0L, replacement.getValue().getPosition());
+    }
+
+    @Test
+    @DisplayName("the playing track changes while aligning: nothing is replaced, and the press expires")
+    void switch_trackChangedWhileAligning_expires() {
+        AudioTrack other = mock(AudioTrack.class);
+        MatchSuggestions.Aligner stub = (snap, file, streamLen, libLen) -> {
+            when(player.getPlayingTrack()).thenReturn(other); // the track changes mid-alignment
+            return Optional.of(new SwitchAligner.Alignment(-3_100L, 0.9, 0.3));
+        };
+        MatchSuggestions suggestions = suggestionsWithAligner(stub);
+        AudioTrack request = playingRequest();
+        suggest(suggestions, request);
+        ButtonInteractionEvent event = pressEvent(REQUESTER, MESSAGE);
+
+        suggestions.handlePress(event, switchId());
+
+        verify(handler, never()).replaceWithLibraryCopy(any(), any());
+        verify(event.getHook()).editOriginal(argThat((String s) -> s.contains("expired")));
+    }
+
+    @Test
+    @DisplayName("the alignment job runs off the caller's thread")
+    void switch_runsOffEventThread() throws InterruptedException {
+        Thread callerThread = Thread.currentThread();
+        AtomicReference<Thread> sawThread = new AtomicReference<>();
+        CountDownLatch done = new CountDownLatch(1);
+        MatchSuggestions.Aligner stub = (snap, file, streamLen, libLen) -> {
+            sawThread.set(Thread.currentThread());
+            done.countDown();
+            return Optional.empty();
+        };
+        ExecutorService realExecutor = Executors.newCachedThreadPool();
+        try {
+            MatchSuggestions suggestions = suggestions(settings("yt-dlp", true), realExecutor, stub);
+            AudioTrack request = playingRequest();
+            suggest(suggestions, request);
+
+            suggestions.handlePress(pressEvent(REQUESTER, MESSAGE), switchId());
+
+            assertTrue(done.await(2, TimeUnit.SECONDS), "the aligner was never invoked");
+            assertNotEquals(callerThread, sawThread.get());
+        } finally {
+            realExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("the alignment job is cancelled after 1 s; the switch falls back to 0:00 (test stays under 3 s)")
+    void switch_timeout_startsAtZero() {
+        MatchSuggestions.Aligner stub = (snap, file, streamLen, libLen) -> {
+            try {
+                Thread.sleep(2_000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return Optional.of(new SwitchAligner.Alignment(-3_100L, 0.9, 0.3));
+        };
+        ExecutorService realExecutor = Executors.newCachedThreadPool();
+        try {
+            MatchSuggestions suggestions = suggestions(settings("yt-dlp", true), realExecutor, stub);
+            AudioTrack request = playingRequest();
+            suggest(suggestions, request);
+
+            suggestions.handlePress(pressEvent(REQUESTER, MESSAGE), switchId());
+
+            ArgumentCaptor<AudioTrack> replacement = ArgumentCaptor.forClass(AudioTrack.class);
+            verify(handler, timeout(2_500)).replaceWithLibraryCopy(eq(request), replacement.capture());
+            assertEquals(0L, replacement.getValue().getPosition());
+        } finally {
+            realExecutor.shutdownNow();
+        }
     }
 
     @Test

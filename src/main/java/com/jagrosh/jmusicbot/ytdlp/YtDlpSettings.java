@@ -33,7 +33,7 @@ import org.slf4j.LoggerFactory;
 public record YtDlpSettings(String path, Mode mode, Path libraryFolder, String libraryPlaylist,
                              int delaySeconds, int timeoutSeconds, List<String> extraArgs,
                              int promptTimeoutSeconds, boolean downloadButton, boolean matchingEnabled,
-                             int durationToleranceSeconds, double minScore) {
+                             int durationToleranceSeconds, double minScore, boolean alignSwitch) {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(YtDlpSettings.class);
 
@@ -43,13 +43,14 @@ public record YtDlpSettings(String path, Mode mode, Path libraryFolder, String l
     public static final double DEFAULT_MIN_SCORE = 0.85;
     /** Upper bound for {@code matching.durationToleranceSeconds}; larger values are clamped to it. */
     public static final int MAX_DURATION_TOLERANCE_SECONDS = 60;
+    public static final boolean DEFAULT_ALIGN_SWITCH = true;
 
     /** Settings with the {@code downloadButton} and {@code matching.*} defaults. */
     public YtDlpSettings(String path, Mode mode, Path libraryFolder, String libraryPlaylist,
                          int delaySeconds, int timeoutSeconds, List<String> extraArgs, int promptTimeoutSeconds) {
         this(path, mode, libraryFolder, libraryPlaylist, delaySeconds, timeoutSeconds, extraArgs, promptTimeoutSeconds,
                 DEFAULT_DOWNLOAD_BUTTON, DEFAULT_MATCHING_ENABLED, DEFAULT_DURATION_TOLERANCE_SECONDS,
-                DEFAULT_MIN_SCORE);
+                DEFAULT_MIN_SCORE, DEFAULT_ALIGN_SWITCH);
     }
 
     /**
@@ -116,10 +117,12 @@ public record YtDlpSettings(String path, Mode mode, Path libraryFolder, String l
                 : DEFAULT_DURATION_TOLERANCE_SECONDS;
         double minScore = ConfigOption.YTDLP_MATCHING_MIN_SCORE.hasValue(config)
                 ? ConfigOption.YTDLP_MATCHING_MIN_SCORE.getDouble(config) : DEFAULT_MIN_SCORE;
+        boolean alignSwitch = ConfigOption.YTDLP_MATCHING_ALIGN_SWITCH.hasValue(config)
+                ? ConfigOption.YTDLP_MATCHING_ALIGN_SWITCH.getBoolean(config) : DEFAULT_ALIGN_SWITCH;
 
         return new YtDlpSettings(path, mode, libraryFolder, libraryPlaylist, delaySeconds, timeoutSeconds,
                 extraArgs, promptTimeoutSeconds, downloadButton, matchingEnabled,
-                clampTolerance(durationTolerance), clampMinScore(minScore));
+                clampTolerance(durationTolerance), clampMinScore(minScore), alignSwitch);
     }
 
     private static int clampTolerance(int raw) {
