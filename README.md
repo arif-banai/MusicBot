@@ -325,8 +325,6 @@ At startup the bot runs `yt-dlp --version`. If that fails, it logs a warning and
 | `extraArgs` | `[]` | Extra arguments passed to yt-dlp, e.g. cookies or PO-token provider options. They come after the bot's own arguments |
 | `promptTimeoutSeconds` | `120` | Seconds to wait for a button press in `prompt` mode before skipping |
 
-Downloading from YouTube may violate YouTube's Terms of Service. Use at your own risk.
-
 ## Development Workflow
 
 This project follows a **trunk-based development** workflow. The `master` branch is always releasable, and all work happens in short-lived branches:
