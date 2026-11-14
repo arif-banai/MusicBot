@@ -156,7 +156,8 @@ public final class SongMatcher {
     /**
      * Every way a library entry can be read, each carrying the entry's ISRC (if known):
      * <ul>
-     *   <li>when the sidecar named both an artist and a track, "artist track" comes first;</li>
+     *   <li>when the sidecar named both an artist and a track, "artist track" comes first, with
+     *       the version words of both the track and the entry's title;</li>
      *   <li>a filename pair {@code {P, Q}} gives both "P is the artist, Q the title" and the reverse;</li>
      *   <li>an entry known only from its filename or tags, with no artist, is artist-less, and its
      *       title isn't split (a name with several dashes stays one title);</li>
@@ -167,7 +168,14 @@ public final class SongMatcher {
         String isrc = entry.isrc();
         List<Song> interpretations = new ArrayList<>();
         if (entry.artist() != null && !entry.artist().isBlank() && entry.track() != null && !entry.track().isBlank()) {
-            interpretations.add(build(clean(entry.track()), cleanAuthor(entry.artist()), entry.lengthMs(), isrc));
+            Song fromTrack = build(clean(entry.track()), cleanAuthor(entry.artist()), entry.lengthMs(), isrc);
+            // A sidecar's track often drops the version its title names ("X (Live)" with track "X"):
+            // keep the title's version words too, read from its title half (so an artist named
+            // "Live" isn't one).
+            Set<String> versions = new LinkedHashSet<>(fromTrack.versions());
+            versions.addAll(song(entry.title(), entry.artist(), 0L, null).versions());
+            interpretations.add(new Song(fromTrack.title(), fromTrack.artist(), fromTrack.titleText(),
+                    fromTrack.artistCompact(), fromTrack.lengthMs(), fromTrack.isrc(), versions));
         }
         List<String> parts = entry.nameParts();
         if (parts.size() == 2) {

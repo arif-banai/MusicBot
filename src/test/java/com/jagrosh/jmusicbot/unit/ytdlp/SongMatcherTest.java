@@ -321,6 +321,30 @@ class SongMatcherTest {
     }
 
     @Test
+    @DisplayName("interpretations(): an entry titled \"X (Live)\" whose sidecar track is just \"X\" never matches a studio \"X\"")
+    void artistTrack_keepsVersionWordsFromTitle() {
+        LibraryEntry live = new LibraryEntry("abc123def45", Path.of("X.webm"),
+                "Crazy Frog - Axel F (Live)", "", LEN, null, null, null, List.of(), false,
+                "Crazy Frog", "Axel F", null, null, null);
+
+        assertTrue(SongMatcher.matchScore(song("Crazy Frog - Axel F", "Crazy Frog"), live, TOLERANCE_MS, MIN_SCORE)
+                .isEmpty());
+        assertTrue(SongMatcher.matchScore(song("Crazy Frog - Axel F (Live)", "Crazy Frog"), live, TOLERANCE_MS,
+                MIN_SCORE).isPresent(), "the live upload still matches its live library copy");
+    }
+
+    @Test
+    @DisplayName("interpretations(): a version-like word in the artist's name isn't read as a version")
+    void artistTrack_artistNameIsNotAVersion() {
+        LibraryEntry entry = new LibraryEntry("abc123def46", Path.of("Y.webm"),
+                "Live - Lightning Crashes", "", LEN, null, null, null, List.of(), false,
+                "Live", "Lightning Crashes", null, null, null);
+
+        assertTrue(SongMatcher.matchScore(song("Live - Lightning Crashes", "Live"), entry, TOLERANCE_MS, MIN_SCORE)
+                .isPresent());
+    }
+
+    @Test
     @DisplayName("filename pairs: \"Artist - Title\" and \"Title - Artist\" both match the same upload")
     void nameParts_scoredBothWays() {
         Song requested = song("Crazy Frog - Axel F (Official Video)", "Crazy Frog");
