@@ -233,16 +233,33 @@ public final class YtDlpService {
             return track;
         }
 
-        Path localFile = localFile(track);
-        if (localFile != null) {
-            Optional<LibraryEntry> entry = library.findByFile(localFile);
-            if (entry.isPresent()) {
-                LibraryEntry e = entry.get();
-                return copyState(track, new LibraryAudioTrack(e.toTrackInfo(), e.videoId(), completed(e), null,
-                        track.getSourceManager()));
-            }
+        return wrapLibraryFile(track);
+    }
+
+    /**
+     * Wraps a local track whose file is already in the library index, so the queue, history
+     * and saved playlists show the library's title, author, length and URL as soon as the
+     * track is queued, instead of waiting for {@link #prepareForPlayback} at play time.
+     * Returns the same instance for a {@code null} track, a track that's already a
+     * {@link LibraryAudioTrack}, a non-local track (e.g. YouTube; those are decided only at
+     * play time), or a local file that isn't in the library index. Does no I/O beyond the
+     * in-memory index lookup.
+     */
+    public AudioTrack wrapLibraryFile(AudioTrack track) {
+        if (track == null || track instanceof LibraryAudioTrack) {
+            return track;
         }
-        return track;
+        Path localFile = localFile(track);
+        if (localFile == null) {
+            return track;
+        }
+        Optional<LibraryEntry> entry = library.findByFile(localFile);
+        if (entry.isEmpty()) {
+            return track;
+        }
+        LibraryEntry e = entry.get();
+        return copyState(track, new LibraryAudioTrack(e.toTrackInfo(), e.videoId(), completed(e), null,
+                track.getSourceManager()));
     }
 
     /**

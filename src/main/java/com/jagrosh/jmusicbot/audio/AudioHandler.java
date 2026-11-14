@@ -134,6 +134,7 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
 
     public int addTrackToFront(QueuedTrack qtrack)
     {
+        qtrack = wrapForQueue(qtrack);
         if(audioPlayer.getPlayingTrack()==null)
         {
             playPrepared(qtrack.getTrack());
@@ -146,9 +147,10 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
             return 0;
         }
     }
-    
+
     public int addTrack(QueuedTrack qtrack)
     {
+        qtrack = wrapForQueue(qtrack);
         if(audioPlayer.getPlayingTrack()==null)
         {
             playPrepared(qtrack.getTrack());
@@ -157,6 +159,34 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
 
         LOGGER.debug("Added track to queue: {}", qtrack.getTrack().getInfo().title);
         return queue.add(qtrack);
+    }
+
+    /**
+     * Swaps in the library's {@link LibraryAudioTrack} for a local track whose file is already
+     * in the yt-dlp library index, so the queue, history and saved playlists show the YouTube
+     * title as soon as the track is queued (not just once it starts playing). Every other track
+     * (YouTube, a local file not in the index, or one already wrapped) is returned unchanged.
+     */
+    private QueuedTrack wrapForQueue(QueuedTrack qtrack)
+    {
+        YtDlpService ytDlp = ytDlp();
+        if (ytDlp == null || qtrack == null)
+            return qtrack;
+        AudioTrack track = qtrack.getTrack();
+        AudioTrack wrapped;
+        try
+        {
+            wrapped = ytDlp.wrapLibraryFile(track);
+        }
+        catch (RuntimeException ex)
+        {
+            LOGGER.warn("yt-dlp library couldn't check track {} against the library index: {}",
+                    track == null ? "null" : track.getIdentifier(), ex.toString());
+            return qtrack;
+        }
+        if (wrapped == track)
+            return qtrack;
+        return new QueuedTrack(wrapped, qtrack.getRequestMetadata());
     }
     
     /**

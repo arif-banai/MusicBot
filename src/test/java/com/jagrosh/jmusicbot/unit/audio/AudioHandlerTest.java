@@ -492,6 +492,7 @@ public class AudioHandlerTest extends TestBase {
             when(bot.getYtDlp()).thenReturn(ytDlp);
             when(ytDlp.getPrompt()).thenReturn(prompt);
             when(ytDlp.prepareForPlayback(any(), anyLong())).thenAnswer(inv -> inv.getArgument(0));
+            when(ytDlp.wrapLibraryFile(any())).thenAnswer(inv -> inv.getArgument(0));
             when(jda.getGuildById(GUILD_ID)).thenReturn(guild);
             when(bot.getNowplayingHandler()).thenReturn(mock(com.jagrosh.jmusicbot.audio.NowPlayingHandler.class));
         }
@@ -553,6 +554,56 @@ public class AudioHandlerTest extends TestBase {
             audioHandler.addTrack(queued);
 
             verify(audioPlayer).playTrack(prepared);
+        }
+
+        @Test
+        @DisplayName("addTrack() queues a local library file wrapped with its YouTube title, not the filename")
+        void addTrack_localLibraryFile_queuedWithYoutubeTitle()
+        {
+            AudioTrack localFile = track("local-file");
+            LibraryAudioTrack wrapped = libraryTrack(null);
+            when(ytDlp.wrapLibraryFile(localFile)).thenReturn(wrapped);
+            QueuedTrack queued = mock(QueuedTrack.class);
+            when(queued.getTrack()).thenReturn(localFile);
+            when(audioPlayer.getPlayingTrack()).thenReturn(mock(AudioTrack.class));
+
+            audioHandler.addTrack(queued);
+
+            assertEquals(1, audioHandler.getQueue().size());
+            assertSame(wrapped, audioHandler.getQueue().get(0).getTrack());
+            assertEquals("Lib", audioHandler.getQueue().get(0).getTrack().getInfo().title);
+        }
+
+        @Test
+        @DisplayName("addTrack() leaves a local file that isn't in the library index unchanged")
+        void addTrack_localNonLibraryFile_unchanged()
+        {
+            AudioTrack localFile = track("plain-file");
+            // Default stub from setUpYtDlp: wrapLibraryFile returns the same instance (not a library file).
+            QueuedTrack queued = mock(QueuedTrack.class);
+            when(queued.getTrack()).thenReturn(localFile);
+            when(audioPlayer.getPlayingTrack()).thenReturn(mock(AudioTrack.class));
+
+            audioHandler.addTrack(queued);
+
+            assertEquals(1, audioHandler.getQueue().size());
+            assertSame(localFile, audioHandler.getQueue().get(0).getTrack());
+        }
+
+        @Test
+        @DisplayName("addTrack() leaves a YouTube track unchanged at queue time; misses are still decided at play time")
+        void addTrack_youtubeTrack_unchanged()
+        {
+            AudioTrack youtubeTrack = track("yt-video-id");
+            QueuedTrack queued = mock(QueuedTrack.class);
+            when(queued.getTrack()).thenReturn(youtubeTrack);
+            when(audioPlayer.getPlayingTrack()).thenReturn(mock(AudioTrack.class));
+
+            audioHandler.addTrack(queued);
+
+            assertEquals(1, audioHandler.getQueue().size());
+            assertSame(youtubeTrack, audioHandler.getQueue().get(0).getTrack());
+            verify(ytDlp, never()).prepareForPlayback(any(), anyLong());
         }
 
         private FriendlyException blockedBy(AudioTrack blocked, Optional<AudioTrack> hold, boolean offer)

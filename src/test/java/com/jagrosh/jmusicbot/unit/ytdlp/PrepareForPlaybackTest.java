@@ -244,4 +244,50 @@ class PrepareForPlaybackTest {
         assertSame(yt, service("yt-dlp", Mode.PROMPT).prepareForPlayback(yt, GUILD));
         verifyNoInteractions(downloader);
     }
+
+    // ==================== wrapLibraryFile (queue-time wrapping) ====================
+
+    @Test
+    void wrapLibraryFile_localFileInIndex_wrapped() {
+        AudioTrack local = track("local", hitFile.toString(), false);
+        Object userData = new Object();
+        when(local.getUserData()).thenReturn(userData);
+
+        AudioTrack result = disabled().wrapLibraryFile(local);
+
+        LibraryAudioTrack wrapped = assertInstanceOf(LibraryAudioTrack.class, result);
+        assertEquals(HIT_ID, wrapped.getVideoId());
+        assertEquals("Indexed Title", wrapped.getInfo().title);
+        assertEquals("Indexed Author", wrapped.getInfo().author);
+        assertSame(userData, wrapped.getUserData());
+        verifyNoInteractions(downloader);
+    }
+
+    @Test
+    void wrapLibraryFile_localFileNotInIndex_unchanged() {
+        AudioTrack local = track("local", tempDir.resolve("other.mp3").toString(), false);
+        assertSame(local, disabled().wrapLibraryFile(local));
+        verifyNoInteractions(downloader);
+    }
+
+    @Test
+    void wrapLibraryFile_youtubeTrack_unchanged() {
+        // Queue-time wrapping never decides YouTube hits/misses; that's still prepareForPlayback's job.
+        AudioTrack yt = youtube(HIT_ID);
+        assertSame(yt, disabled().wrapLibraryFile(yt));
+        verifyNoInteractions(downloader);
+    }
+
+    @Test
+    void wrapLibraryFile_alreadyWrapped_unchanged() {
+        LibraryAudioTrack wrapped = new LibraryAudioTrack(youtube(MISS_ID).getInfo(), MISS_ID,
+                () -> CompletableFuture.<LibraryEntry>completedFuture(null), null, null);
+        assertSame(wrapped, disabled().wrapLibraryFile(wrapped));
+        verifyNoInteractions(downloader);
+    }
+
+    @Test
+    void wrapLibraryFile_null_unchanged() {
+        assertSame(null, disabled().wrapLibraryFile(null));
+    }
 }
