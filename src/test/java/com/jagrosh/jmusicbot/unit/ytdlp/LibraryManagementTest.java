@@ -56,6 +56,7 @@ class LibraryManagementTest {
         Path fileA = Files.createFile(libraryFolder.resolve("A [searchaaaa1].webm"));
         Path fileB = Files.createFile(libraryFolder.resolve("B [searchbbbb2].webm"));
         Path fileC = Files.createFile(libraryFolder.resolve("C [searchcccc3].webm"));
+        Path fileD = Files.createFile(libraryFolder.resolve("D [searchdddd4].webm"));
         Files.writeString(libraryFolder.resolve("B [searchbbbb2].info.json"),
                 "{ \"artist\": \"Crazy Frog\", \"track\": \"Axel F\" }");
         YtDlpLibrary library = new YtDlpLibrary(libraryFolder, playlistFile, f -> java.util.Optional.empty());
@@ -63,10 +64,15 @@ class LibraryManagementTest {
         library.record("searchaaaa1", fileA, info("searchaaaa1", "Axel F", "Crazy Frog"));
         library.record("searchbbbb2", fileB, info("searchbbbb2", "Axel F (Remix)", "Someone Else"));
         library.record("searchcccc3", fileC, info("searchcccc3", "Zzz Title", "Other"));
+        // No sidecar artist/track: only the title itself names the artist, split on " - ".
+        library.record("searchdddd4", fileD, info("searchdddd4", "Sunrise Avenue - Axel F Reprise", "Uploader"));
 
         List<LibraryEntry> byWords = library.search("axel f", 10);
-        assertEquals(List.of("searchaaaa1", "searchbbbb2"),
+        assertEquals(List.of("searchaaaa1", "searchbbbb2", "searchdddd4"),
                 byWords.stream().map(LibraryEntry::key).toList());
+
+        List<LibraryEntry> byArtistInTitle = library.search("sunrise avenue", 10);
+        assertEquals(List.of("searchdddd4"), byArtistInTitle.stream().map(LibraryEntry::key).toList());
 
         List<LibraryEntry> byKey = library.search("searchcccc3", 10);
         assertEquals(List.of("searchcccc3"), byKey.stream().map(LibraryEntry::key).toList());
@@ -76,6 +82,8 @@ class LibraryManagementTest {
     @DisplayName("remove(deleteFile=false) keeps the file but drops the entry, its aliases and its playlist line")
     void remove_indexOnly_keepsFile_dropsAliasesAndPlaylistLine() throws IOException {
         Path file = Files.createFile(libraryFolder.resolve("Song [removeidx01].webm"));
+        Path sidecar = Files.createFile(libraryFolder.resolve("Song [removeidx01].info.json"));
+        Path thumb = Files.createFile(libraryFolder.resolve("Song [removeidx01].jpg"));
         YtDlpLibrary library = new YtDlpLibrary(libraryFolder, playlistFile, f -> java.util.Optional.empty());
         library.record("removeidx01", file, info("removeidx01", "Song", "Author"));
         library.alias("requestedAlias1", "removeidx01");
@@ -87,6 +95,8 @@ class LibraryManagementTest {
         assertFalse(result.fileDeleted());
         assertNull(result.problem());
         assertTrue(Files.exists(file), "the file itself is kept");
+        assertTrue(Files.exists(sidecar), "index-only keeps the sidecar too");
+        assertTrue(Files.exists(thumb), "index-only keeps the thumbnail too");
         assertTrue(library.find("removeidx01").isEmpty());
         assertTrue(library.aliasesTo("removeidx01").isEmpty());
         assertFalse(library.isRejected("requestedReject1", "removeidx01"));

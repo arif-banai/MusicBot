@@ -384,16 +384,17 @@ public final class YtDlpLibrary {
         if (query == null || query.isBlank() || limit <= 0) {
             return List.of();
         }
-        Set<String> queryWords = queryWords(query);
+        String key = query.strip();
+        Set<String> queryWords = normalizedWords(query);
         List<LibraryEntry> matches = new ArrayList<>();
         for (LibraryEntry entry : entries.values()) {
-            if (query.equals(entry.key()) || (!queryWords.isEmpty() && entryWords(entry).containsAll(queryWords))) {
+            if (key.equals(entry.key()) || (!queryWords.isEmpty() && entryWords(entry).containsAll(queryWords))) {
                 matches.add(entry);
             }
         }
         matches.sort((a, b) -> {
-            boolean aExact = query.equals(a.key());
-            boolean bExact = query.equals(b.key());
+            boolean aExact = key.equals(a.key());
+            boolean bExact = key.equals(b.key());
             if (aExact != bExact) {
                 return aExact ? -1 : 1;
             }
@@ -402,21 +403,21 @@ public final class YtDlpLibrary {
         return List.copyOf(matches.subList(0, Math.min(limit, matches.size())));
     }
 
-    private static Set<String> queryWords(String query) {
-        SongMatcher.Song song = SongMatcher.normalize(query, null);
+    /**
+     * Every word of {@code text} after cleaning it up the same way as a song title for matching:
+     * both halves of an "Artist - Title" split, so splitting on a dash never loses a word.
+     */
+    private static Set<String> normalizedWords(@Nullable String text) {
+        SongMatcher.Song song = SongMatcher.normalize(text, null);
         Set<String> words = new LinkedHashSet<>(song.title());
         words.addAll(song.artist());
         return words;
     }
 
     private static Set<String> entryWords(LibraryEntry entry) {
-        Set<String> words = new LinkedHashSet<>(SongMatcher.normalize(entry.title(), null).title());
-        if (entry.artist() != null) {
-            words.addAll(SongMatcher.normalize(entry.artist(), null).title());
-        }
-        if (entry.track() != null) {
-            words.addAll(SongMatcher.normalize(entry.track(), null).title());
-        }
+        Set<String> words = new LinkedHashSet<>(normalizedWords(entry.title()));
+        words.addAll(normalizedWords(entry.artist()));
+        words.addAll(normalizedWords(entry.track()));
         return words;
     }
 
@@ -448,8 +449,8 @@ public final class YtDlpLibrary {
                 LOGGER.info("Remove {}: the file couldn't be deleted ({}); nothing changed", key, problem);
                 return new RemoveResult(false, false, problem);
             }
+            deleteSidecarAndThumbnails(entry.file());
         }
-        deleteSidecarAndThumbnails(entry.file());
         entries.remove(key);
         entriesByFile.remove(entry.file(), entry);
         aliases.entrySet().removeIf(e -> e.getValue().equals(key));
@@ -511,9 +512,13 @@ public final class YtDlpLibrary {
     /**
      * Re-runs the import scan from the saved index (as {@link #load()} does), counting how the
      * in-memory map changed: entries added, entries whose details changed, and entries that are now
-     * missing (their file is gone). Saves if anything did.
+     * missing (their file is gone). Saves if anything did. Does nothing if the library folder
+     * doesn't exist, as {@link #load()} does.
      */
     public synchronized ScanSummary rescan() throws IOException {
+        if (!Files.isDirectory(libraryFolder)) {
+            return new ScanSummary(0, 0, 0);
+        }
         Map<String, LibraryEntry> before = new HashMap<>(entries);
         boolean save = loadIndexAndScan(libraryFolder.resolve(INDEX_FILE_NAME));
 
