@@ -1372,6 +1372,40 @@ public class MusicServiceTest
         }
 
         @Test
+        @DisplayName("queuePlaylist() never offers a queue-time library suggestion (playlist loads don't post one per song)")
+        void queuePlaylist_neverOffersQueueTimeSuggestion()
+        {
+            com.jagrosh.jmusicbot.playlist.PlaylistLoader.Playlist playlist = mock(com.jagrosh.jmusicbot.playlist.PlaylistLoader.Playlist.class);
+            AudioTrack first = mock(AudioTrack.class);
+            when(first.getInfo()).thenReturn(new AudioTrackInfo("First", "Author", 180000L, "id1", false, "https://example.com/1"));
+            AudioTrack second = mock(AudioTrack.class);
+            when(second.getInfo()).thenReturn(new AudioTrackInfo("Second", "Author", 180000L, "id2", false, "https://example.com/2"));
+            when(fixture.getPlaylistLoader().getPlaylistResult("favorite"))
+                    .thenReturn(com.jagrosh.jmusicbot.playlist.PlaylistLoader.PlaylistResult.success(playlist));
+            when(playlist.getName()).thenReturn("favorite");
+            when(playlist.getTracks()).thenReturn(List.of(first, second));
+            when(playlist.getErrors()).thenReturn(List.of());
+
+            doAnswer(invocation ->
+            {
+                // Mirror the real Playlist.loadTracks: feed each loaded track to the per-track
+                // consumer (which calls AudioHandler#addTrack directly, not the single-track funnel).
+                java.util.function.Consumer<AudioTrack> consumer = invocation.getArgument(1);
+                consumer.accept(first);
+                consumer.accept(second);
+                Runnable callback = invocation.getArgument(2);
+                callback.run();
+                return null;
+            }).when(playlist).loadTracks(eq(fixture.getPlayerManager()), any(), any());
+
+            musicService.queuePlaylist(fixture.getGuild(), fixture.getMember(), "favorite",
+                    fixture.getTextChannel(), output);
+
+            verify(fixture.getAudioHandler(), times(2)).addTrack(any());
+            verify(fixture.getAudioHandler(), never()).considerQueuedSuggestion(any());
+        }
+
+        @Test
         @DisplayName("queuePlaylist() skips now playing refresh when tracks loaded but player still inactive")
         void queuePlaylist_skipsRefresh_whenTracksLoadedButPlayerInactive()
         {

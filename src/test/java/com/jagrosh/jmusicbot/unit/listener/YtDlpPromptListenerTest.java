@@ -70,7 +70,7 @@ class YtDlpPromptListenerTest {
 
         new YtDlpPromptListener(bot).onButtonInteraction(event);
 
-        verify(suggestions).handlePress(event, new ComponentIdParsers.YtDlpMatchButtonId("switch", 42L));
+        verify(suggestions).handlePress(event, new ComponentIdParsers.YtDlpMatchButtonId("switch", 42L, 0L));
         verify(prompt, never()).handlePress(any(), any());
         verify(event, never()).reply(anyString());
     }

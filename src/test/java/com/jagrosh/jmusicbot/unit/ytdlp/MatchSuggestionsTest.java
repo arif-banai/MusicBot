@@ -242,12 +242,16 @@ class MatchSuggestionsTest {
         return event;
     }
 
+    // Each test builds a fresh MatchSuggestions (its suggestion-id counter starts at 0) and posts
+    // at most one play-time suggestion before pressing, so that suggestion's id is always 1.
+    private static final long SUGGESTION_ID = 1L;
+
     private static ComponentIdParsers.YtDlpMatchButtonId switchId() {
-        return new ComponentIdParsers.YtDlpMatchButtonId("switch", REQUESTER);
+        return new ComponentIdParsers.YtDlpMatchButtonId("switch", REQUESTER, SUGGESTION_ID);
     }
 
     private static ComponentIdParsers.YtDlpMatchButtonId rejectId() {
-        return new ComponentIdParsers.YtDlpMatchButtonId("reject", REQUESTER);
+        return new ComponentIdParsers.YtDlpMatchButtonId("reject", REQUESTER, SUGGESTION_ID);
     }
 
     // ---- posting ----
@@ -266,7 +270,7 @@ class MatchSuggestionsTest {
         verify(createAction).setComponents(rows.capture());
         ActionRow row = (ActionRow) rows.getValue().iterator().next();
         List<String> ids = row.getButtons().stream().map(Button::getCustomId).toList();
-        assertEquals(List.of("ytdlp_match_switch_42", "ytdlp_match_reject_42"), ids);
+        assertEquals(List.of("ytdlp_match_switch_42_1", "ytdlp_match_reject_42_1"), ids);
         verify(scheduler).schedule(any(Runnable.class), eq(10L), eq(TimeUnit.MINUTES));
     }
 

@@ -249,6 +249,7 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
         cancelYtDlpPrompt();
         audioPlayer.stopTrack();
         cancelYtDlpDownloads();
+        clearQueuedMatchSuggestions();
         //current = null;
     }
 
@@ -265,6 +266,7 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
         cancelYtDlpPrompt();
         audioPlayer.stopTrack();
         cancelYtDlpDownloads();
+        clearQueuedMatchSuggestions();
     }
 
     /**
@@ -1023,6 +1025,42 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
         catch (RuntimeException ex)
         {
             LOGGER.debug("yt-dlp couldn't expire a library suggestion: {}", ex.toString());
+        }
+    }
+
+    /**
+     * Similar-song matching: may suggest a library copy (in the background) for a single track
+     * just queued behind others. Callers pass the raw add result's queue position ({@code >= 0});
+     * a track that started immediately never reaches here. Not called for a playlist load.
+     */
+    public void considerQueuedSuggestion(QueuedTrack queued)
+    {
+        MatchSuggestions suggestions = matchSuggestions();
+        if (suggestions == null || queued == null)
+            return;
+        try
+        {
+            suggestions.considerQueued(guildId, queued);
+        }
+        catch (RuntimeException ex)
+        {
+            LOGGER.debug("yt-dlp couldn't consider a queued library suggestion: {}", ex.toString());
+        }
+    }
+
+    /** Similar-song matching: queued suggestions close when the queue they were posted for is cleared. */
+    private void clearQueuedMatchSuggestions()
+    {
+        MatchSuggestions suggestions = matchSuggestions();
+        if (suggestions == null)
+            return;
+        try
+        {
+            suggestions.onQueueCleared(guildId);
+        }
+        catch (RuntimeException ex)
+        {
+            LOGGER.debug("yt-dlp couldn't clear queued library suggestions: {}", ex.toString());
         }
     }
 

@@ -125,9 +125,12 @@ public final class ComponentIdParsers {
     }
 
     /**
-     * Parsed similar-song suggestion button ID: action ({@code switch} or {@code reject}), requesterId.
+     * Parsed similar-song suggestion button ID: action ({@code switch} or {@code reject}),
+     * requesterId, suggestionId. The old 2-part format (no suggestion id) parses with
+     * {@code suggestionId = 0}, which {@code MatchSuggestions} never assigns, so it always means
+     * expired (e.g. a button left over from before a restart).
      */
-    public record YtDlpMatchButtonId(String action, long requesterId) {
+    public record YtDlpMatchButtonId(String action, long requesterId, long suggestionId) {
     }
 
     /**
@@ -454,14 +457,17 @@ public final class ComponentIdParsers {
     }
 
     /**
-     * Builds a similar-song suggestion button ID: ytdlp_match_{action}_{requesterId}.
+     * Builds a similar-song suggestion button ID: ytdlp_match_{action}_{requesterId}_{suggestionId}.
      */
-    public static String ytDlpMatchButtonId(String action, long requesterId) {
-        return YTDLP_MATCH_PREFIX + action + "_" + requesterId;
+    public static String ytDlpMatchButtonId(String action, long requesterId, long suggestionId) {
+        return YTDLP_MATCH_PREFIX + action + "_" + requesterId + "_" + suggestionId;
     }
 
     /**
-     * Parses similar-song suggestion button IDs. Expected format: ytdlp_match_{switch|reject}_{requesterId}.
+     * Parses similar-song suggestion button IDs. Expected format:
+     * ytdlp_match_{switch|reject}_{requesterId}_{suggestionId}. Also accepts the old 2-part
+     * format, ytdlp_match_{switch|reject}_{requesterId} (no suggestion id), parsing it with
+     * {@code suggestionId = 0}.
      */
     public static Optional<YtDlpMatchButtonId> parseYtDlpMatchButtonId(String componentId) {
         if (componentId == null || !componentId.startsWith(YTDLP_MATCH_PREFIX)) {
@@ -476,8 +482,19 @@ public final class ComponentIdParsers {
         if (!action.equals("switch") && !action.equals("reject")) {
             return Optional.empty();
         }
+        String tail = rest.substring(actionEnd + 1);
+        if (tail.isEmpty()) {
+            return Optional.empty();
+        }
+        String[] parts = tail.split("_");
         try {
-            return Optional.of(new YtDlpMatchButtonId(action, Long.parseLong(rest.substring(actionEnd + 1))));
+            if (parts.length == 1) {
+                return Optional.of(new YtDlpMatchButtonId(action, Long.parseLong(parts[0]), 0L));
+            }
+            if (parts.length == 2) {
+                return Optional.of(new YtDlpMatchButtonId(action, Long.parseLong(parts[0]), Long.parseLong(parts[1])));
+            }
+            return Optional.empty();
         } catch (NumberFormatException e) {
             return Optional.empty();
         }

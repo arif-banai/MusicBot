@@ -208,7 +208,14 @@ public class MusicService
                 channel.getIdLong());
         AudioTrack shown = wrapLibraryFile(track);
         QueuedTrack queuedTrack = new QueuedTrack(shown, requestMetadata);
-        int position = adder.add(handler, queuedTrack) + 1;
+        int rawPosition = adder.add(handler, queuedTrack);
+        if (rawPosition >= 0)
+        {
+            // Queued behind something else (not started immediately): offer a library copy now,
+            // not just once it starts. Never for a playlist load (those don't go through here).
+            handler.considerQueuedSuggestion(queuedTrack);
+        }
+        int position = rawPosition + 1;
 
         String title = FormatUtil.getTrackTitle(shown);
         String message = formatTrackAddedMessage(title, shown.getDuration(), position);
@@ -1381,7 +1388,12 @@ public class MusicService
                 channel.getIdLong());
         QueuedTrack newQt = new QueuedTrack(track, rm);
         handler.setLastReason(member.getUser().getName() + " added from history.");
-        int position = handler.addTrack(newQt) + 1;
+        int rawPosition = handler.addTrack(newQt);
+        if (rawPosition >= 0)
+        {
+            handler.considerQueuedSuggestion(newQt);
+        }
+        int position = rawPosition + 1;
         String title = FormatUtil.getTrackTitle(track);
         output.replySuccess(formatTrackAddedMessage(title, track.getDuration(), position));
     }

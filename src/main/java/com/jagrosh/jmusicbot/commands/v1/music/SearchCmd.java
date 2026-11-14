@@ -98,7 +98,11 @@ public class SearchCmd extends MusicCommand
                 return;
             }
             AudioHandler handler = (AudioHandler)event.getGuild().getAudioManager().getSendingHandler();
-            int pos = handler.addTrack(new QueuedTrack(track, RequestMetadata.fromResultHandler(track, event)))+1;
+            QueuedTrack qtrack = new QueuedTrack(track, RequestMetadata.fromResultHandler(track, event));
+            int rawPos = handler.addTrack(qtrack);
+            if(rawPos >= 0)
+                handler.considerQueuedSuggestion(qtrack);
+            int pos = rawPos+1;
             String trackTitle = FormatUtil.getTrackTitle(track);
             m.editMessage(FormatUtil.filter(event.getClient().getSuccess()+" Added **"+trackTitle
                     +"** (`"+ TimeUtil.formatTime(track.getDuration())+"`) "+(pos==0 ? "to begin playing"
@@ -122,7 +126,11 @@ public class SearchCmd extends MusicCommand
                             return;
                         }
                         AudioHandler handler = (AudioHandler)event.getGuild().getAudioManager().getSendingHandler();
-                        int pos = handler.addTrack(new QueuedTrack(track, RequestMetadata.fromResultHandler(track, event)))+1;
+                        QueuedTrack qtrack = new QueuedTrack(track, RequestMetadata.fromResultHandler(track, event));
+                        int rawPos = handler.addTrack(qtrack);
+                        if(rawPos >= 0)
+                            handler.considerQueuedSuggestion(qtrack);
+                        int pos = rawPos+1;
                         event.replySuccess("Added **" + FormatUtil.filter(trackTitle)
                                 + "** (`" + TimeUtil.formatTime(track.getDuration()) + "`) " + (pos==0 ? "to begin playing" 
                                     : " to the queue at position "+pos));

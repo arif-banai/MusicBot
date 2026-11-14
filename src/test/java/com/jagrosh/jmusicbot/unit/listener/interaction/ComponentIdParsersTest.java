@@ -223,13 +223,24 @@ class ComponentIdParsersTest
     {
         for (String action : new String[] { "switch", "reject" })
         {
-            String id = ComponentIdParsers.ytDlpMatchButtonId(action, 123456789012345678L);
-            assertEquals("ytdlp_match_" + action + "_123456789012345678", id);
+            String id = ComponentIdParsers.ytDlpMatchButtonId(action, 123456789012345678L, 7L);
+            assertEquals("ytdlp_match_" + action + "_123456789012345678_7", id);
             var parsed = ComponentIdParsers.parseYtDlpMatchButtonId(id);
             assertTrue(parsed.isPresent(), id);
             assertEquals(action, parsed.get().action());
             assertEquals(123456789012345678L, parsed.get().requesterId());
+            assertEquals(7L, parsed.get().suggestionId());
         }
+    }
+
+    @Test
+    void ytDlpMatch_oldTwoPartFormat_parsesWithSuggestionIdZero()
+    {
+        var parsed = ComponentIdParsers.parseYtDlpMatchButtonId("ytdlp_match_switch_123");
+        assertTrue(parsed.isPresent());
+        assertEquals("switch", parsed.get().action());
+        assertEquals(123L, parsed.get().requesterId());
+        assertEquals(0L, parsed.get().suggestionId());
     }
 
     @Test
@@ -238,6 +249,8 @@ class ComponentIdParsersTest
         assertTrue(ComponentIdParsers.parseYtDlpMatchButtonId("ytdlp_one_42_abc").isEmpty());
         assertTrue(ComponentIdParsers.parseYtDlpMatchButtonId("ytdlp_match_maybe_42").isEmpty());
         assertTrue(ComponentIdParsers.parseYtDlpMatchButtonId("ytdlp_match_switch_x").isEmpty());
+        assertTrue(ComponentIdParsers.parseYtDlpMatchButtonId("ytdlp_match_switch_123_x").isEmpty());
+        assertTrue(ComponentIdParsers.parseYtDlpMatchButtonId("ytdlp_match_switch_123_7_9").isEmpty());
         assertTrue(ComponentIdParsers.parseYtDlpMatchButtonId("ytdlp_match_switch").isEmpty());
         // The prompt parser doesn't take match buttons either.
         assertTrue(ComponentIdParsers.parseYtDlpButtonId("ytdlp_match_switch_42").isEmpty());
