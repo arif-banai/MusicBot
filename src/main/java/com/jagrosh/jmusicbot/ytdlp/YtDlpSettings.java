@@ -39,7 +39,7 @@ public record YtDlpSettings(String path, Mode mode, Path libraryFolder, String l
 
     public static final boolean DEFAULT_DOWNLOAD_BUTTON = true;
     public static final boolean DEFAULT_MATCHING_ENABLED = true;
-    public static final int DEFAULT_DURATION_TOLERANCE_SECONDS = 5;
+    public static final int DEFAULT_DURATION_TOLERANCE_SECONDS = 10;
     public static final double DEFAULT_MIN_SCORE = 0.85;
     /** Upper bound for {@code matching.durationToleranceSeconds}; larger values are clamped to it. */
     public static final int MAX_DURATION_TOLERANCE_SECONDS = 60;

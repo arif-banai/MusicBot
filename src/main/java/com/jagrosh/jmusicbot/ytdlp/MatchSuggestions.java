@@ -168,16 +168,14 @@ public final class MatchSuggestions {
         if (channel == null || !channel.canTalk()) {
             return;
         }
-        Optional<LibraryEntry> match = bestMatch(key, track.getInfo());
-        if (match.isEmpty()) {
+        MatchDecision decision = decide(key, track.getInfo(), guildId);
+        LOGGER.debug(decision.logLine(key));
+        LibraryEntry entry = decision.entry();
+        if (decision.reason() != MatchDecision.Reason.SUGGESTED || entry == null) {
             return;
         }
 
-        LibraryEntry entry = match.get();
         List<String> pair = List.of(key, entry.key());
-        if (offered.getOrDefault(guildId, Set.of()).contains(pair)) {
-            return; // already offered this run (e.g. the previous loop of a repeated song)
-        }
         long requesterId = rm.getOwner();
         Suggestion suggestion = new Suggestion(guildId, track, key, entry, requesterId, channel.getIdLong(),
                 text(entry));
@@ -216,25 +214,68 @@ public final class MatchSuggestions {
         }
     }
 
-    /** The best library song for the requested track that matches, isn't rejected for it, and whose file exists. */
-    private Optional<LibraryEntry> bestMatch(String requestedKey, AudioTrackInfo info) {
+    /**
+     * Decides whether the requested track should be offered a similar library song, and why not
+     * when it shouldn't: the library's best actual match for it, unless that pair was rejected,
+     * already offered this run, or its file is gone, or else the closest candidate found (by raw
+     * title/artist score, ignoring duration) with {@link SongMatcher#whyNot} explaining it, or
+     * {@link MatchDecision.Reason#NO_CANDIDATE} when no library entry shares a word with it.
+     */
+    private MatchDecision decide(String requestedKey, AudioTrackInfo info, long guildId) {
         YtDlpLibrary library = service.library();
         SongMatcher.Song requested = SongMatcher.of(info);
-        long toleranceMs = service.settings().durationToleranceSeconds() * 1000L;
+        long floorMs = service.settings().durationToleranceSeconds() * 1000L;
         double minScore = service.settings().minScore();
-        LibraryEntry best = null;
+
+        LibraryEntry bestEntry = null;
         double bestScore = -1.0;
         for (LibraryEntry entry : library.entries()) {
-            if (entry.key().equals(requestedKey) || library.isRejected(requestedKey, entry.key())) {
+            if (entry.key().equals(requestedKey) || library.isRejected(requestedKey, entry.key())
+                    || library.find(entry.key()).isEmpty()) {
                 continue;
             }
-            OptionalDouble score = SongMatcher.matchScore(requested, entry, toleranceMs, minScore);
-            if (score.isPresent() && score.getAsDouble() > bestScore && library.find(entry.key()).isPresent()) {
-                best = entry;
+            OptionalDouble score = SongMatcher.matchScore(requested, entry, floorMs, minScore);
+            if (score.isPresent() && score.getAsDouble() > bestScore) {
+                bestEntry = entry;
                 bestScore = score.getAsDouble();
             }
         }
-        return Optional.ofNullable(best);
+        if (bestEntry != null) {
+            List<String> pair = List.of(requestedKey, bestEntry.key());
+            if (offered.getOrDefault(guildId, Set.of()).contains(pair)) {
+                return new MatchDecision(bestEntry.key(), bestScore, MatchDecision.Reason.ALREADY_OFFERED, null);
+            }
+            return new MatchDecision(bestEntry.key(), bestScore, MatchDecision.Reason.SUGGESTED, bestEntry);
+        }
+
+        // Nothing matched (or every match was excluded above): find the closest candidate to report.
+        String closestKey = null;
+        double closestRaw = 0.0;
+        SongMatcher.Song closestSong = null;
+        for (LibraryEntry entry : library.entries()) {
+            if (entry.key().equals(requestedKey)) {
+                continue;
+            }
+            for (SongMatcher.Song candidate : SongMatcher.interpretations(entry)) {
+                double raw = SongMatcher.rawScore(requested, candidate);
+                if (raw > closestRaw) {
+                    closestRaw = raw;
+                    closestKey = entry.key();
+                    closestSong = candidate;
+                }
+            }
+        }
+        if (closestKey == null) {
+            return new MatchDecision(null, 0.0, MatchDecision.Reason.NO_CANDIDATE, null);
+        }
+        if (library.isRejected(requestedKey, closestKey)) {
+            return new MatchDecision(closestKey, closestRaw, MatchDecision.Reason.REJECTED, null);
+        }
+        if (library.find(closestKey).isEmpty()) {
+            return new MatchDecision(closestKey, closestRaw, MatchDecision.Reason.MISSING_FILE, null);
+        }
+        return new MatchDecision(closestKey, closestRaw, SongMatcher.whyNot(requested, closestSong, floorMs, minScore),
+                null);
     }
 
     private void onSent(Suggestion suggestion, Message message) {

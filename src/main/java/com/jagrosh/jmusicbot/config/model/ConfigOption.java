@@ -99,7 +99,7 @@ public enum ConfigOption {
     YTDLP_PROMPT_TIMEOUT_SECONDS("ytdlp.promptTimeoutSeconds", ConfigType.INT, false, "Seconds to wait for a prompt button press before skipping"),
     YTDLP_DOWNLOAD_BUTTON("ytdlp.downloadButton", ConfigType.BOOLEAN, false, "Show a Download button on now-playing that saves the current song (DJs only)"),
     YTDLP_MATCHING_ENABLED("ytdlp.matching.enabled", ConfigType.BOOLEAN, false, "Offer a similar song from the library while a requested song plays"),
-    YTDLP_MATCHING_DURATION_TOLERANCE_SECONDS("ytdlp.matching.durationToleranceSeconds", ConfigType.INT, false, "How close song lengths must be to count as the same song, in seconds"),
+    YTDLP_MATCHING_DURATION_TOLERANCE_SECONDS("ytdlp.matching.durationToleranceSeconds", ConfigType.INT, false, "Minimum gap allowed between song lengths, in seconds; widens to 10% of the shorter song for longer tracks"),
     YTDLP_MATCHING_MIN_SCORE("ytdlp.matching.minScore", ConfigType.DOUBLE, false, "How similar cleaned-up titles/artists must be, 0.0-1.0 (higher = stricter)");
     
     private final String key;

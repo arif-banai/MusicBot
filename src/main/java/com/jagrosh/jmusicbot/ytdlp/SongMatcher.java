@@ -174,13 +174,29 @@ public final class SongMatcher {
         return List.of(song(entry.title(), entry.author(), entry.lengthMs(), null));
     }
 
+    /** 10% of the shorter song's length is allowed on top of the floor, for longer tracks. */
+    private static final double RELATIVE_TOLERANCE = 0.10;
+
+    /**
+     * The duration gate for a pair of songs: {@code floorMs}, widened to 10% of the shorter song's
+     * length when that is larger. A fixed floor alone is too tight for long tracks (a lyrics upload
+     * can run noticeably longer than the official video of the same song).
+     */
+    public static long toleranceMs(long floorMs, long lenA, long lenB) {
+        long shorter = Math.min(lenA, lenB);
+        long relative = Math.round(RELATIVE_TOLERANCE * shorter);
+        return Math.max(floorMs, relative);
+    }
+
     /**
      * The raw similarity of two songs, 0.0-1.0. 0 when the lengths are unknown or further apart than
-     * {@code toleranceMs}. 1.0 for the same ISRC. 0 when their version words differ. When either
-     * side has no artist, the title similarity alone, or 0 for a generic or one-word title.
+     * {@code toleranceMs} widened by {@link #toleranceMs}. 1.0 for the same ISRC. 0 when their
+     * version words differ. When either side has no artist, the title similarity alone, or 0 for a
+     * generic or one-word title.
      */
     public static double score(Song a, Song b, long toleranceMs) {
-        if (a.lengthMs() <= 0 || b.lengthMs() <= 0 || Math.abs(a.lengthMs() - b.lengthMs()) > toleranceMs) {
+        long tolerance = toleranceMs(toleranceMs, a.lengthMs(), b.lengthMs());
+        if (a.lengthMs() <= 0 || b.lengthMs() <= 0 || Math.abs(a.lengthMs() - b.lengthMs()) > tolerance) {
             return 0.0;
         }
         if (a.isrc() != null && b.isrc() != null && !a.isrc().isBlank() && a.isrc().equalsIgnoreCase(b.isrc())) {
@@ -217,6 +233,37 @@ public final class SongMatcher {
             }
         }
         return best < 0.0 ? OptionalDouble.empty() : OptionalDouble.of(best);
+    }
+
+    /**
+     * Why two songs that don't match don't: too far apart in length (even after widening), naming
+     * different versions of the song, or just not similar enough. Meaningless (and never called)
+     * for a pair that actually matches. {@code minScore} is accepted for parity with
+     * {@link #matches} and {@link #requiredScore}; duration and version are the only finer-grained
+     * reasons, so it doesn't change which of the three is returned.
+     */
+    public static MatchDecision.Reason whyNot(Song a, Song b, long floorMs, double minScore) {
+        long tolerance = toleranceMs(floorMs, a.lengthMs(), b.lengthMs());
+        if (a.lengthMs() <= 0 || b.lengthMs() <= 0 || Math.abs(a.lengthMs() - b.lengthMs()) > tolerance) {
+            return MatchDecision.Reason.DURATION;
+        }
+        if (!a.versions().equals(b.versions())) {
+            return MatchDecision.Reason.VERSION;
+        }
+        return MatchDecision.Reason.LOW_SCORE;
+    }
+
+    /**
+     * The weighted title/artist similarity alone, ignoring the length, version and ISRC gates.
+     * Used only to pick the closest candidate to report when nothing actually matches.
+     */
+    static double rawScore(Song a, Song b) {
+        double title = jaccard(a.title(), b.title());
+        if (!a.hasArtist() || !b.hasArtist()) {
+            return title;
+        }
+        double artist = a.artistCompact().equals(b.artistCompact()) ? 1.0 : jaccard(a.artist(), b.artist());
+        return TITLE_WEIGHT * title + ARTIST_WEIGHT * artist;
     }
 
     // ---- cleaning ----

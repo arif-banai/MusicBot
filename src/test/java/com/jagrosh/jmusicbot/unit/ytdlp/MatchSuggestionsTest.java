@@ -332,6 +332,39 @@ class MatchSuggestionsTest {
     }
 
     @Test
+    @DisplayName("a decision not to suggest is logged once, at DEBUG, with the candidate key and the reason")
+    void logsDecision_whenNotSuggesting() throws IOException {
+        library.reject(REQ_ID, LIB_ID);
+        MatchSuggestions suggestions = suggestions();
+
+        ch.qos.logback.classic.Logger logger =
+                (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(MatchSuggestions.class);
+        ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> appender =
+                new ch.qos.logback.core.read.ListAppender<>();
+        appender.start();
+        ch.qos.logback.classic.Level previous = logger.getLevel();
+        logger.setLevel(ch.qos.logback.classic.Level.DEBUG);
+        logger.addAppender(appender);
+        try {
+            suggestions.consider(GUILD, playingRequest());
+            runTasks();
+        } finally {
+            logger.detachAppender(appender);
+            logger.setLevel(previous);
+        }
+
+        List<String> decisionLines = appender.list.stream()
+                .filter(e -> e.getLevel() == ch.qos.logback.classic.Level.DEBUG)
+                .map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage)
+                .filter(m -> m.startsWith("Match for "))
+                .toList();
+        assertEquals(1, decisionLines.size(), decisionLines::toString);
+        assertTrue(decisionLines.get(0).contains(LIB_ID), decisionLines.get(0));
+        assertTrue(decisionLines.get(0).contains("REJECTED"), decisionLines.get(0));
+        verify(channel, never()).sendMessage(any(CharSequence.class));
+    }
+
+    @Test
     @DisplayName("no suggestion for a key that is already linked, or already in the library")
     void aliasedOrInLibrary_nothing() throws IOException {
         library.alias(REQ_ID, LIB_ID);

@@ -44,8 +44,22 @@ class YtDlpSettingsTest {
         assertEquals("ytdlp-library", settings.libraryPlaylist());
         assertTrue(settings.downloadButton());
         assertTrue(settings.matchingEnabled());
-        assertEquals(5, settings.durationToleranceSeconds());
+        assertEquals(10, settings.durationToleranceSeconds());
         assertEquals(0.85, settings.minScore(), 1e-9);
+    }
+
+    @Test
+    @DisplayName("the default duration tolerance is 10 seconds")
+    void defaultTolerance_is10() {
+        assertEquals(10, YtDlpSettings.DEFAULT_DURATION_TOLERANCE_SECONDS);
+
+        Config empty = ConfigFactory.parseString("""
+                ytdlp { path = "", mode = "prompt", libraryFolder = "lib", libraryPlaylist = "lib",
+                        delaySeconds = 5, timeoutSeconds = 300, extraArgs = [], promptTimeoutSeconds = 120 }
+                """);
+        YtDlpSettings settings = YtDlpSettings.fromConfig(empty);
+
+        assertEquals(10, settings.durationToleranceSeconds());
     }
 
     @Test
@@ -95,7 +109,7 @@ class YtDlpSettingsTest {
 
         assertTrue(settings.downloadButton());
         assertTrue(settings.matchingEnabled());
-        assertEquals(5, settings.durationToleranceSeconds());
+        assertEquals(10, settings.durationToleranceSeconds());
         assertEquals(0.85, settings.minScore(), 1e-9);
     }
 

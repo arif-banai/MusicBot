@@ -21,6 +21,7 @@ import java.util.Set;
 import java.util.stream.Stream;
 
 import com.jagrosh.jmusicbot.ytdlp.LibraryEntry;
+import com.jagrosh.jmusicbot.ytdlp.MatchDecision;
 import com.jagrosh.jmusicbot.ytdlp.SongMatcher;
 import com.jagrosh.jmusicbot.ytdlp.SongMatcher.Song;
 import org.junit.jupiter.api.DisplayName;
@@ -128,11 +129,72 @@ class SongMatcherTest {
     @Test
     @DisplayName("a duration outside the tolerance scores 0; the boundary still counts")
     void durationGate() {
-        Song a = SongMatcher.song("Axel F", "Crazy Frog", 200_000L, null);
+        // Short enough that the floor applies rather than the 10% relative widening (tested separately below).
+        long len = 40_000L;
+        Song a = SongMatcher.song("Axel F", "Crazy Frog", len, null);
 
-        assertEquals(0.0, SongMatcher.score(a, SongMatcher.song("Axel F", "Crazy Frog", 206_000L, null), TOLERANCE_MS));
-        assertTrue(matches(a, SongMatcher.song("Axel F", "Crazy Frog", 205_000L, null)));
-        assertTrue(matches(a, SongMatcher.song("Axel F", "Crazy Frog", 195_000L, null)));
+        assertEquals(0.0, SongMatcher.score(a, SongMatcher.song("Axel F", "Crazy Frog", len + 6_000L, null), TOLERANCE_MS));
+        assertTrue(matches(a, SongMatcher.song("Axel F", "Crazy Frog", len + 5_000L, null)));
+        assertTrue(matches(a, SongMatcher.song("Axel F", "Crazy Frog", len - 5_000L, null)));
+    }
+
+    // ---- relative duration tolerance ----
+
+    @Test
+    @DisplayName("toleranceMs widens to 10% of the shorter song when that is more than the floor")
+    void toleranceMs_widensToTenPercentOfShorter() {
+        assertEquals(17_200L, SongMatcher.toleranceMs(10_000L, 187_000L, 172_000L));
+    }
+
+    @Test
+    @DisplayName("toleranceMs stays at the floor when 10% of the shorter song is smaller")
+    void toleranceMs_staysAtFloor() {
+        assertEquals(10_000L, SongMatcher.toleranceMs(10_000L, 60_000L, 65_000L));
+    }
+
+    @Test
+    @DisplayName("a live test pair (lyrics video vs official video) passes with a 10s floor")
+    void relativeTolerance_livePairPasses() {
+        Song a = SongMatcher.song("Crazy Frog - Axel F (Lyrics)", "Lyrics Hub", 187_000L, null);
+        Song b = SongMatcher.song("Crazy Frog - Axel F (Official Video)", "Crazy Frog", 172_000L, null);
+
+        assertTrue(SongMatcher.matches(a, b, 10_000L, 0.85));
+    }
+
+    @Test
+    @DisplayName("the same titles too far apart even after widening don't match")
+    void relativeTolerance_tooFarApart() {
+        Song a = SongMatcher.song("Crazy Frog - Axel F (Lyrics)", "Lyrics Hub", 172_000L, null);
+        Song b = SongMatcher.song("Crazy Frog - Axel F (Official Video)", "Crazy Frog", 200_000L, null);
+
+        assertFalse(SongMatcher.matches(a, b, 10_000L, 0.85));
+    }
+
+    @Test
+    @DisplayName("whyNot explains a pair that is too far apart in duration")
+    void whyNot_duration() {
+        Song a = SongMatcher.song("Crazy Frog - Axel F (Lyrics)", "Lyrics Hub", 172_000L, null);
+        Song b = SongMatcher.song("Crazy Frog - Axel F (Official Video)", "Crazy Frog", 200_000L, null);
+
+        assertEquals(MatchDecision.Reason.DURATION, SongMatcher.whyNot(a, b, 10_000L, 0.85));
+    }
+
+    @Test
+    @DisplayName("whyNot explains a version mismatch")
+    void whyNot_version() {
+        Song original = song("Some Great Song", "Some Band");
+        Song live = song("Some Great Song (Live)", "Some Band");
+
+        assertEquals(MatchDecision.Reason.VERSION, SongMatcher.whyNot(original, live, 10_000L, 0.85));
+    }
+
+    @Test
+    @DisplayName("whyNot explains an otherwise-eligible pair that just doesn't look alike")
+    void whyNot_lowScore() {
+        Song a = song("Totally Different Song Title", "Some Band");
+        Song b = song("Nothing Alike Whatsoever", "Another Band");
+
+        assertEquals(MatchDecision.Reason.LOW_SCORE, SongMatcher.whyNot(a, b, 10_000L, 0.85));
     }
 
     @Test
