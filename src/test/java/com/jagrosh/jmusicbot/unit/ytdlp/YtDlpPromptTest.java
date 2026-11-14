@@ -23,11 +23,13 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
 import com.jagrosh.jmusicbot.Bot;
 import com.jagrosh.jmusicbot.BotConfig;
 import com.jagrosh.jmusicbot.audio.AudioHandler;
+import com.jagrosh.jmusicbot.audio.NowPlayingHandler;
 import com.jagrosh.jmusicbot.audio.QueuedTrack;
 import com.jagrosh.jmusicbot.audio.RequestMetadata;
 import com.jagrosh.jmusicbot.commands.v1.DJCommand;
@@ -121,11 +123,14 @@ class YtDlpPromptTest {
     private ScheduledFuture<?> timeoutFuture;
     private PendingPrompts state;
     private YtDlpDownloader downloader;
+    private NowPlayingHandler nowPlayingHandler;
 
     @BeforeEach
     void setUp() {
         bot = mock(Bot.class);
         when(bot.getConfig()).thenReturn(mock(BotConfig.class));
+        nowPlayingHandler = mock(NowPlayingHandler.class);
+        when(bot.getNowplayingHandler()).thenReturn(nowPlayingHandler);
         jda = mock(JDA.class);
         when(bot.getJDA()).thenReturn(jda);
         guild = mock(Guild.class);
@@ -490,6 +495,29 @@ class YtDlpPromptTest {
         acknowledge(event);
         download.complete(entry(VIDEO_ID));
         verify(channel).editMessageById(eq(MESSAGE), argThat((CharSequence s) -> s.toString().contains("Playing")));
+    }
+
+    @Test
+    void handlePress_one_refreshesNowPlaying_sinceNoTrackStartFollowsTheSameHold() {
+        YtDlpPrompt prompt = prompt(Mode.PROMPT);
+        openPrompt(prompt);
+        LibraryAudioTrack hold = state.get(GUILD).orElseThrow().hold();
+        when(downloader.request(eq(VIDEO_ID), any(), eq(GUILD), eq(true))).thenReturn(new CompletableFuture<>());
+        ButtonInteractionEvent event = pressEvent(REQUESTER);
+        // Pins the ordering: the gate must already be open by the time the refresh runs,
+        // or the refreshed message would still render the waiting line.
+        AtomicBoolean gateOpenAtRefresh = new AtomicBoolean(false);
+        doAnswer(inv -> {
+            gateOpenAtRefresh.set(!hold.isAwaitingGate());
+            return null;
+        }).when(nowPlayingHandler).refreshNowPlaying(GUILD);
+
+        prompt.handlePress(event, new ComponentIdParsers.YtDlpButtonId("one", REQUESTER, VIDEO_ID));
+
+        // The hold keeps playing the same track object (no onTrackStart), so the now-playing
+        // message would otherwise be stuck showing the yt-dlp waiting line forever.
+        verify(nowPlayingHandler).refreshNowPlaying(GUILD);
+        assertTrue(gateOpenAtRefresh.get());
     }
 
     @Test

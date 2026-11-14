@@ -143,7 +143,15 @@ public class MessageFormatter {
                 .build();
     }
 
+    private static final String YTDLP_WAITING_LINE = AudioHandler.PAUSE_EMOJI
+            + " Waiting: YouTube blocked this song. Choose in the yt-dlp prompt above.";
+
     private static String buildPlaybackStatusLine(Bot bot, NowPlayingInfo info) {
+        if (info.isAwaitingYtDlpGate) {
+            // A yt-dlp prompt is open for this track: it isn't playing, so no progress bar or
+            // elapsed time, which would otherwise make it look like normal playback.
+            return YTDLP_WAITING_LINE;
+        }
         String statusEmoji = info.isPaused ? AudioHandler.PAUSE_EMOJI : AudioHandler.PLAY_EMOJI;
         String timeDisplay = "`[" + TimeUtil.formatTime(info.position) + "/" + TimeUtil.formatTime(info.duration) + "]`";
         if (bot.getConfig().showNpProgressBar()) {
@@ -232,9 +240,10 @@ public class MessageFormatter {
 
         Button previousButton = Button.secondary(nowPlayingButtonId("previous"), "Prev").withEmoji(Emoji.fromUnicode("\u23EE")) // ⏮
                 .withDisabled(!canGoPrevious);
-        Button pauseButton = info.isPaused
+        Button pauseButton = (info.isPaused
                 ? Button.primary(nowPlayingButtonId("pause"), "Resume").withEmoji(Emoji.fromUnicode("\u25B6")) // ▶
-                : Button.primary(nowPlayingButtonId("pause"), "Pause").withEmoji(Emoji.fromUnicode("\u23F8")); // ⏸
+                : Button.primary(nowPlayingButtonId("pause"), "Pause").withEmoji(Emoji.fromUnicode("\u23F8"))) // ⏸
+                .withDisabled(info.isAwaitingYtDlpGate);
         Button shuffleButton = Button.secondary(nowPlayingButtonId("shuffle"), "Shuffle").withEmoji(Emoji.fromUnicode("\uD83D\uDD00")) // 🔀
                 .withDisabled(!canShuffle);
         Button volumeDownButton = Button.secondary(nowPlayingButtonId("voldown"), "Vol -").withEmoji(Emoji.fromUnicode("\uD83D\uDD09")) // 🔉

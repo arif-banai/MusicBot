@@ -269,6 +269,9 @@ public final class YtDlpPrompt {
                 emoji(BotConfig::getLoading, "⏳") + " Downloading **" + title + "**…");
         CompletableFuture<LibraryEntry> download = service.requestDownload(hold, guildId, true);
         pending.gate().complete(null);
+        // The hold keeps playing the same track object, so no onTrackStart fires to refresh the
+        // now-playing message; without this it would keep showing the yt-dlp waiting line forever.
+        bot.getNowplayingHandler().refreshNowPlaying(guildId);
 
         if ("all".equals(id.action())) {
             downloadQueue(guild, guildId, message);

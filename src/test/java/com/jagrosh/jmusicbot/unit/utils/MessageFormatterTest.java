@@ -9,6 +9,8 @@ import com.jagrosh.jmusicbot.settings.RepeatMode;
 import com.jagrosh.jmusicbot.settings.Settings;
 import com.jagrosh.jmusicbot.settings.SettingsManager;
 import com.jagrosh.jmusicbot.utils.MessageFormatter;
+import com.jagrosh.jmusicbot.ytdlp.LibraryAudioTrack;
+import com.jagrosh.jmusicbot.ytdlp.LibraryEntry;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrackInfo;
 import net.dv8tion.jda.api.components.buttons.ButtonStyle;
@@ -20,6 +22,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
@@ -245,6 +248,107 @@ class MessageFormatterTest
         assertTrue(getButton(maxVolMessage, "np_volup").isDisabled());
         assertEquals("Resume", getButton(maxVolMessage, "np_pause").getLabel());
         assertEquals("Repeat One", getButton(maxVolMessage, "np_repeat").getLabel());
+    }
+
+    @Test
+    @DisplayName("buildNowPlayingMessage() shows a waiting line and no progress bar while a yt-dlp gate is open")
+    void awaitingGate_rendersWaitingLine_noProgressBar()
+    {
+        MessageCreateData message = buildNowPlayingMessageForGatedTrack(new CompletableFuture<>(), true);
+        MessageEmbed embed = getSingleEmbed(message);
+        assertNotNull(embed.getDescription());
+        assertTrue(embed.getDescription().contains("Waiting"));
+        assertTrue(embed.getDescription().contains("yt-dlp prompt"));
+        assertFalse(embed.getDescription().contains("▬"));
+        assertFalse(embed.getDescription().contains("`["));
+    }
+
+    @Test
+    @DisplayName("buildNowPlayingMessage() renders a normal track exactly as before (no gate involved)")
+    void normalTrack_renderingUnchanged()
+    {
+        MessageCreateData message = buildNowPlayingMessage("Test Title", "Test Author", false, true, "",
+                RepeatMode.OFF, 0, false, 20_000L, true);
+        MessageEmbed embed = getSingleEmbed(message);
+        assertNotNull(embed.getDescription());
+        assertFalse(embed.getDescription().contains("Waiting"));
+        assertTrue(embed.getDescription().contains("▬"));
+        assertTrue(embed.getDescription().contains("`["));
+        assertFalse(getButton(message, "np_pause").isDisabled());
+    }
+
+    @Test
+    @DisplayName("buildNowPlayingMessage() disables Pause while a yt-dlp gate is open, but keeps Skip/Stop enabled")
+    void awaitingGate_disablesPauseButton_keepsSkipAndStopEnabled()
+    {
+        MessageCreateData message = buildNowPlayingMessageForGatedTrack(new CompletableFuture<>(), true, false);
+        assertTrue(getButton(message, "np_pause").isDisabled());
+        assertFalse(getButton(message, "np_skip").isDisabled());
+        assertFalse(getButton(message, "np_stop").isDisabled());
+    }
+
+    @Test
+    @DisplayName("buildNowPlayingMessage() minimal layout also shows the waiting line while a yt-dlp gate is open")
+    void awaitingGate_minimalLayout_rendersWaitingLine()
+    {
+        MessageCreateData message = buildNowPlayingMessageForGatedTrack(new CompletableFuture<>(), true, true);
+        MessageEmbed embed = getSingleEmbed(message);
+        assertNotNull(embed.getDescription());
+        assertTrue(embed.getDescription().contains("Waiting"));
+        assertFalse(embed.getDescription().contains("▬"));
+        assertTrue(getButton(message, "np_pause").isDisabled());
+    }
+
+    @Test
+    @DisplayName("buildNowPlayingMessage() returns to normal playback rendering once the gate resolves")
+    void gateResolved_rendersNormally_noLongerWaiting()
+    {
+        CompletableFuture<Void> gate = new CompletableFuture<>();
+        gate.complete(null);
+        MessageCreateData message = buildNowPlayingMessageForGatedTrack(gate, true, false);
+        MessageEmbed embed = getSingleEmbed(message);
+        assertNotNull(embed.getDescription());
+        assertFalse(embed.getDescription().contains("Waiting"));
+        assertTrue(embed.getDescription().contains("▬"));
+        assertTrue(embed.getDescription().contains("`["));
+        assertFalse(getButton(message, "np_pause").isDisabled());
+    }
+
+    /** Builds a now-playing message for a real (unmocked) {@link LibraryAudioTrack} with the given gate. */
+    private static MessageCreateData buildNowPlayingMessageForGatedTrack(CompletableFuture<Void> gate, boolean showProgressBar)
+    {
+        return buildNowPlayingMessageForGatedTrack(gate, showProgressBar, false);
+    }
+
+    private static MessageCreateData buildNowPlayingMessageForGatedTrack(
+            CompletableFuture<Void> gate, boolean showProgressBar, boolean minimalMessage)
+    {
+        Bot bot = mock(Bot.class);
+        BotConfig config = mock(BotConfig.class);
+        SettingsManager settingsManager = mock(SettingsManager.class);
+        Settings settings = mock(Settings.class);
+
+        when(bot.getConfig()).thenReturn(config);
+        when(bot.getSettingsManager()).thenReturn(settingsManager);
+        when(config.showNpProgressBar()).thenReturn(showProgressBar);
+        when(config.useNPImages()).thenReturn(false);
+
+        Guild guild = mock(Guild.class, RETURNS_DEEP_STUBS);
+        when(guild.getName()).thenReturn("Test Guild");
+        when(guild.getIconUrl()).thenReturn(null);
+        when(guild.getSelfMember().getVoiceState().getChannel().getName()).thenReturn("Music VC");
+        when(settingsManager.getSettings(guild)).thenReturn(settings);
+        when(settings.useMinimalNowPlayingMessage(config)).thenReturn(minimalMessage);
+        when(settings.showNowPlayingButtons(config)).thenReturn(true);
+        when(settings.getRepeatMode()).thenReturn(RepeatMode.OFF);
+
+        AudioTrackInfo trackInfo = new AudioTrackInfo("Crazy Frog - Axel F", "Crazy Frog",
+                172_000L, "abcdefghijk", false, "https://example.com/track");
+        LibraryAudioTrack track = new LibraryAudioTrack(trackInfo, "abcdefghijk",
+                () -> new CompletableFuture<LibraryEntry>(), gate, null);
+
+        NowPlayingInfo info = new NowPlayingInfo(track, guild, false, 50, 0, "");
+        return MessageFormatter.buildNowPlayingMessage(bot, info);
     }
 
     private static MessageCreateData buildNowPlayingMessage(

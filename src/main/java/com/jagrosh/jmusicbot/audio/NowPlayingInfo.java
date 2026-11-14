@@ -1,5 +1,6 @@
 package com.jagrosh.jmusicbot.audio;
 
+import com.jagrosh.jmusicbot.ytdlp.LibraryAudioTrack;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
 import net.dv8tion.jda.api.entities.Guild;
 
@@ -17,6 +18,8 @@ public class NowPlayingInfo {
     public final int previousTrackCount;
     public final boolean isCurrentTrackFavorited;
     public final String footerInfo;
+    /** True while the playing track is a yt-dlp download-prompt hold that hasn't been answered yet. */
+    public final boolean isAwaitingYtDlpGate;
 
     public NowPlayingInfo(AudioTrack track, Guild guild, boolean isPaused, int volume, int queueSize, String footerInfo) {
         this(track, guild, isPaused, volume, queueSize, 0, false, footerInfo);
@@ -58,5 +61,6 @@ public class NowPlayingInfo {
         this.previousTrackCount = Math.max(0, previousTrackCount);
         this.isCurrentTrackFavorited = isCurrentTrackFavorited;
         this.footerInfo = footerInfo;
+        this.isAwaitingYtDlpGate = track instanceof LibraryAudioTrack libraryTrack && libraryTrack.isAwaitingGate();
     }
 }
