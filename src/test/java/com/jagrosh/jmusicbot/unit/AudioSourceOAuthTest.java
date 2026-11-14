@@ -233,26 +233,22 @@ class AudioSourceOAuthTest {
             // With OAuth enabled
             Object[] oauthClients = (Object[]) buildClients.invoke(null, true);
             assertNotNull(oauthClients, "Should return clients for OAuth mode");
-            assertEquals(5, oauthClients.length, "OAuth mode should use 5 clients");
-            
+            assertEquals(6, oauthClients.length, "OAuth mode should use 6 clients");
+
             // Verify client types
-            assertEquals("AndroidVrClient", oauthClients[0].getClass().getSimpleName(),
-                "First OAuth client should be <AndroidVrClient>");
-            assertEquals("MWebWithThumbnail", oauthClients[1].getClass().getSimpleName(),
-                "Second OAuth client should be <MWebWithThumbnail>");
-            assertEquals("WebWithThumbnail", oauthClients[2].getClass().getSimpleName(),
-                "Third OAuth client should be <WebWithThumbnail>");
-            assertEquals("Tv", oauthClients[3].getClass().getSimpleName(),
-                "Fourth OAuth client should be Tv");
-            assertEquals("TvHtml5SimplyWithThumbnail", oauthClients[4].getClass().getSimpleName(),
-                "Fifth OAuth client should be TvHtml5SimplyWithThumbnail");
-            // Verify all OAuth-mode clients remain eligible for playback fallback.
-            for (int i = 0; i < 3; i++) {
-                Client client = (Client) oauthClients[i];
-                assertTrue(client.getOptions().getPlayback(),
-                    String.format("OAuth client %d (%s) should have playback enabled",
-                        i, client.getClass().getSimpleName()));
-            }
+            assertEquals("VisionOsClient", oauthClients[0].getClass().getSimpleName(),
+                "First OAuth client should be <VisionOsClient> (plays without a PO token)");
+            assertEquals("AndroidVrClient", oauthClients[1].getClass().getSimpleName(),
+                "Second OAuth client should be <AndroidVrClient>");
+            assertEquals("MWebWithThumbnail", oauthClients[2].getClass().getSimpleName(),
+                "Third OAuth client should be <MWebWithThumbnail>");
+            assertEquals("WebWithThumbnail", oauthClients[3].getClass().getSimpleName(),
+                "Fourth OAuth client should be <WebWithThumbnail>");
+            assertEquals("Tv", oauthClients[4].getClass().getSimpleName(),
+                "Fifth OAuth client should be Tv");
+            assertEquals("TvHtml5SimplyWithThumbnail", oauthClients[5].getClass().getSimpleName(),
+                "Sixth OAuth client should be TvHtml5SimplyWithThumbnail");
+            assertPlaybackRoles(oauthClients);
         }
 
         @Test
@@ -263,17 +259,34 @@ class AudioSourceOAuthTest {
             // Without OAuth
             Object[] nonOauthClients = (Object[]) buildClients.invoke(null, false);
             assertNotNull(nonOauthClients, "Should return clients for non-OAuth mode");
-            assertEquals(4, nonOauthClients.length, "Non-OAuth mode should use 4 clients");
-            
+            assertEquals(5, nonOauthClients.length, "Non-OAuth mode should use 5 clients");
+
             // Verify client types
-            assertEquals("AndroidVrClient", nonOauthClients[0].getClass().getSimpleName(),
-                "First non-OAuth client should be <AndroidVrClient>");
-            assertEquals("MWebWithThumbnail", nonOauthClients[1].getClass().getSimpleName(),
-                "Second non-OAuth client should be <MWebWithThumbnail>");
-            assertEquals("WebWithThumbnail", nonOauthClients[2].getClass().getSimpleName(),
-                "Third non-OAuth client should be <WebWithThumbnail>");
-            assertEquals("TvHtml5SimplyWithThumbnail", nonOauthClients[3].getClass().getSimpleName(),
-                "Fourth non-OAuth client should be <TvHtml5SimplyWithThumbnail>");
+            assertEquals("VisionOsClient", nonOauthClients[0].getClass().getSimpleName(),
+                "First non-OAuth client should be <VisionOsClient> (plays without a PO token)");
+            assertEquals("AndroidVrClient", nonOauthClients[1].getClass().getSimpleName(),
+                "Second non-OAuth client should be <AndroidVrClient>");
+            assertEquals("MWebWithThumbnail", nonOauthClients[2].getClass().getSimpleName(),
+                "Third non-OAuth client should be <MWebWithThumbnail>");
+            assertEquals("WebWithThumbnail", nonOauthClients[3].getClass().getSimpleName(),
+                "Fourth non-OAuth client should be <WebWithThumbnail>");
+            assertEquals("TvHtml5SimplyWithThumbnail", nonOauthClients[4].getClass().getSimpleName(),
+                "Fifth non-OAuth client should be <TvHtml5SimplyWithThumbnail>");
+            assertPlaybackRoles(nonOauthClients);
+        }
+
+        /**
+         * VISIONOS plays first. ANDROID_VR is metadata-only: without a GVS PO token YouTube serves
+         * only about the first minute of its audio URLs, so as a playback client it would just cost
+         * a 403 round trip per track. Every other client stays a playback fallback.
+         */
+        private void assertPlaybackRoles(Object[] clients) {
+            for (Object o : clients) {
+                Client client = (Client) o;
+                boolean expectPlayback = !"AndroidVrClient".equals(client.getClass().getSimpleName());
+                assertEquals(expectPlayback, client.getOptions().getPlayback(),
+                    client.getClass().getSimpleName() + (expectPlayback ? " should" : " should not") + " be used for playback");
+            }
         }
 
         @Test

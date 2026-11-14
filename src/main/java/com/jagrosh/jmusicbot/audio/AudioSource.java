@@ -35,6 +35,7 @@ import com.sedmelluq.discord.lavaplayer.source.twitch.TwitchStreamAudioSourceMan
 import com.sedmelluq.discord.lavaplayer.source.vimeo.VimeoAudioSourceManager;
 import dev.lavalink.youtube.YoutubeAudioSourceManager;
 import dev.lavalink.youtube.YoutubeSourceOptions;
+import dev.lavalink.youtube.clients.ClientOptions;
 import dev.lavalink.youtube.clients.MWebWithThumbnail;
 import dev.lavalink.youtube.clients.Tv;
 import dev.lavalink.youtube.clients.TvHtml5SimplyWithThumbnail;
@@ -266,35 +267,39 @@ public enum AudioSource
     }
     
     /**
-     * Builds the appropriate YouTube clients based on OAuth setting.
-     * 
-     * <p>When OAuth is enabled, we use a combination of clients:
+     * Builds the YouTube clients. youtube-source tries them in order for playback, skipping
+     * clients with playback disabled; loading, search and playlists use the first client whose
+     * {@code canHandleRequest} is true.
+     *
      * <ul>
-     *   <li><b>AndroidVrClient</b> - ANDROID_VR with a newer client version (see that class).
-     *       Non-embedded playback fallback with Opus support.</li>
-     *   <li><b>MWebWithThumbnail</b> - Non-embedded playback fallback.</li>
-     *   <li><b>WebWithThumbnail</b> - Non-embedded playback fallback.</li>
-     *   <li><b>Tv</b> - OAuth-compatible playback client.</li>
-     *   <li><b>TvHtml5SimplyWithThumbnail</b> - Non-OAuth playback fallback.</li>
+     *   <li><b>VisionOsClient</b> - playback only, tried first: its stream URLs need no PO token.</li>
+     *   <li><b>AndroidVrClient</b> - metadata, search and playlists only. Without a PO token
+     *       YouTube serves only about the first minute of its audio, so as a playback client it
+     *       would just cost a 403 per track.</li>
+     *   <li><b>MWebWithThumbnail</b>, <b>WebWithThumbnail</b> - loading, and playback fallbacks.</li>
+     *   <li><b>Tv</b> - OAuth playback (OAuth mode only).</li>
+     *   <li><b>TvHtml5SimplyWithThumbnail</b> - playback fallback.</li>
      * </ul>
-     * 
-     * <p>
      */
     private static Client[] buildYoutubeClients(boolean useOauth)
     {
+        ClientOptions metadataOnly = new ClientOptions();
+        metadataOnly.setPlayback(false);
+
         if (useOauth)
         {
             return new Client[] {
-                new AndroidVrClient(),              // audio-capable fallback for long-form playback
-                new MWebWithThumbnail(),            // audio-capable fallback for long-form playback
-                new WebWithThumbnail(),             // audio-capable fallback for long-form playback
-                new Tv(),                            // OAuth-compatible playback
-                new TvHtml5SimplyWithThumbnail()     // non-OAuth playback fallback
+                new VisionOsClient(),
+                new AndroidVrClient(metadataOnly),
+                new MWebWithThumbnail(),
+                new WebWithThumbnail(),
+                new Tv(),
+                new TvHtml5SimplyWithThumbnail()
             };
         }
-        // Clients are required even without OAuth to properly handle YouTube URLs
         return new Client[] {
-            new AndroidVrClient(),
+            new VisionOsClient(),
+            new AndroidVrClient(metadataOnly),
             new MWebWithThumbnail(),
             new WebWithThumbnail(),
             new TvHtml5SimplyWithThumbnail()

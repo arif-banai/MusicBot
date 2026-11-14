@@ -26,10 +26,13 @@ import org.jetbrains.annotations.NotNull;
  * youtube-source's ANDROID_VR client with a newer client version.
  *
  * <p>youtube-source sends ANDROID_VR clientVersion {@code 1.60.19}, which YouTube now always
- * answers with "Sign in to confirm you're not a bot"; {@code 1.65.10} plays with the same
- * request otherwise unchanged (lavalink-devs/youtube-source#255). This client sends whichever of
- * {@link #MIN_CLIENT_VERSION} and youtube-source's own version is newer, so it stops doing
- * anything once upstream catches up and can then be deleted.
+ * answers with "Sign in to confirm you're not a bot"; at {@code 1.65.10} the player request
+ * succeeds (lavalink-devs/youtube-source#255). That makes this client usable for metadata,
+ * search and playlists. It is NOT usable for playback: without a GVS PO token googlevideo serves
+ * only about the first minute of its audio and answers 403 beyond that, so the bot registers it
+ * with playback disabled and plays through {@link VisionOsClient} instead. This client sends
+ * whichever of {@link #MIN_CLIENT_VERSION} and youtube-source's own version is newer, so it stops
+ * doing anything once upstream catches up and can then be deleted.
  *
  * <p>The config is built fresh on every call instead of copied: {@link ClientConfig#copy()} is
  * shallow, so a field set on a copy (the client version here, visitor data in youtube-source)
