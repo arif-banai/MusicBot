@@ -341,6 +341,85 @@ class MatchSuggestionsTest {
         library.reject(REQ_ID, LIB_ID);
         MatchSuggestions suggestions = suggestions();
 
+        List<String> decisionLines = captureDecisionLogs(() -> {
+            suggestions.consider(GUILD, playingRequest());
+            runTasks();
+        });
+
+        assertEquals(1, decisionLines.size(), decisionLines::toString);
+        assertTrue(decisionLines.get(0).contains(LIB_ID), decisionLines.get(0));
+        assertTrue(decisionLines.get(0).contains("REJECTED"), decisionLines.get(0));
+        verify(channel, never()).sendMessage(any(CharSequence.class));
+    }
+
+    @Test
+    @DisplayName("the entry that actually matches wins over one that is merely closer by words but fails the "
+            + "duration gate; once that winner is excluded, the log names the closer one with DURATION")
+    void multipleCandidates_actualMatchWinsOverCloserButDurationFailing() throws IOException {
+        String winnerId = "AAAAAAAAAAA";
+        String closerId = "BBBBBBBBBBB";
+        // Shares all 5 title words but only 2 of 3 artist words with the request: scores 0.9, still
+        // above minScore (0.85), and its length is close enough to actually match.
+        recordCandidate(winnerId, "One Two Three Four Five", "Alpha Band Three", 170_000L);
+        // An exact title+artist duplicate of the request (raw score 1.0, closer than the winner) but
+        // with a wildly different length, so it never actually matches.
+        recordCandidate(closerId, "One Two Three Four Five", "Alpha Band", 400_000L);
+        MatchSuggestions suggestions = suggestions();
+        AudioTrack request = customRequest(169_000L);
+        when(player.getPlayingTrack()).thenReturn(request);
+
+        List<String> firstLines = captureDecisionLogs(() -> {
+            suggestions.consider(GUILD, request);
+            runTasks();
+        });
+
+        assertEquals(1, firstLines.size(), firstLines::toString);
+        assertTrue(firstLines.get(0).contains(winnerId), firstLines.get(0));
+        assertTrue(firstLines.get(0).contains("SUGGESTED"), firstLines.get(0));
+        assertFalse(firstLines.get(0).contains(closerId), firstLines.get(0));
+        verify(channel, times(1)).sendMessage(any(CharSequence.class));
+
+        // Exclude the winner (as if already rejected) and look again: nothing actually matches now,
+        // so the log should name the closer-by-words candidate, with the true reason it didn't pass.
+        library.reject(REQ_ID, winnerId);
+        AudioTrack secondLook = customRequest(169_000L);
+        when(player.getPlayingTrack()).thenReturn(secondLook);
+
+        List<String> secondLines = captureDecisionLogs(() -> {
+            suggestions.consider(GUILD, secondLook);
+            runTasks();
+        });
+
+        assertEquals(1, secondLines.size(), secondLines::toString);
+        assertTrue(secondLines.get(0).contains(closerId), secondLines.get(0));
+        assertTrue(secondLines.get(0).contains("DURATION"), secondLines.get(0));
+        verify(channel, times(1)).sendMessage(any(CharSequence.class)); // still just the first post
+    }
+
+    private void recordCandidate(String id, String title, String author, long lengthMs) throws IOException {
+        Path file = libraryFolder.resolve(title + " [" + id + "].webm");
+        Files.writeString(file, "x");
+        library.record(id, file, new AudioTrackInfo(title, author, lengthMs, id, false, YT + id,
+                "https://img/" + id + ".jpg", null));
+    }
+
+    private AudioTrack customRequest(long lengthMs) {
+        AudioTrack track = mock(AudioTrack.class);
+        AudioSourceManager source = mock(AudioSourceManager.class);
+        when(source.getSourceName()).thenReturn("youtube");
+        when(track.getSourceManager()).thenReturn(source);
+        AudioTrackInfo info = new AudioTrackInfo("One Two Three Four Five", "Alpha Band", lengthMs, REQ_ID, false,
+                YT + REQ_ID, "https://img/req.jpg", null);
+        when(track.getInfo()).thenReturn(info);
+        when(track.getIdentifier()).thenReturn(REQ_ID);
+        RequestMetadata rm = requestMetadata();
+        when(track.getUserData()).thenReturn(rm);
+        when(track.getUserData(RequestMetadata.class)).thenReturn(rm);
+        return track;
+    }
+
+    /** Captures the "Match for ..." DEBUG decision lines {@link MatchSuggestions} logs while {@code action} runs. */
+    private List<String> captureDecisionLogs(Runnable action) {
         ch.qos.logback.classic.Logger logger =
                 (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(MatchSuggestions.class);
         ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> appender =
@@ -350,22 +429,16 @@ class MatchSuggestionsTest {
         logger.setLevel(ch.qos.logback.classic.Level.DEBUG);
         logger.addAppender(appender);
         try {
-            suggestions.consider(GUILD, playingRequest());
-            runTasks();
+            action.run();
         } finally {
             logger.detachAppender(appender);
             logger.setLevel(previous);
         }
-
-        List<String> decisionLines = appender.list.stream()
+        return appender.list.stream()
                 .filter(e -> e.getLevel() == ch.qos.logback.classic.Level.DEBUG)
                 .map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage)
                 .filter(m -> m.startsWith("Match for "))
                 .toList();
-        assertEquals(1, decisionLines.size(), decisionLines::toString);
-        assertTrue(decisionLines.get(0).contains(LIB_ID), decisionLines.get(0));
-        assertTrue(decisionLines.get(0).contains("REJECTED"), decisionLines.get(0));
-        verify(channel, never()).sendMessage(any(CharSequence.class));
     }
 
     @Test

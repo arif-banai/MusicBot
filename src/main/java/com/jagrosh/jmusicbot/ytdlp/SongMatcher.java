@@ -195,10 +195,26 @@ public final class SongMatcher {
      * generic or one-word title.
      */
     public static double score(Song a, Song b, long toleranceMs) {
-        long tolerance = toleranceMs(toleranceMs, a.lengthMs(), b.lengthMs());
-        if (a.lengthMs() <= 0 || b.lengthMs() <= 0 || Math.abs(a.lengthMs() - b.lengthMs()) > tolerance) {
+        if (!durationOk(a, b, toleranceMs)) {
             return 0.0;
         }
+        return scoreIgnoringDuration(a, b);
+    }
+
+    /** Whether {@code a} and {@code b}'s lengths are both known and within the widened tolerance. */
+    private static boolean durationOk(Song a, Song b, long floorMs) {
+        if (a.lengthMs() <= 0 || b.lengthMs() <= 0) {
+            return false;
+        }
+        long tolerance = toleranceMs(floorMs, a.lengthMs(), b.lengthMs());
+        return Math.abs(a.lengthMs() - b.lengthMs()) <= tolerance;
+    }
+
+    /**
+     * {@link #score}'s title/artist/ISRC/version logic, with the duration gate already decided by
+     * the caller (either applied, by {@link #score}, or skipped entirely, by {@link #rawScore}).
+     */
+    private static double scoreIgnoringDuration(Song a, Song b) {
         if (a.isrc() != null && b.isrc() != null && !a.isrc().isBlank() && a.isrc().equalsIgnoreCase(b.isrc())) {
             return 1.0;
         }
@@ -243,8 +259,7 @@ public final class SongMatcher {
      * reasons, so it doesn't change which of the three is returned.
      */
     public static MatchDecision.Reason whyNot(Song a, Song b, long floorMs, double minScore) {
-        long tolerance = toleranceMs(floorMs, a.lengthMs(), b.lengthMs());
-        if (a.lengthMs() <= 0 || b.lengthMs() <= 0 || Math.abs(a.lengthMs() - b.lengthMs()) > tolerance) {
+        if (!durationOk(a, b, floorMs)) {
             return MatchDecision.Reason.DURATION;
         }
         if (!a.versions().equals(b.versions())) {
@@ -254,16 +269,13 @@ public final class SongMatcher {
     }
 
     /**
-     * The weighted title/artist similarity alone, ignoring the length, version and ISRC gates.
-     * Used only to pick the closest candidate to report when nothing actually matches.
+     * {@link #score}, but with the duration gate skipped (an unknown or wildly different length
+     * never zeroes it). The ISRC, version and generic-title gates still apply, so this is exactly
+     * "the highest score ignoring duration": used only to pick the closest candidate to report
+     * when nothing actually matches.
      */
     static double rawScore(Song a, Song b) {
-        double title = jaccard(a.title(), b.title());
-        if (!a.hasArtist() || !b.hasArtist()) {
-            return title;
-        }
-        double artist = a.artistCompact().equals(b.artistCompact()) ? 1.0 : jaccard(a.artist(), b.artist());
-        return TITLE_WEIGHT * title + ARTIST_WEIGHT * artist;
+        return scoreIgnoringDuration(a, b);
     }
 
     // ---- cleaning ----
