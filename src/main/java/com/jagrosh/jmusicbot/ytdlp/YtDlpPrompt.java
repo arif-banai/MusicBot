@@ -109,6 +109,11 @@ public final class YtDlpPrompt {
                 && track.getInfo() != null && !track.getInfo().isStream;
     }
 
+    /** Whether the guild has a prompt open (pressed or not). */
+    public boolean isOpen(long guildId) {
+        return state.get(guildId).isPresent();
+    }
+
     /**
      * Runs {@code task} once after {@code delay} on the prompt scheduler (a single daemon thread).
      *

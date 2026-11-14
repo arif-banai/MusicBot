@@ -1089,5 +1089,120 @@ public class AudioHandlerTest extends TestBase {
 
             verify(ytDlp, times(2)).cancelGuild(GUILD_ID);
         }
+
+        // ---- similar-song matching ----
+
+        /** A track whose clone (for history) is another track with the same info. */
+        private AudioTrack startable(String identifier)
+        {
+            AudioTrack track = track(identifier);
+            AudioTrack clone = track(identifier);
+            when(track.makeClone()).thenReturn(clone);
+            return track;
+        }
+
+        /** Makes playTrack behave like lavaplayer: the old track ends (REPLACED), then the new one starts, inline. */
+        private void playTrackDispatchesEvents(AudioTrack old)
+        {
+            doAnswer(inv -> {
+                AudioTrack started = inv.getArgument(0);
+                audioHandler.onTrackEnd(audioPlayer, old, AudioTrackEndReason.REPLACED);
+                when(audioPlayer.getPlayingTrack()).thenReturn(started);
+                audioHandler.onTrackStart(audioPlayer, started);
+                return null;
+            }).when(audioPlayer).playTrack(any());
+        }
+
+        @Test
+        @DisplayName("onTrackStart asks for a similar-song suggestion; onTrackEnd expires it")
+        void trackStartAndEnd_notifyMatchSuggestions()
+        {
+            com.jagrosh.jmusicbot.ytdlp.MatchSuggestions suggestions = mock(com.jagrosh.jmusicbot.ytdlp.MatchSuggestions.class);
+            when(ytDlp.getMatchSuggestions()).thenReturn(suggestions);
+            AudioTrack requested = startable("requested");
+
+            audioHandler.onTrackStart(audioPlayer, requested);
+            audioHandler.onTrackEnd(audioPlayer, requested, AudioTrackEndReason.FINISHED);
+
+            verify(suggestions).consider(GUILD_ID, requested);
+            verify(suggestions).onTrackEnded(GUILD_ID, requested);
+        }
+
+        @Test
+        @DisplayName("no suggestion service (feature off): track start and end work as before")
+        void noMatchSuggestions_noop()
+        {
+            when(ytDlp.getMatchSuggestions()).thenReturn(null);
+            AudioTrack requested = startable("requested");
+
+            assertDoesNotThrow(() -> {
+                audioHandler.onTrackStart(audioPlayer, requested);
+                audioHandler.onTrackEnd(audioPlayer, requested, AudioTrackEndReason.FINISHED);
+            });
+            assertEquals(1, audioHandler.getPreviousTracks().size());
+        }
+
+        @Test
+        @DisplayName("Switch: the library copy replaces the stream through the player, with an empty queue, and the bot stays")
+        void replaceWithLibraryCopy_emptyQueue_doesNotDisconnect()
+        {
+            AudioTrack requested = startable("requested");
+            LibraryAudioTrack copy = libraryTrack(null);
+            when(audioPlayer.getPlayingTrack()).thenReturn(requested);
+            audioHandler.onTrackStart(audioPlayer, requested);
+            playTrackDispatchesEvents(requested);
+
+            assertTrue(audioHandler.replaceWithLibraryCopy(requested, copy));
+
+            verify(audioPlayer).playTrack(copy);
+            verify(audioPlayer, never()).stopTrack();
+            verify(bot, never()).closeAudioConnection(anyLong());
+            // History keeps the requested song once; the library copy isn't added again.
+            assertEquals(1, audioHandler.getPreviousTracks().size());
+        }
+
+        @Test
+        @DisplayName("Switch with songs queued: the queue is not pulled")
+        void replaceWithLibraryCopy_queued_doesNotPull()
+        {
+            AudioTrack requested = startable("requested");
+            LibraryAudioTrack copy = libraryTrack(null);
+            enqueue(track("next"));
+            when(audioPlayer.getPlayingTrack()).thenReturn(requested);
+            playTrackDispatchesEvents(requested);
+
+            assertTrue(audioHandler.replaceWithLibraryCopy(requested, copy));
+
+            verify(audioPlayer, times(1)).playTrack(any());
+            assertEquals(1, audioHandler.getQueue().size());
+        }
+
+        @Test
+        @DisplayName("Switch is refused when the requested song is no longer playing")
+        void replaceWithLibraryCopy_notPlaying_refused()
+        {
+            AudioTrack requested = startable("requested");
+            AudioTrack other = track("other");
+            when(audioPlayer.getPlayingTrack()).thenReturn(other);
+
+            assertFalse(audioHandler.replaceWithLibraryCopy(requested, libraryTrack(null)));
+
+            verify(audioPlayer, never()).playTrack(any());
+        }
+
+        @Test
+        @DisplayName("a REPLACED end that isn't a switch still ends the queue as before")
+        void replacedEnd_notASwitch_unchanged()
+        {
+            AudioTrack requested = startable("requested");
+            LibraryAudioTrack copy = libraryTrack(null);
+            when(audioPlayer.getPlayingTrack()).thenReturn(requested);
+            playTrackDispatchesEvents(requested);
+            audioHandler.replaceWithLibraryCopy(requested, copy);
+
+            audioHandler.onTrackEnd(audioPlayer, copy, AudioTrackEndReason.REPLACED);
+
+            verify(bot).closeAudioConnection(GUILD_ID);
+        }
     }
 }

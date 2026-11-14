@@ -64,6 +64,8 @@ public final class LibraryAudioTrack extends DelegatedAudioTrack {
     private final Supplier<CompletableFuture<LibraryEntry>> fileSource;
     private final @Nullable CompletableFuture<Void> gate;
     private final @Nullable AudioSourceManager displaySource;
+    private final @Nullable String linkedFrom;
+    private final @Nullable String linkedFromTitle;
 
     /**
      * @param info          the original YouTube track's info, shown everywhere for this track
@@ -83,16 +85,42 @@ public final class LibraryAudioTrack extends DelegatedAudioTrack {
                              Supplier<CompletableFuture<LibraryEntry>> fileSource,
                              @Nullable CompletableFuture<Void> gate,
                              @Nullable AudioSourceManager displaySource) {
+        this(info, key, fileSource, gate, displaySource, null, null);
+    }
+
+    /**
+     * A library copy played in place of another song that a person linked to it (an alias).
+     *
+     * @param linkedFrom      the requested song's library key (the alias's source), or null
+     * @param linkedFromTitle the requested song's own title, or null if unknown
+     */
+    public LibraryAudioTrack(AudioTrackInfo info, String key,
+                             Supplier<CompletableFuture<LibraryEntry>> fileSource,
+                             @Nullable CompletableFuture<Void> gate,
+                             @Nullable AudioSourceManager displaySource,
+                             @Nullable String linkedFrom, @Nullable String linkedFromTitle) {
         super(info);
         this.key = key;
         this.fileSource = fileSource;
         this.gate = gate;
         this.displaySource = displaySource;
+        this.linkedFrom = linkedFrom;
+        this.linkedFromTitle = linkedFromTitle;
     }
 
     /** The library key this track plays (for YouTube, the video ID). */
     public String getKey() {
         return key;
+    }
+
+    /** The library key of the requested song this library copy stands in for (an alias), or null. */
+    public @Nullable String getLinkedFrom() {
+        return linkedFrom;
+    }
+
+    /** The title of the requested song this library copy stands in for, or null if unknown. */
+    public @Nullable String getLinkedFromTitle() {
+        return linkedFromTitle;
     }
 
     /** Whether this track was created with a gate, whether or not it has opened yet. */
@@ -149,7 +177,7 @@ public final class LibraryAudioTrack extends DelegatedAudioTrack {
 
     @Override
     protected AudioTrack makeShallowClone() {
-        return new LibraryAudioTrack(trackInfo, key, fileSource, null, displaySource);
+        return new LibraryAudioTrack(trackInfo, key, fileSource, null, displaySource, linkedFrom, linkedFromTitle);
     }
 
     @Override

@@ -290,6 +290,31 @@ public final class YtDlpLibrary {
     }
 
     /**
+     * Fills in the author, length and artwork of the entry for {@code key} from a real track,
+     * where the entry has none, and saves. The title, key, file, source, name parts and the
+     * adopted flag are kept. Returns the entry as it now is, or empty if {@code key} isn't indexed.
+     */
+    public synchronized Optional<LibraryEntry> fillMissing(String key, AudioTrackInfo info) throws IOException {
+        LibraryEntry current = key == null ? null : entries.get(key);
+        if (current == null || info == null) {
+            return Optional.ofNullable(current);
+        }
+        String author = current.author().isEmpty() && info.author != null ? info.author : current.author();
+        long lengthMs = current.lengthMs() <= 0 && !info.isStream && info.length > 0 ? info.length : current.lengthMs();
+        String artwork = current.artworkUrl() == null || current.artworkUrl().isBlank() ? info.artworkUrl
+                : current.artworkUrl();
+        LibraryEntry filled = new LibraryEntry(current.key(), current.file(), current.title(), author, lengthMs,
+                artwork, current.uri(), current.source(), current.nameParts(), current.adopted());
+        if (filled.equals(current)) {
+            return Optional.of(current);
+        }
+        entries.put(key, filled);
+        entriesByFile.put(normalize(filled.file()), filled);
+        saveIndex();
+        return Optional.of(filled);
+    }
+
+    /**
      * An unmodifiable snapshot of every entry, for matching. Entries whose file has gone since
      * the last {@link #load()} are included; check with {@link #find} before playing one.
      */

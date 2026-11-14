@@ -19,13 +19,15 @@ import java.util.Optional;
 
 import com.jagrosh.jmusicbot.Bot;
 import com.jagrosh.jmusicbot.listener.interaction.ComponentIdParsers;
+import com.jagrosh.jmusicbot.ytdlp.MatchSuggestions;
 import com.jagrosh.jmusicbot.ytdlp.YtDlpPrompt;
 import com.jagrosh.jmusicbot.ytdlp.YtDlpService;
 import net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 
 /**
- * Routes yt-dlp prompt button presses ({@code ytdlp_one_*}, {@code ytdlp_all_*}) to {@link YtDlpPrompt}.
+ * Routes yt-dlp prompt button presses ({@code ytdlp_one_*}, {@code ytdlp_all_*}) to {@link YtDlpPrompt},
+ * and similar-song suggestion presses ({@code ytdlp_match_*}) to {@link MatchSuggestions}.
  *
  * @author Arif Banai (arif-banai)
  */
@@ -42,6 +44,10 @@ public class YtDlpPromptListener extends ListenerAdapter {
         if (!event.getComponentId().startsWith("ytdlp_")) {
             return;
         }
+        if (event.getComponentId().startsWith(ComponentIdParsers.YTDLP_MATCH_PREFIX)) {
+            onMatchButton(event);
+            return;
+        }
         Optional<ComponentIdParsers.YtDlpButtonId> parsed = ComponentIdParsers.parseYtDlpButtonId(event.getComponentId());
         if (parsed.isEmpty()) {
             event.reply("Invalid button state.").setEphemeral(true).queue();
@@ -54,5 +60,17 @@ public class YtDlpPromptListener extends ListenerAdapter {
             return;
         }
         prompt.handlePress(event, parsed.get());
+    }
+
+    private void onMatchButton(ButtonInteractionEvent event) {
+        Optional<ComponentIdParsers.YtDlpMatchButtonId> parsed =
+                ComponentIdParsers.parseYtDlpMatchButtonId(event.getComponentId());
+        YtDlpService ytDlp = bot.getYtDlp();
+        MatchSuggestions suggestions = ytDlp == null ? null : ytDlp.getMatchSuggestions();
+        if (parsed.isEmpty() || suggestions == null) {
+            event.reply("This suggestion has expired.").setEphemeral(true).queue();
+            return;
+        }
+        suggestions.handlePress(event, parsed.get());
     }
 }

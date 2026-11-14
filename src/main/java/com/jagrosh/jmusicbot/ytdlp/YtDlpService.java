@@ -64,6 +64,7 @@ public final class YtDlpService {
     /** Starts as {@link YtDlpSettings#enabled()}; turned off for this run if the version check fails. */
     private volatile boolean enabled;
     private volatile @Nullable YtDlpPrompt prompt;
+    private volatile @Nullable MatchSuggestions matchSuggestions;
     private volatile @Nullable ScheduledExecutorService ownedScheduler;
     /** Runs library index updates off the player and audio threads. */
     private final Executor background;
@@ -126,6 +127,7 @@ public final class YtDlpService {
         YtDlpService service = new YtDlpService(settings, library, downloader, runner, scheduler);
         service.ownedScheduler = scheduler;
         service.prompt = new YtDlpPrompt(bot, service, new PendingPrompts(), scheduler);
+        service.matchSuggestions = new MatchSuggestions(bot, service, service.prompt, scheduler);
         return service;
     }
 
@@ -200,6 +202,75 @@ public final class YtDlpService {
         return prompt;
     }
 
+    /** The similar-song suggestions, or null for a service built without a bot (e.g. in tests). */
+    public @Nullable MatchSuggestions getMatchSuggestions() {
+        return matchSuggestions;
+    }
+
+    /** Records, in the background, that a person said {@code fromKey} is the same song as library song {@code toKey}. */
+    public void rememberLink(String fromKey, String toKey) {
+        inBackground("link " + fromKey + " to " + toKey, () -> library.alias(fromKey, toKey));
+    }
+
+    /** Records, in the background, that a person said {@code fromKey} is not the same song as {@code toKey}. */
+    public void rememberRejection(String fromKey, String toKey) {
+        inBackground("reject " + toKey + " for " + fromKey, () -> library.reject(fromKey, toKey));
+    }
+
+    /**
+     * Removes the link (alias) behind the song now playing, if it has one: a library copy
+     * played for a linked song, or a requested song whose key is linked.
+     *
+     * @return what was unlinked, or empty if the song isn't linked to a library song
+     */
+    public Optional<Unlinked> unlink(@Nullable AudioTrack playing) throws IOException {
+        if (playing == null || playing.getInfo() == null) {
+            return Optional.empty();
+        }
+        String fromKey;
+        String requested;
+        if (playing instanceof LibraryAudioTrack libraryTrack) {
+            fromKey = libraryTrack.getLinkedFrom();
+            String title = libraryTrack.getLinkedFromTitle();
+            requested = title != null && !title.isBlank() ? title : playing.getInfo().uri;
+        } else {
+            fromKey = LibraryKeys.of(playing).orElse(null);
+            requested = playing.getInfo().title;
+        }
+        if (fromKey == null) {
+            return Optional.empty();
+        }
+        Optional<String> target = library.unalias(fromKey);
+        if (target.isEmpty()) {
+            return Optional.empty();
+        }
+        String librarySong = library.find(target.get()).map(LibraryEntry::title).orElse(target.get());
+        LOGGER.info("Unlinked {} from library song {}", fromKey, target.get());
+        return Optional.of(new Unlinked(requested == null ? fromKey : requested, librarySong));
+    }
+
+    /** What {@link #unlink} removed: the requested song's name and the library song's title. */
+    public record Unlinked(String requested, String librarySong) {
+    }
+
+    private interface IoTask {
+        void run() throws IOException;
+    }
+
+    private void inBackground(String what, IoTask task) {
+        try {
+            background.execute(() -> {
+                try {
+                    task.run();
+                } catch (IOException | RuntimeException ex) {
+                    LOGGER.warn("Couldn't {} in the library: {}", what, ex.toString());
+                }
+            });
+        } catch (RuntimeException ex) { // e.g. the executor is shut down
+            LOGGER.warn("Couldn't {} in the library: {}", what, ex.toString());
+        }
+    }
+
     /**
      * The single choke point every track passes through right before the player starts it.
      * See the decision table in the class docs and the design. Never throws for odd tracks;
@@ -227,6 +298,10 @@ public final class YtDlpService {
                 return copyState(track, new LibraryAudioTrack(info, key.get(), completed(hit.get()), null,
                         track.getSourceManager()));
             }
+            Optional<LibraryAudioTrack> linked = linkedCopy(track, key.get());
+            if (linked.isPresent()) {
+                return linked.get();
+            }
             if (enabled && settings.mode() == YtDlpSettings.Mode.ALWAYS) {
                 return wrap(track, guildId, true, null);
             }
@@ -242,7 +317,8 @@ public final class YtDlpService {
                 return copyState(track, new LibraryAudioTrack(info, key.get(), completed(hit.get()), null,
                         track.getSourceManager()));
             }
-            return track;
+            Optional<LibraryAudioTrack> linked = linkedCopy(track, key.get());
+            return linked.isPresent() ? linked.get() : track;
         }
 
         return wrapLibraryFile(track);
@@ -261,6 +337,16 @@ public final class YtDlpService {
     public AudioTrack wrapLibraryFile(AudioTrack track) {
         if (track == null || track instanceof LibraryAudioTrack) {
             return track;
+        }
+        Optional<String> key = LibraryKeys.of(track);
+        if (key.isPresent()) {
+            // A song a person linked to a library song (yt-dlp enabled only) shows the library copy
+            // at once. Exact hits and misses are still decided at play time.
+            if (!enabled || library.find(key.get()).isPresent()) {
+                return track;
+            }
+            Optional<LibraryAudioTrack> linked = linkedCopy(track, key.get());
+            return linked.isPresent() ? linked.get() : track;
         }
         Path localFile = localFile(track);
         if (localFile == null) {
@@ -293,6 +379,84 @@ public final class YtDlpService {
      */
     public LibraryAudioTrack libraryTrack(LibraryEntry entry, @Nullable AudioSourceManager displaySource) {
         return new LibraryAudioTrack(entry.toTrackInfo(), entry.key(), completed(entry), null, displaySource);
+    }
+
+    /**
+     * The library copy for a requested track whose key is linked to a library song (an alias),
+     * if yt-dlp is enabled. See {@link #linkedCopy(AudioTrack, String, LibraryEntry)}.
+     */
+    private Optional<LibraryAudioTrack> linkedCopy(AudioTrack requested, String requestedKey) {
+        if (!enabled) {
+            return Optional.empty();
+        }
+        Optional<LibraryEntry> target = library.resolve(requestedKey);
+        if (target.isEmpty() || target.get().key().equals(requestedKey)) {
+            return Optional.empty();
+        }
+        return Optional.of(linkedCopy(requested, requestedKey, target.get()));
+    }
+
+    /**
+     * Builds the library copy that plays in place of {@code requested}, a song linked to the
+     * library entry {@code target}. It shows the library song's title (and its author, length and
+     * artwork, or the requested track's where the entry has none), but keeps the requested track's
+     * identifier, URI, source, user data and start position, so queue links, history and saved
+     * playlists still point at what was asked for. If the entry is missing details, they are filled
+     * in from the requested track in the background.
+     */
+    public LibraryAudioTrack linkedCopy(AudioTrack requested, String requestedKey, LibraryEntry target) {
+        AudioTrackInfo req = requested.getInfo();
+        String author = !target.author().isEmpty() ? target.author() : req.author;
+        long length = target.lengthMs() > 0 ? target.lengthMs() : req.length;
+        String artwork = target.artworkUrl() != null && !target.artworkUrl().isBlank() ? target.artworkUrl()
+                : req.artworkUrl;
+        AudioTrackInfo info = new AudioTrackInfo(target.title(), author, length, req.identifier, false, req.uri,
+                artwork, req.isrc);
+        if (target.missingDetails()) {
+            fillInLinkedEntry(target.key(), req);
+        }
+        return copyState(requested, new LibraryAudioTrack(info, target.key(), completed(target), null,
+                requested.getSourceManager(), requestedKey, req.title));
+    }
+
+    /**
+     * For {@link LibrarySourceManager}: the library copy for a YouTube link whose video is linked
+     * to a library song, built without loading the video. Empty if yt-dlp is off, the video isn't
+     * linked, or the linked entry has no author or length yet (then the link goes through YouTube
+     * once, so {@link #prepareForPlayback} can fill those in from the real track).
+     */
+    Optional<LibraryAudioTrack> linkedLink(String videoId, @Nullable AudioSourceManager youtubeSource) {
+        if (!enabled) {
+            return Optional.empty();
+        }
+        Optional<LibraryEntry> resolved = library.resolve(videoId);
+        if (resolved.isEmpty() || resolved.get().key().equals(videoId)) {
+            return Optional.empty();
+        }
+        LibraryEntry target = resolved.get();
+        if (target.author().isEmpty() || target.lengthMs() <= 0) {
+            return Optional.empty();
+        }
+        String url = LibraryKeys.youtubeUrl(videoId);
+        AudioTrackInfo info = new AudioTrackInfo(target.title(), target.author(), target.lengthMs(), videoId, false,
+                url, target.artworkUrl(), null);
+        return Optional.of(new LibraryAudioTrack(info, target.key(), completed(target), null, youtubeSource,
+                videoId, null));
+    }
+
+    /** Fills a linked library entry's missing author, length and artwork from the requested track, in the background. */
+    public void fillInLinkedEntry(String libraryKey, AudioTrackInfo requested) {
+        try {
+            background.execute(() -> {
+                try {
+                    library.fillMissing(libraryKey, requested);
+                } catch (IOException | RuntimeException ex) {
+                    LOGGER.warn("Couldn't fill in details for library song {}: {}", libraryKey, ex.toString());
+                }
+            });
+        } catch (RuntimeException ex) { // e.g. the executor is shut down
+            LOGGER.debug("Skipped filling in details for library song {}: {}", libraryKey, ex.toString());
+        }
     }
 
     /**

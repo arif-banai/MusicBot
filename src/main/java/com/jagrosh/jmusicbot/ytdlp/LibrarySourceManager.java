@@ -96,7 +96,8 @@ public final class LibrarySourceManager implements AudioSourceManager {
         }
         Optional<LibraryEntry> hit = service.library().find(videoId);
         if (hit.isEmpty()) {
-            return null;
+            // A video a person linked to a library song plays that copy (yt-dlp enabled only).
+            return service.linkedLink(videoId, youtubeSource(manager)).orElse(null);
         }
         LibraryEntry entry = hit.get();
         if (YtDlpService.isAdopted(entry)) {

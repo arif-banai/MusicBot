@@ -329,6 +329,10 @@ At startup the bot runs `yt-dlp --version`. If that fails, it logs a warning and
 | `matching.durationToleranceSeconds` | `5` | How close song lengths must be to count as the same song (0-60) |
 | `matching.minScore` | `0.85` | How similar the cleaned-up titles and artists must be, 0.0-1.0 (higher is stricter) |
 
+### Similar songs
+
+While a requested song plays, the bot may post "Looks like **X** by Y from your library" with **Switch to library copy** and **Not the same** buttons. The requester or a DJ can press them. **Switch** plays the library copy from the same point and remembers the link, so later requests for that upload play the library copy directly. **Not the same** is remembered too, and that pair isn't suggested again. `/library unlink` (or `library unlink`, DJs only) removes the link for the song now playing.
+
 ### Adding songs you downloaded earlier
 
 Copy the files (any format the bot can play) into `libraryFolder` and restart the bot. It reads each new file's details from a yt-dlp `.info.json` file with the same name if there is one (`yt-dlp --write-info-json`), otherwise from a YouTube `[id]` at the end of the filename, otherwise from the file's tags and length, otherwise from the filename. Files are never moved, renamed or changed. Only new files are read, so later restarts stay fast.

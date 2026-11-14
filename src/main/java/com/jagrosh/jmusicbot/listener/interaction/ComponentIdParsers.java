@@ -39,6 +39,8 @@ public final class ComponentIdParsers {
     private static final String SETTINGS_ENTITY_PREFIX = "settings_entity_";
     private static final String NOW_PLAYING_PREFIX = "np_";
     private static final String YTDLP_PREFIX = "ytdlp_";
+    /** Prefix of the similar-song suggestion buttons; checked before {@link #YTDLP_PREFIX}. */
+    public static final String YTDLP_MATCH_PREFIX = "ytdlp_match_";
 
     private ComponentIdParsers() {
     }
@@ -115,6 +117,12 @@ public final class ComponentIdParsers {
      * Parsed yt-dlp prompt button ID: action ({@code one} or {@code all}), requesterId, videoId.
      */
     public record YtDlpButtonId(String action, long requesterId, String videoId) {
+    }
+
+    /**
+     * Parsed similar-song suggestion button ID: action ({@code switch} or {@code reject}), requesterId.
+     */
+    public record YtDlpMatchButtonId(String action, long requesterId) {
     }
 
     /**
@@ -435,6 +443,36 @@ public final class ComponentIdParsers {
         try {
             long requesterId = Long.parseLong(rest.substring(actionEnd + 1, requesterEnd));
             return Optional.of(new YtDlpButtonId(action, requesterId, videoId));
+        } catch (NumberFormatException e) {
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Builds a similar-song suggestion button ID: ytdlp_match_{action}_{requesterId}.
+     */
+    public static String ytDlpMatchButtonId(String action, long requesterId) {
+        return YTDLP_MATCH_PREFIX + action + "_" + requesterId;
+    }
+
+    /**
+     * Parses similar-song suggestion button IDs. Expected format: ytdlp_match_{switch|reject}_{requesterId}.
+     */
+    public static Optional<YtDlpMatchButtonId> parseYtDlpMatchButtonId(String componentId) {
+        if (componentId == null || !componentId.startsWith(YTDLP_MATCH_PREFIX)) {
+            return Optional.empty();
+        }
+        String rest = componentId.substring(YTDLP_MATCH_PREFIX.length());
+        int actionEnd = rest.indexOf('_');
+        if (actionEnd <= 0) {
+            return Optional.empty();
+        }
+        String action = rest.substring(0, actionEnd);
+        if (!action.equals("switch") && !action.equals("reject")) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(new YtDlpMatchButtonId(action, Long.parseLong(rest.substring(actionEnd + 1))));
         } catch (NumberFormatException e) {
             return Optional.empty();
         }

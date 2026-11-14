@@ -22,6 +22,7 @@ import com.jagrosh.jmusicbot.settings.RepeatMode;
 import com.jagrosh.jmusicbot.settings.Settings;
 import com.jagrosh.jmusicbot.utils.MessageFormatter;
 import com.jagrosh.jmusicbot.ytdlp.LibraryAudioTrack;
+import com.jagrosh.jmusicbot.ytdlp.MatchSuggestions;
 import com.jagrosh.jmusicbot.ytdlp.YtDlpPrompt;
 import com.jagrosh.jmusicbot.ytdlp.YtDlpService;
 import com.jagrosh.jmusicbot.ytdlp.YtDlpSettings;
@@ -104,6 +105,16 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
     }
 
     private record Handoff(AudioTrack track, HandoffKind kind, AudioTrack hold) {}
+
+    /**
+     * Similar-song Switch: the requested track being replaced by its library copy, and that copy.
+     * Set just before the replacing {@code playTrack} and cleared right after; lavaplayer delivers
+     * the REPLACED end and the start inline, so only those two events see them. The REPLACED end
+     * then doesn't run the end-of-queue logic (which would disconnect on an empty queue), and the
+     * copy isn't added to history again.
+     */
+    private final AtomicReference<AudioTrack> switchingFrom = new AtomicReference<>();
+    private final AtomicReference<AudioTrack> switchingTo = new AtomicReference<>();
 
     protected AudioHandler(PlayerManager manager, Guild guild, AudioPlayer player)
     {
@@ -256,6 +267,31 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
     public void playPrepared(AudioTrack track)
     {
         audioPlayer.playTrack(prepareForPlayback(track));
+    }
+
+    /**
+     * Similar-song Switch: replaces {@code expected}, if it is still the playing track, with its
+     * library copy through {@link #playPrepared}. Uses the player's replace semantics: the queue
+     * isn't pulled and the bot doesn't leave, even with an empty queue. Takes no lock of its own.
+     *
+     * @return false (and nothing changes) if {@code expected} is no longer playing
+     */
+    public boolean replaceWithLibraryCopy(AudioTrack expected, AudioTrack replacement)
+    {
+        if (expected == null || replacement == null || audioPlayer.getPlayingTrack() != expected)
+            return false;
+        switchingFrom.set(expected);
+        switchingTo.set(replacement);
+        try
+        {
+            playPrepared(replacement);
+        }
+        finally
+        {
+            switchingFrom.compareAndSet(expected, null);
+            switchingTo.compareAndSet(replacement, null);
+        }
+        return true;
     }
 
     private AudioTrack prepareForPlayback(AudioTrack track)
@@ -416,11 +452,16 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
             LOGGER.debug("Track ended: {} Reason: {}", track.getInfo().title, endReason);
         }
 
+        endMatchSuggestion(track);
+
         // yt-dlp prompt mode: a blocked YouTube track pauses the queue on its hold track
         if (resolveYtDlpHandoff(player, track, endReason))
             return;
         if (track instanceof LibraryAudioTrack libraryTrack && libraryTrack.isGated())
             endYtDlpPrompt();
+        // Similar-song Switch: the library copy is already starting in its place.
+        if (endReason == AudioTrackEndReason.REPLACED && track != null && switchingFrom.compareAndSet(track, null))
+            return;
 
         continueAfterEnd(player, track, endReason);
     }
@@ -755,8 +796,10 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
         }
         metricsListener.onTrackStart(trackTitle, trackUri);
         // A yt-dlp prompt's hold isn't recorded: the blocked YouTube track it stands in for
-        // already is, and replaying that asks again instead of downloading unasked.
-        if (track != null && !(track instanceof LibraryAudioTrack libraryTrack && libraryTrack.isGated()))
+        // already is, and replaying that asks again instead of downloading unasked. Nor is a
+        // library copy switched in for the requested song (replaying that follows its link).
+        boolean switchedIn = track != null && switchingTo.compareAndSet(track, null);
+        if (track != null && !switchedIn && !(track instanceof LibraryAudioTrack libraryTrack && libraryTrack.isGated()))
         {
             QueuedTrack startedTrack = new QueuedTrack(track.makeClone(), track.getUserData(RequestMetadata.class));
             queue.addToHistory(startedTrack);
@@ -768,6 +811,46 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
         prefetchNext();
 
         manager.getBot().getNowplayingHandler().onTrackUpdate(guildId, track);
+
+        considerMatchSuggestion(track);
+    }
+
+    /** Similar-song matching: may suggest a library copy of this track (in the background). */
+    private void considerMatchSuggestion(AudioTrack track)
+    {
+        MatchSuggestions suggestions = matchSuggestions();
+        if (suggestions == null)
+            return;
+        try
+        {
+            suggestions.consider(guildId, track);
+        }
+        catch (RuntimeException ex)
+        {
+            LOGGER.debug("yt-dlp couldn't consider a library suggestion: {}", ex.toString());
+        }
+    }
+
+    /** Similar-song matching: a suggestion for this track expires when it ends. */
+    private void endMatchSuggestion(AudioTrack track)
+    {
+        MatchSuggestions suggestions = matchSuggestions();
+        if (suggestions == null || track == null)
+            return;
+        try
+        {
+            suggestions.onTrackEnded(guildId, track);
+        }
+        catch (RuntimeException ex)
+        {
+            LOGGER.debug("yt-dlp couldn't expire a library suggestion: {}", ex.toString());
+        }
+    }
+
+    private MatchSuggestions matchSuggestions()
+    {
+        YtDlpService ytDlp = ytDlp();
+        return ytDlp == null ? null : ytDlp.getMatchSuggestions();
     }
     
     /** yt-dlp {@code always} mode: start downloading the next song while this one plays. */
