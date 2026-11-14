@@ -167,34 +167,38 @@ public class LibraryPanelSlashCmd extends DJSlashCommand
         return embed.build();
     }
 
-    public static List<ActionRow> buildSearchListComponents(long ownerUserId, List<LibraryEntry> pageEntries,
-                                                             int page, int totalPages, String query)
+    /**
+     * @param token the {@link com.jagrosh.jmusicbot.listener.interaction.LibraryPanelTokens} token
+     *              for this render: {@code pageEntries}, in order, is exactly what that token's
+     *              {@code keys()} holds, so a select option's value (its 0-based index here) and a
+     *              detail/confirm button's index both resolve against the same list.
+     */
+    public static List<ActionRow> buildSearchListComponents(long ownerUserId, String token,
+                                                             List<LibraryEntry> pageEntries, int page, int totalPages)
     {
         List<ActionRow> rows = new ArrayList<>();
         if (!pageEntries.isEmpty())
         {
-            StringSelectMenu.Builder menu = StringSelectMenu.create(ComponentIdParsers.libComponentId(
-                            "pick", ownerUserId, ComponentIdParsers.libPageQueryArg(page, query)))
+            StringSelectMenu.Builder menu = StringSelectMenu.create(ComponentIdParsers.libComponentId("pick", ownerUserId, token))
                     .setPlaceholder("Select a song")
                     .setMinValues(1)
                     .setMaxValues(1);
-            for (LibraryEntry entry : pageEntries)
+            for (int i = 0; i < pageEntries.size(); i++)
             {
+                LibraryEntry entry = pageEntries.get(i);
                 String label = truncate(entry.title(), 100);
                 String description = entry.author().isEmpty() ? "" : truncate(entry.author(), 100);
-                menu.addOption(label, truncate(entry.key(), 100), description);
+                // The option's value is the index into pageEntries/token's keys, never the key
+                // itself: a file: or soundcloud: key can exceed Discord's own 100-char value limit.
+                menu.addOption(label, String.valueOf(i), description);
             }
             rows.add(ActionRow.of(menu.build()));
         }
         Button back = Button.secondary(ComponentIdParsers.libComponentId("back", ownerUserId), "Back");
         if (totalPages > 1)
         {
-            int prevPage = Math.max(1, page - 1);
-            int nextPage = Math.min(totalPages, page + 1);
-            Button prev = Button.secondary(ComponentIdParsers.libComponentId(
-                    "page", ownerUserId, ComponentIdParsers.libPageQueryArg(prevPage, query)), "Prev");
-            Button next = Button.secondary(ComponentIdParsers.libComponentId(
-                    "page", ownerUserId, ComponentIdParsers.libPageQueryArg(nextPage, query)), "Next");
+            Button prev = Button.secondary(ComponentIdParsers.libComponentId("page", ownerUserId, token, -1), "Prev");
+            Button next = Button.secondary(ComponentIdParsers.libComponentId("page", ownerUserId, token, 1), "Next");
             if (page <= 1)
             {
                 prev = prev.asDisabled();
@@ -248,12 +252,17 @@ public class LibraryPanelSlashCmd extends DJSlashCommand
         return embed.build();
     }
 
-    public static List<ActionRow> buildDetailComponents(long ownerUserId, String key)
+    /**
+     * @param token the search render's token; {@code index} is this song's position in that
+     *              token's key list. Back returns to that same search page ({@code token} alone,
+     *              with no index, means "the search list this token was rendered for").
+     */
+    public static List<ActionRow> buildDetailComponents(long ownerUserId, String token, int index)
     {
-        Button play = Button.success(ComponentIdParsers.libComponentId("play", ownerUserId, key), "Play");
-        Button queue = Button.primary(ComponentIdParsers.libComponentId("queue", ownerUserId, key), "Queue");
-        Button remove = Button.danger(ComponentIdParsers.libComponentId("remove", ownerUserId, key), "Remove…");
-        Button back = Button.secondary(ComponentIdParsers.libComponentId("back", ownerUserId), "Back");
+        Button play = Button.success(ComponentIdParsers.libComponentId("play", ownerUserId, token, index), "Play");
+        Button queue = Button.primary(ComponentIdParsers.libComponentId("queue", ownerUserId, token, index), "Queue");
+        Button remove = Button.danger(ComponentIdParsers.libComponentId("remove", ownerUserId, token, index), "Remove…");
+        Button back = Button.secondary(ComponentIdParsers.libComponentId("back", ownerUserId, token), "Back");
         return List.of(ActionRow.of(play, queue, remove, back));
     }
 
@@ -267,11 +276,11 @@ public class LibraryPanelSlashCmd extends DJSlashCommand
         return embed.build();
     }
 
-    public static List<ActionRow> buildConfirmComponents(long ownerUserId, String key)
+    public static List<ActionRow> buildConfirmComponents(long ownerUserId, String token, int index)
     {
-        Button rmidx = Button.danger(ComponentIdParsers.libComponentId("rmidx", ownerUserId, key), "Remove from library");
-        Button rmfile = Button.danger(ComponentIdParsers.libComponentId("rmfile", ownerUserId, key), "Remove and delete file");
-        Button cancel = Button.secondary(ComponentIdParsers.libComponentId("cancel", ownerUserId, key), "Cancel");
+        Button rmidx = Button.danger(ComponentIdParsers.libComponentId("rmidx", ownerUserId, token, index), "Remove from library");
+        Button rmfile = Button.danger(ComponentIdParsers.libComponentId("rmfile", ownerUserId, token, index), "Remove and delete file");
+        Button cancel = Button.secondary(ComponentIdParsers.libComponentId("cancel", ownerUserId, token, index), "Cancel");
         return List.of(ActionRow.of(rmidx, rmfile, cancel));
     }
 

@@ -269,16 +269,44 @@ class ComponentIdParsersTest
     }
 
     @Test
-    void libComponentId_withKeyArg_roundTrips_evenWithUnderscores()
+    void libComponentId_withTokenArg_roundTrips()
     {
-        String key = "file:My_Song (Remix)_v2.mp3";
-        String id = ComponentIdParsers.libComponentId("play", 42L, key);
-        assertEquals("lib_play_42_" + key, id);
+        String token = "abc123def456";
+        String id = ComponentIdParsers.libComponentId("back", 42L, token);
+        assertEquals("lib_back_42_" + token, id);
+        var parsed = ComponentIdParsers.parseLibComponentId(id);
+        assertTrue(parsed.isPresent(), id);
+        assertEquals("back", parsed.get().action());
+        assertEquals(42L, parsed.get().ownerUserId());
+        assertEquals(token, parsed.get().arg());
+    }
+
+    @Test
+    void libComponentId_withTokenAndIndex_roundTrips()
+    {
+        String token = "abc123def456";
+        String id = ComponentIdParsers.libComponentId("play", 42L, token, 7);
+        assertEquals("lib_play_42_" + token + "_7", id);
         var parsed = ComponentIdParsers.parseLibComponentId(id);
         assertTrue(parsed.isPresent(), id);
         assertEquals("play", parsed.get().action());
         assertEquals(42L, parsed.get().ownerUserId());
-        assertEquals(key, parsed.get().arg());
+        assertEquals(token + "_7", parsed.get().arg());
+    }
+
+    @Test
+    void libComponentId_withToken_staysUnder100CharsEvenForTheLongestOwnerAndIndex()
+    {
+        // A file: key or a search query can exceed Discord's 100-char custom-ID limit on their
+        // own; a token is a fixed-length, opaque UUID (see LibraryPanelTokens), so the whole
+        // component ID stays well under the limit regardless of how long the underlying key or
+        // query is, even at the longest possible owner ID and a multi-digit index.
+        String token = java.util.UUID.randomUUID().toString().replace("-", "");
+        String id = ComponentIdParsers.libComponentId("rmfile", Long.MAX_VALUE, token, -12345);
+        assertTrue(id.length() <= 100, id);
+        // Sanity: a 150-char file: key embedded directly, as the old scheme did, blows past the limit.
+        String longKey = "file:" + "x".repeat(150);
+        assertTrue(("lib_rmfile_" + Long.MAX_VALUE + "_" + longKey).length() > 100);
     }
 
     @Test
@@ -311,22 +339,37 @@ class ComponentIdParsersTest
     }
 
     @Test
-    void libPageQuery_roundTrips_evenWithColonsInQuery()
+    void parseLibTokenArg_tokenOnly_returnsNullIndex()
     {
-        String arg = ComponentIdParsers.libPageQueryArg(3, "AC:DC - T.N.T");
-        assertEquals("3:AC:DC - T.N.T", arg);
-        var parsed = ComponentIdParsers.parseLibPageQuery(arg);
-        assertTrue(parsed.isPresent(), arg);
-        assertEquals(3, parsed.get().page());
-        assertEquals("AC:DC - T.N.T", parsed.get().query());
+        var parsed = ComponentIdParsers.parseLibTokenArg("abcDEF123");
+        assertTrue(parsed.isPresent());
+        assertEquals("abcDEF123", parsed.get().token());
+        assertEquals(null, parsed.get().index());
     }
 
     @Test
-    void libPageQuery_invalid_returnsEmpty()
+    void parseLibTokenArg_tokenAndIndex_splitsOnFirstUnderscore()
     {
-        assertTrue(ComponentIdParsers.parseLibPageQuery(null).isEmpty());
-        assertTrue(ComponentIdParsers.parseLibPageQuery("noColon").isEmpty());
-        assertTrue(ComponentIdParsers.parseLibPageQuery("abc:query").isEmpty());
-        assertTrue(ComponentIdParsers.parseLibPageQuery("1:").isEmpty());
+        var parsed = ComponentIdParsers.parseLibTokenArg("abcDEF123_7");
+        assertTrue(parsed.isPresent());
+        assertEquals("abcDEF123", parsed.get().token());
+        assertEquals(7, parsed.get().index());
+    }
+
+    @Test
+    void parseLibTokenArg_negativeIndex_parsesAsASignedDelta()
+    {
+        var parsed = ComponentIdParsers.parseLibTokenArg("abcDEF123_-1");
+        assertTrue(parsed.isPresent());
+        assertEquals("abcDEF123", parsed.get().token());
+        assertEquals(-1, parsed.get().index());
+    }
+
+    @Test
+    void parseLibTokenArg_invalid_returnsEmpty()
+    {
+        assertTrue(ComponentIdParsers.parseLibTokenArg(null).isEmpty());
+        assertTrue(ComponentIdParsers.parseLibTokenArg("").isEmpty());
+        assertTrue(ComponentIdParsers.parseLibTokenArg("abc_notanumber").isEmpty());
     }
 }

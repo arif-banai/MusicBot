@@ -140,13 +140,16 @@ public final class ComponentIdParsers {
 
     /**
      * Parsed {@code /library panel} component ID: action, the DJ who opened the panel, and the
-     * trailing argument (a library key, or {@code page:query}), or null when the ID has none.
+     * trailing argument ({@code token}, or {@code token_index}), or null when the ID has none.
+     * A library key or a search query never rides in the ID itself (some can exceed Discord's
+     * 100-character custom-ID limit on their own); see {@link LibraryPanelTokens} and
+     * {@link #parseLibTokenArg}.
      */
     public record LibComponentId(String action, long ownerUserId, @Nullable String arg) {
     }
 
-    /** A library search-results page and the query that produced it, packed into one component-ID argument. */
-    public record LibPageQuery(int page, String query) {
+    /** A {@code /library panel} component-ID argument: a token, and an optional index (or signed delta). */
+    public record LibTokenArg(String token, @Nullable Integer index) {
     }
 
     /**
@@ -157,18 +160,28 @@ public final class ComponentIdParsers {
     }
 
     /**
-     * Builds a {@code /library panel} component ID with a trailing argument: {@code lib_{action}_{ownerUserId}_{arg}}.
-     * The argument goes last and is never split further here, so a library key containing
-     * {@code _} (e.g. {@code file:My_Song.mp3}) round-trips exactly.
+     * Builds a {@code /library panel} component ID carrying a {@link LibraryPanelTokens} token:
+     * {@code lib_{action}_{ownerUserId}_{token}}. The token stands in for whatever state (a
+     * search query, a library key) would otherwise have to ride in the ID itself.
      */
-    public static String libComponentId(String action, long ownerUserId, String arg) {
-        return LIB_PREFIX + action + "_" + ownerUserId + "_" + arg;
+    public static String libComponentId(String action, long ownerUserId, String token) {
+        return LIB_PREFIX + action + "_" + ownerUserId + "_" + token;
+    }
+
+    /**
+     * Builds a {@code /library panel} component ID carrying a token and an index (the position of
+     * an entry in that token's result list) or a signed delta (page navigation):
+     * {@code lib_{action}_{ownerUserId}_{token}_{index}}.
+     */
+    public static String libComponentId(String action, long ownerUserId, String token, int index) {
+        return LIB_PREFIX + action + "_" + ownerUserId + "_" + token + "_" + index;
     }
 
     /**
      * Parses {@code /library panel} component IDs (buttons and select menus). Expected format:
      * {@code lib_{action}_{ownerUserId}[_{arg}]}. Only the first two underscores after the prefix
-     * separate fields; everything after the owner ID (if anything) is the argument, kept whole.
+     * separate fields; everything after the owner ID (if anything) is the argument, kept whole
+     * (see {@link #parseLibTokenArg} to split it into a token and an index).
      */
     public static Optional<LibComponentId> parseLibComponentId(String componentId) {
         if (componentId == null || !componentId.startsWith(LIB_PREFIX) || componentId.startsWith(LIB_SEARCHMODAL_PREFIX)) {
@@ -210,27 +223,22 @@ public final class ComponentIdParsers {
     }
 
     /**
-     * Packs a search-results page and its query into one component-ID argument: {@code {page}:{query}}.
+     * Splits a {@code /library panel} component-ID argument into its token and, if present, its
+     * trailing index (or signed delta). The token itself (see {@link LibraryPanelTokens}) never
+     * contains {@code _}, so the first underscore, if any, is exactly the split point. Empty for
+     * a blank argument, or one whose index part isn't a valid integer.
      */
-    public static String libPageQueryArg(int page, String query) {
-        return page + ":" + query;
-    }
-
-    /**
-     * Parses a {@code {page}:{query}} component-ID argument (see {@link #libPageQueryArg}). Only the
-     * first {@code :} separates the page from the query, so a query containing {@code :} round-trips.
-     */
-    public static Optional<LibPageQuery> parseLibPageQuery(@Nullable String arg) {
-        if (arg == null) {
+    public static Optional<LibTokenArg> parseLibTokenArg(@Nullable String arg) {
+        if (arg == null || arg.isEmpty()) {
             return Optional.empty();
         }
-        int sep = arg.indexOf(':');
-        if (sep <= 0 || sep == arg.length() - 1) {
-            return Optional.empty();
+        int sep = arg.indexOf('_');
+        if (sep < 0) {
+            return Optional.of(new LibTokenArg(arg, null));
         }
         try {
-            int page = Integer.parseInt(arg.substring(0, sep));
-            return Optional.of(new LibPageQuery(page, arg.substring(sep + 1)));
+            int index = Integer.parseInt(arg.substring(sep + 1));
+            return Optional.of(new LibTokenArg(arg.substring(0, sep), index));
         } catch (NumberFormatException e) {
             return Optional.empty();
         }

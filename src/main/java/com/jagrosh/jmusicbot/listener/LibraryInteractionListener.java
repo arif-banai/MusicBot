@@ -26,6 +26,7 @@ import com.jagrosh.jmusicbot.commands.v2.dj.LibraryPanelSlashCmd;
 import com.jagrosh.jmusicbot.commands.v2.dj.LibraryUnlinkSlashCmd;
 import com.jagrosh.jmusicbot.listener.interaction.ComponentIdParsers;
 import com.jagrosh.jmusicbot.listener.interaction.InteractionGuards;
+import com.jagrosh.jmusicbot.listener.interaction.LibraryPanelTokens;
 import com.jagrosh.jmusicbot.listener.interaction.OutputAdapters;
 import com.jagrosh.jmusicbot.service.MusicService;
 import com.jagrosh.jmusicbot.ytdlp.LibraryAudioTrack;
@@ -59,10 +60,20 @@ import org.jetbrains.annotations.Nullable;
  */
 public class LibraryInteractionListener extends ListenerAdapter {
 
+    /** Shown for a {@code back}/{@code page}/{@code pick}/key-bearing action whose token is missing or expired. */
+    static final String EXPIRED_MESSAGE = "This panel has expired; run /library panel again.";
+
     private final Bot bot;
+    private final LibraryPanelTokens tokens;
 
     public LibraryInteractionListener(Bot bot) {
+        this(bot, new LibraryPanelTokens());
+    }
+
+    /** For tests: lets a token store with a short TTL and a controllable clock be injected. */
+    public LibraryInteractionListener(Bot bot, LibraryPanelTokens tokens) {
         this.bot = bot;
+        this.tokens = tokens;
     }
 
     @Override
@@ -117,7 +128,7 @@ public class LibraryInteractionListener extends ListenerAdapter {
             case "search" -> openSearchModal(event, id.ownerUserId());
             case "rescan" -> doRescan(event, ytDlp, id.ownerUserId());
             case "unlink" -> doUnlink(event, ytDlp, id.ownerUserId());
-            case "back" -> showPanel(event, ytDlp);
+            case "back" -> showBack(event, ytDlp, id.ownerUserId(), id.arg());
             case "page" -> showSearchPage(event, ytDlp, id.ownerUserId(), id.arg());
             case "play" -> playOrQueue(event, ytDlp, id.arg(), true);
             case "queue" -> playOrQueue(event, ytDlp, id.arg(), false);
@@ -191,32 +202,48 @@ public class LibraryInteractionListener extends ListenerAdapter {
         });
     }
 
-    private void showSearchPage(ButtonInteractionEvent event, YtDlpService ytDlp, long ownerUserId, @Nullable String arg) {
-        Optional<ComponentIdParsers.LibPageQuery> parsed = ComponentIdParsers.parseLibPageQuery(arg);
-        if (parsed.isEmpty()) {
-            event.reply("Invalid button state.").setEphemeral(true).queue();
+    /** {@code back} with no token goes to the Panel; with one, back to the search list it names. */
+    private void showBack(ButtonInteractionEvent event, YtDlpService ytDlp, long ownerUserId, @Nullable String arg) {
+        if (arg == null || arg.isBlank()) {
+            showPanel(event, ytDlp);
             return;
         }
-        SearchListView view = computeSearchListView(ytDlp, ownerUserId, parsed.get().query(), parsed.get().page(), memberColor(event));
+        Optional<ComponentIdParsers.LibTokenArg> parsed = ComponentIdParsers.parseLibTokenArg(arg);
+        Optional<LibraryPanelTokens.SearchState> state = parsed.flatMap(p -> tokens.get(p.token()));
+        if (state.isEmpty()) {
+            event.reply(EXPIRED_MESSAGE).setEphemeral(true).queue();
+            return;
+        }
+        SearchListView view = computeSearchListView(ytDlp, ownerUserId, state.get().query(), state.get().page(), memberColor(event));
         event.editMessageEmbeds(view.embed()).setComponents(view.components()).queue();
     }
 
-    private void playOrQueue(ButtonInteractionEvent event, YtDlpService ytDlp, @Nullable String key, boolean playNow) {
-        if (key == null || key.isBlank()) {
-            event.reply("Invalid button state.").setEphemeral(true).queue();
+    private void showSearchPage(ButtonInteractionEvent event, YtDlpService ytDlp, long ownerUserId, @Nullable String arg) {
+        Optional<ComponentIdParsers.LibTokenArg> parsed = ComponentIdParsers.parseLibTokenArg(arg);
+        Optional<LibraryPanelTokens.SearchState> state = parsed.isEmpty() || parsed.get().index() == null
+                ? Optional.empty() : tokens.get(parsed.get().token());
+        if (state.isEmpty()) {
+            event.reply(EXPIRED_MESSAGE).setEphemeral(true).queue();
             return;
         }
-        Optional<LibraryEntry> entry = ytDlp.library().find(key);
-        if (entry.isEmpty()) {
-            event.reply("That song is no longer in the library.").setEphemeral(true).queue();
+        int targetPage = state.get().page() + parsed.get().index();
+        SearchListView view = computeSearchListView(ytDlp, ownerUserId, state.get().query(), targetPage, memberColor(event));
+        event.editMessageEmbeds(view.embed()).setComponents(view.components()).queue();
+    }
+
+    private void playOrQueue(ButtonInteractionEvent event, YtDlpService ytDlp, @Nullable String arg, boolean playNow) {
+        KeyLookup lookup = lookupKey(ytDlp, arg);
+        if (lookup.failure() != null) {
+            event.reply(lookup.failure()).setEphemeral(true).queue();
             return;
         }
         if (!InteractionGuards.ensureBotInUserVoiceChannel(event, bot)) {
             return;
         }
+        LibraryEntry entry = ytDlp.library().find(lookup.key()).orElseThrow();
         GuildMessageChannel channel = event.getChannel().asGuildMessageChannel();
         MusicService.OutputAdapter output = OutputAdapters.forLibraryReply(event);
-        String path = entry.get().file().toAbsolutePath().toString();
+        String path = entry.file().toAbsolutePath().toString();
         event.deferEdit().queue();
         MusicService musicService = bot.getMusicService();
         if (playNow) {
@@ -226,33 +253,40 @@ public class LibraryInteractionListener extends ListenerAdapter {
         }
     }
 
-    private void showConfirm(ButtonInteractionEvent event, YtDlpService ytDlp, long ownerUserId, @Nullable String key) {
-        Optional<LibraryEntry> entry = key == null ? Optional.empty() : ytDlp.library().find(key);
-        if (entry.isEmpty()) {
-            event.reply("That song is no longer in the library.").setEphemeral(true).queue();
+    private void showConfirm(ButtonInteractionEvent event, YtDlpService ytDlp, long ownerUserId, @Nullable String arg) {
+        KeyLookup lookup = lookupKey(ytDlp, arg);
+        if (lookup.failure() != null) {
+            event.reply(lookup.failure()).setEphemeral(true).queue();
             return;
         }
+        LibraryEntry entry = ytDlp.library().find(lookup.key()).orElseThrow();
+        Optional<ComponentIdParsers.LibTokenArg> parsed = ComponentIdParsers.parseLibTokenArg(arg);
         Color color = memberColor(event);
-        event.editMessageEmbeds(LibraryPanelSlashCmd.buildConfirmEmbed(entry.get(), color))
-                .setComponents(LibraryPanelSlashCmd.buildConfirmComponents(ownerUserId, key))
+        event.editMessageEmbeds(LibraryPanelSlashCmd.buildConfirmEmbed(entry, color))
+                .setComponents(LibraryPanelSlashCmd.buildConfirmComponents(ownerUserId, parsed.get().token(), parsed.get().index()))
                 .queue();
     }
 
-    private void showDetail(ButtonInteractionEvent event, YtDlpService ytDlp, long ownerUserId, @Nullable String key) {
-        Optional<DetailView> view = computeDetailView(ytDlp, ownerUserId, key, memberColor(event));
-        if (view.isEmpty()) {
-            event.reply("That song is no longer in the library.").setEphemeral(true).queue();
+    private void showDetail(ButtonInteractionEvent event, YtDlpService ytDlp, long ownerUserId, @Nullable String arg) {
+        KeyLookup lookup = lookupKey(ytDlp, arg);
+        if (lookup.failure() != null) {
+            event.reply(lookup.failure()).setEphemeral(true).queue();
             return;
         }
-        event.editMessageEmbeds(view.get().embed()).setComponents(view.get().components()).queue();
+        ComponentIdParsers.LibTokenArg parsed = ComponentIdParsers.parseLibTokenArg(arg).orElseThrow();
+        LibraryEntry entry = ytDlp.library().find(lookup.key()).orElseThrow();
+        DetailView view = buildDetailView(entry, ownerUserId, parsed.token(), parsed.index(), memberColor(event));
+        event.editMessageEmbeds(view.embed()).setComponents(view.components()).queue();
     }
 
-    private void doRemove(ButtonInteractionEvent event, YtDlpService ytDlp, long ownerUserId, @Nullable String key,
+    private void doRemove(ButtonInteractionEvent event, YtDlpService ytDlp, long ownerUserId, @Nullable String arg,
                           boolean deleteFile) {
-        if (key == null || key.isBlank()) {
-            event.reply("Invalid button state.").setEphemeral(true).queue();
+        KeyLookup lookup = lookupKey(ytDlp, arg, true);
+        if (lookup.failure() != null) {
+            event.reply(lookup.failure()).setEphemeral(true).queue();
             return;
         }
+        String key = lookup.key();
         long actorUserId = event.getUser().getIdLong();
         event.deferEdit().queue();
         ytDlp.removeFromLibrary(key, deleteFile, actorUserId).whenComplete((result, ex) -> {
@@ -292,14 +326,28 @@ public class LibraryInteractionListener extends ListenerAdapter {
             event.reply("The yt-dlp library isn't available.").setEphemeral(true).queue();
             return;
         }
-        String key = event.getValues().isEmpty() ? null : event.getValues().get(0);
-        Color color = event.getMember() == null ? null : event.getMember().getColor();
-        Optional<DetailView> view = computeDetailView(ytDlp, id.ownerUserId(), key, color);
-        if (view.isEmpty()) {
-            event.reply("That song is no longer in the library.").setEphemeral(true).queue();
+        String token = id.arg();
+        if (token == null || token.isBlank() || event.getValues().isEmpty()) {
+            event.reply(EXPIRED_MESSAGE).setEphemeral(true).queue();
             return;
         }
-        event.editMessageEmbeds(view.get().embed()).setComponents(view.get().components()).queue();
+        String arg;
+        try {
+            arg = token + "_" + Integer.parseInt(event.getValues().get(0));
+        } catch (NumberFormatException e) {
+            event.reply(EXPIRED_MESSAGE).setEphemeral(true).queue();
+            return;
+        }
+        KeyLookup lookup = lookupKey(ytDlp, arg);
+        if (lookup.failure() != null) {
+            event.reply(lookup.failure()).setEphemeral(true).queue();
+            return;
+        }
+        ComponentIdParsers.LibTokenArg tokenArg = ComponentIdParsers.parseLibTokenArg(arg).orElseThrow();
+        LibraryEntry entry = ytDlp.library().find(lookup.key()).orElseThrow();
+        Color color = event.getMember() == null ? null : event.getMember().getColor();
+        DetailView view = buildDetailView(entry, id.ownerUserId(), tokenArg.token(), tokenArg.index(), color);
+        event.editMessageEmbeds(view.embed()).setComponents(view.components()).queue();
     }
 
     // ---- modal (search query) ----
@@ -364,23 +412,26 @@ public class LibraryInteractionListener extends ListenerAdapter {
                 LibraryPanelSlashCmd.buildInfoComponents(ownerUserId, showUnlink));
     }
 
-    private Optional<DetailView> computeDetailView(YtDlpService ytDlp, long ownerUserId, @Nullable String key, Color color) {
-        if (key == null || key.isBlank()) {
-            return Optional.empty();
-        }
-        return ytDlp.library().find(key).map(entry -> new DetailView(
-                LibraryPanelSlashCmd.buildDetailEmbed(entry, color),
-                LibraryPanelSlashCmd.buildDetailComponents(ownerUserId, key)));
+    private DetailView buildDetailView(LibraryEntry entry, long ownerUserId, String token, int index, Color color) {
+        return new DetailView(LibraryPanelSlashCmd.buildDetailEmbed(entry, color),
+                LibraryPanelSlashCmd.buildDetailComponents(ownerUserId, token, index));
     }
 
+    /**
+     * Searches, pages, mints a fresh {@link LibraryPanelTokens} token for the page actually
+     * rendered (so its select menu and Prev/Next resolve against this exact list), and builds
+     * the view.
+     */
     private SearchListView computeSearchListView(YtDlpService ytDlp, long ownerUserId, String query, int page, Color color) {
         List<LibraryEntry> results = ytDlp.searchLibrary(query, LibraryPanelSlashCmd.searchLimit());
         int totalPages = LibraryPanelSlashCmd.totalPages(results.size());
         int safePage = Math.max(1, Math.min(page, totalPages));
         List<LibraryEntry> pageEntries = LibraryPanelSlashCmd.pageOf(results, safePage);
+        List<String> keys = pageEntries.stream().map(LibraryEntry::key).toList();
+        String token = tokens.create(ownerUserId, query, safePage, keys);
         return new SearchListView(
                 LibraryPanelSlashCmd.buildSearchListEmbed(query, pageEntries, safePage, totalPages, results.size(), color),
-                LibraryPanelSlashCmd.buildSearchListComponents(ownerUserId, pageEntries, safePage, totalPages, query));
+                LibraryPanelSlashCmd.buildSearchListComponents(ownerUserId, token, pageEntries, safePage, totalPages));
     }
 
     // ---- helpers ----
@@ -394,6 +445,41 @@ public class LibraryInteractionListener extends ListenerAdapter {
             return "Only DJs can manage the library.";
         }
         return null;
+    }
+
+    /** What resolving a {@code token_index} component-ID argument to a library key found: the key, or why not. */
+    private record KeyLookup(@Nullable String key, @Nullable String failure) {
+    }
+
+    private KeyLookup lookupKey(YtDlpService ytDlp, @Nullable String arg) {
+        return lookupKey(ytDlp, arg, false);
+    }
+
+    /**
+     * Resolves a {@code token_index} argument to a library key via {@link #tokens}, then (unless
+     * {@code skipExistenceCheck}) confirms the key is still in the library. {@code rmidx}/{@code
+     * rmfile} pass {@code true}: a key that's gone is {@code YtDlpLibrary.remove}'s own problem to
+     * report, not a reason to call this one "expired".
+     */
+    private KeyLookup lookupKey(YtDlpService ytDlp, @Nullable String arg, boolean skipExistenceCheck) {
+        Optional<ComponentIdParsers.LibTokenArg> parsed = ComponentIdParsers.parseLibTokenArg(arg);
+        if (parsed.isEmpty() || parsed.get().index() == null) {
+            return new KeyLookup(null, EXPIRED_MESSAGE);
+        }
+        Optional<LibraryPanelTokens.SearchState> state = tokens.get(parsed.get().token());
+        if (state.isEmpty()) {
+            return new KeyLookup(null, EXPIRED_MESSAGE);
+        }
+        int index = parsed.get().index();
+        List<String> keys = state.get().keys();
+        if (index < 0 || index >= keys.size()) {
+            return new KeyLookup(null, EXPIRED_MESSAGE);
+        }
+        String key = keys.get(index);
+        if (!skipExistenceCheck && ytDlp.library().find(key).isEmpty()) {
+            return new KeyLookup(null, "That song is no longer in the library.");
+        }
+        return new KeyLookup(key, null);
     }
 
     private static Color memberColor(ButtonInteractionEvent event) {

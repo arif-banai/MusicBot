@@ -25,8 +25,10 @@ import com.jagrosh.jmusicbot.commands.v1.DJCommand;
 import com.jagrosh.jmusicbot.commands.v2.dj.LibraryPanelSlashCmd;
 import com.jagrosh.jmusicbot.listener.LibraryInteractionListener;
 import com.jagrosh.jmusicbot.listener.interaction.ComponentIdParsers;
+import com.jagrosh.jmusicbot.listener.interaction.LibraryPanelTokens;
 import com.jagrosh.jmusicbot.testutil.listener.InteractionAckTracker;
 import com.jagrosh.jmusicbot.testutil.listener.ListenerTestFixture;
+import com.jagrosh.jmusicbot.ytdlp.LibraryEntry;
 import com.jagrosh.jmusicbot.ytdlp.ProcessRunner;
 import com.jagrosh.jmusicbot.ytdlp.YtDlpDownloader;
 import com.jagrosh.jmusicbot.ytdlp.YtDlpLibrary;
@@ -34,19 +36,29 @@ import com.jagrosh.jmusicbot.ytdlp.YtDlpService;
 import com.jagrosh.jmusicbot.ytdlp.YtDlpSettings;
 import com.jagrosh.jmusicbot.ytdlp.YtDlpSettings.Mode;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrackInfo;
+import net.dv8tion.jda.api.components.actionrow.ActionRow;
+import net.dv8tion.jda.api.components.buttons.Button;
+import net.dv8tion.jda.api.components.selections.StringSelectMenu;
+import net.dv8tion.jda.api.entities.MessageEmbed;
+import net.dv8tion.jda.api.events.interaction.ModalInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.component.StringSelectInteractionEvent;
+import net.dv8tion.jda.api.interactions.modals.ModalMapping;
+import net.dv8tion.jda.api.requests.restaction.interactions.MessageEditCallbackAction;
 import net.dv8tion.jda.api.requests.restaction.interactions.ReplyCallbackAction;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.RETURNS_SELF;
@@ -60,7 +72,9 @@ import static org.mockito.Mockito.when;
 
 /**
  * {@code /library panel}: the DJ-only interactive library management panel
- * ({@link LibraryInteractionListener}).
+ * ({@link LibraryInteractionListener}). Component IDs never carry a search query or a library
+ * key directly (both can exceed Discord's 100-character custom-ID limit); they carry a
+ * {@link LibraryPanelTokens} token instead, resolved server-side.
  */
 @DisplayName("/library panel")
 class LibraryPanelTest {
@@ -71,6 +85,7 @@ class LibraryPanelTest {
     private YtDlpLibrary library;
     private YtDlpService service;
     private ListenerTestFixture fixture;
+    private LibraryPanelTokens tokens;
     private LibraryInteractionListener listener;
 
     @BeforeEach
@@ -82,7 +97,8 @@ class LibraryPanelTest {
                 List.of(), 120), library, mock(YtDlpDownloader.class), mock(ProcessRunner.class), Runnable::run);
 
         fixture = ListenerTestFixture.create();
-        listener = new LibraryInteractionListener(fixture.getBot());
+        tokens = new LibraryPanelTokens();
+        listener = new LibraryInteractionListener(fixture.getBot(), tokens);
         when(fixture.getBot().getYtDlp()).thenReturn(service);
         when(fixture.getButtonInteractionEvent().getUser()).thenReturn(fixture.getUser());
 
@@ -100,6 +116,14 @@ class LibraryPanelTest {
                 "https://www.youtube.com/watch?v=" + key));
     }
 
+    /** As {@link #record}, but the file name never derives from {@code key}: a key may be far too long for a path. */
+    private void recordWithKey(String key, String title) throws IOException {
+        Path folder = tempDir.resolve("lib");
+        Path file = Files.createFile(folder.resolve(title + " [" + Integer.toHexString(key.hashCode()) + "].webm"));
+        library.record(key, file, new AudioTrackInfo(title, "Author", 120_000L, key, false,
+                "https://example.com/" + Integer.toHexString(key.hashCode())));
+    }
+
     private void runWithDj(ButtonInteractionEvent event, boolean dj) {
         try (MockedStatic<DJCommand> djCommand = mockStatic(DJCommand.class)) {
             djCommand.when(() -> DJCommand.checkDJPermission(any(), any(), any())).thenReturn(dj);
@@ -112,6 +136,62 @@ class LibraryPanelTest {
             djCommand.when(() -> DJCommand.checkDJPermission(any(), any(), any())).thenReturn(dj);
             listener.onStringSelectInteraction(event);
         }
+    }
+
+    private void runWithDj(ModalInteractionEvent event, boolean dj) {
+        try (MockedStatic<DJCommand> djCommand = mockStatic(DJCommand.class)) {
+            djCommand.when(() -> DJCommand.checkDJPermission(any(), any(), any())).thenReturn(dj);
+            listener.onModalInteraction(event);
+        }
+    }
+
+    private StringSelectInteractionEvent mockSelectEvent(String componentId, List<String> values) {
+        StringSelectInteractionEvent event = mock(StringSelectInteractionEvent.class);
+        doReturn(fixture.getGuild()).when(event).getGuild();
+        doReturn(fixture.getMember()).when(event).getMember();
+        doReturn(fixture.getUser()).when(event).getUser();
+        doReturn(componentId).when(event).getComponentId();
+        doReturn(values).when(event).getValues();
+        doReturn(mock(ReplyCallbackAction.class, RETURNS_SELF)).when(event).reply(anyString());
+        MessageEditCallbackAction editAction = mock(MessageEditCallbackAction.class, RETURNS_SELF);
+        doReturn(editAction).when(event).editMessageEmbeds(any(MessageEmbed[].class));
+        doReturn(editAction).when(event).editMessageEmbeds(anyCollection());
+        return event;
+    }
+
+    private ModalInteractionEvent mockModalEvent(long ownerUserId, String query) {
+        ModalInteractionEvent event = mock(ModalInteractionEvent.class);
+        doReturn(fixture.getGuild()).when(event).getGuild();
+        doReturn(fixture.getMember()).when(event).getMember();
+        doReturn(fixture.getUser()).when(event).getUser();
+        doReturn(ComponentIdParsers.libSearchModalId(ownerUserId)).when(event).getModalId();
+        ModalMapping mapping = mock(ModalMapping.class);
+        doReturn("query").when(mapping).getCustomId();
+        doReturn(query).when(mapping).getAsString();
+        doReturn(List.of(mapping)).when(event).getValues();
+        doReturn(mock(ReplyCallbackAction.class, RETURNS_SELF)).when(event).reply(anyString());
+        MessageEditCallbackAction editAction = mock(MessageEditCallbackAction.class, RETURNS_SELF);
+        doReturn(editAction).when(event).editMessageEmbeds(any(MessageEmbed[].class));
+        doReturn(editAction).when(event).editMessageEmbeds(anyCollection());
+        return event;
+    }
+
+    /** Every button/select-menu custom ID (and select option value) in {@code rows}, flattened. */
+    private static List<String> componentIds(List<ActionRow> rows) {
+        return rows.stream()
+                .flatMap(row -> row.getComponents().stream())
+                .flatMap(component -> {
+                    if (component instanceof Button button) {
+                        return java.util.stream.Stream.of(button.getCustomId());
+                    }
+                    if (component instanceof StringSelectMenu menu) {
+                        return java.util.stream.Stream.concat(
+                                java.util.stream.Stream.of(menu.getCustomId()),
+                                menu.getOptions().stream().map(net.dv8tion.jda.api.components.selections.SelectOption::getValue));
+                    }
+                    return java.util.stream.Stream.empty();
+                })
+                .toList();
     }
 
     // ---- DJ / owner checks ----
@@ -147,19 +227,81 @@ class LibraryPanelTest {
     void onStringSelectInteraction_nonDj_refused() throws IOException {
         record("songone01", "Song One");
         long ownerUserId = fixture.getUser().getIdLong();
-        String componentId = ComponentIdParsers.libComponentId("pick", ownerUserId, ComponentIdParsers.libPageQueryArg(1, "song"));
-        ReplyCallbackAction replyAction = mock(ReplyCallbackAction.class, RETURNS_SELF);
-
-        StringSelectInteractionEvent event = mock(StringSelectInteractionEvent.class);
-        doReturn(fixture.getGuild()).when(event).getGuild();
-        doReturn(fixture.getMember()).when(event).getMember();
-        doReturn(fixture.getUser()).when(event).getUser();
-        doReturn(componentId).when(event).getComponentId();
-        doReturn(replyAction).when(event).reply(anyString());
+        String token = tokens.create(ownerUserId, "song", 1, List.of("songone01"));
+        String componentId = ComponentIdParsers.libComponentId("pick", ownerUserId, token);
+        StringSelectInteractionEvent event = mockSelectEvent(componentId, List.of("0"));
 
         runWithDj(event, false);
 
         verify(event).reply(argThat((String s) -> s.contains("Only DJs can manage the library.")));
+    }
+
+    @Test
+    @DisplayName("a wrong-owner select-menu pick is refused")
+    void onStringSelectInteraction_wrongOwner_refused() throws IOException {
+        record("songone01", "Song One");
+        long ownerUserId = fixture.getUser().getIdLong();
+        String token = tokens.create(ownerUserId, "song", 1, List.of("songone01"));
+        String componentId = ComponentIdParsers.libComponentId("pick", ownerUserId + 1, token);
+        StringSelectInteractionEvent event = mockSelectEvent(componentId, List.of("0"));
+
+        runWithDj(event, true);
+
+        verify(event).reply(argThat((String s) -> s.contains("This panel belongs to someone else.")));
+    }
+
+    @Test
+    @DisplayName("a non-DJ search-modal submit is refused")
+    void onModalInteraction_nonDj_refused() {
+        long ownerUserId = fixture.getUser().getIdLong();
+        ModalInteractionEvent event = mockModalEvent(ownerUserId, "song");
+
+        runWithDj(event, false);
+
+        verify(event).reply(argThat((String s) -> s.contains("Only DJs can manage the library.")));
+    }
+
+    @Test
+    @DisplayName("a wrong-owner search-modal submit is refused")
+    void onModalInteraction_wrongOwner_refused() {
+        long ownerUserId = fixture.getUser().getIdLong();
+        // The modal ID itself names a different owner than the presser.
+        ModalInteractionEvent event = mockModalEvent(ownerUserId + 1, "song");
+
+        runWithDj(event, true);
+
+        verify(event).reply(argThat((String s) -> s.contains("This panel belongs to someone else.")));
+    }
+
+    // ---- expired / unknown tokens ----
+
+    @Test
+    @DisplayName("an unknown token gives the ephemeral 'panel has expired' message")
+    void onButtonInteraction_unknownToken_givesExpiredMessage() {
+        fixture.withButtonId(ComponentIdParsers.libComponentId(
+                "play", fixture.getUser().getIdLong(), "doesNotExist", 0));
+
+        runWithDj(fixture.getButtonInteractionEvent(), true);
+
+        verify(fixture.getButtonInteractionEvent())
+                .reply(argThat((String s) -> s.contains("This panel has expired; run /library panel again.")));
+    }
+
+    @Test
+    @DisplayName("a genuinely expired token gives the same message")
+    void onButtonInteraction_expiredToken_givesExpiredMessage() {
+        LibraryPanelTokens expiredImmediately = new LibraryPanelTokens(-1L, System::currentTimeMillis);
+        LibraryInteractionListener shortLivedListener = new LibraryInteractionListener(fixture.getBot(), expiredImmediately);
+        String token = expiredImmediately.create(fixture.getUser().getIdLong(), "q", 1, List.of("k"));
+        fixture.withButtonId(ComponentIdParsers.libComponentId("play", fixture.getUser().getIdLong(), token, 0));
+
+        try (MockedStatic<DJCommand> djCommand = mockStatic(DJCommand.class)) {
+            djCommand.when(() -> DJCommand.checkDJPermission(any(), any(), any())).thenReturn(true);
+            shortLivedListener.onButtonInteraction(fixture.getButtonInteractionEvent());
+        }
+
+        verify(fixture.getButtonInteractionEvent())
+                .reply(argThat((String s) -> s.contains("This panel has expired; run /library panel again.")));
     }
 
     // ---- remove confirm flow ----
@@ -168,8 +310,9 @@ class LibraryPanelTest {
     @DisplayName("rmidx removes the entry but keeps the file")
     void onButtonInteraction_rmidx_removesIndexOnly() throws IOException {
         record("removeidx1", "Remove Me");
-        fixture.withButtonId(ComponentIdParsers.libComponentId(
-                "rmidx", fixture.getUser().getIdLong(), "removeidx1"));
+        long ownerUserId = fixture.getUser().getIdLong();
+        String token = tokens.create(ownerUserId, "remove me", 1, List.of("removeidx1"));
+        fixture.withButtonId(ComponentIdParsers.libComponentId("rmidx", ownerUserId, token, 0));
         InteractionAckTracker acks = InteractionAckTracker.attach(fixture.getButtonInteractionEvent(), fixture.getReplyAction());
 
         runWithDj(fixture.getButtonInteractionEvent(), true);
@@ -184,8 +327,9 @@ class LibraryPanelTest {
     void onButtonInteraction_rmfile_removesAndDeletesFile() throws IOException {
         record("removefil1", "Remove File");
         Path file = library.find("removefil1").orElseThrow().file();
-        fixture.withButtonId(ComponentIdParsers.libComponentId(
-                "rmfile", fixture.getUser().getIdLong(), "removefil1"));
+        long ownerUserId = fixture.getUser().getIdLong();
+        String token = tokens.create(ownerUserId, "remove file", 1, List.of("removefil1"));
+        fixture.withButtonId(ComponentIdParsers.libComponentId("rmfile", ownerUserId, token, 0));
         InteractionAckTracker acks = InteractionAckTracker.attach(fixture.getButtonInteractionEvent(), fixture.getReplyAction());
 
         runWithDj(fixture.getButtonInteractionEvent(), true);
@@ -208,8 +352,9 @@ class LibraryPanelTest {
                 "ytdlp-library", 0, 300, List.of(), 120), lockedLibrary, mock(YtDlpDownloader.class),
                 mock(ProcessRunner.class), Runnable::run);
         when(fixture.getBot().getYtDlp()).thenReturn(lockedService);
-        fixture.withButtonId(ComponentIdParsers.libComponentId(
-                "rmfile", fixture.getUser().getIdLong(), "removeerr1"));
+        long ownerUserId = fixture.getUser().getIdLong();
+        String token = tokens.create(ownerUserId, "locked", 1, List.of("removeerr1"));
+        fixture.withButtonId(ComponentIdParsers.libComponentId("rmfile", ownerUserId, token, 0));
         InteractionAckTracker acks = InteractionAckTracker.attach(fixture.getButtonInteractionEvent(), fixture.getReplyAction());
 
         runWithDj(fixture.getButtonInteractionEvent(), true);
@@ -229,10 +374,8 @@ class LibraryPanelTest {
             record("pagesong" + i, "Page Song " + i);
         }
 
-        List<com.jagrosh.jmusicbot.ytdlp.LibraryEntry> page1 =
-                LibraryPanelSlashCmd.pageOf(service.searchLibrary("page song", 100), 1);
-        List<com.jagrosh.jmusicbot.ytdlp.LibraryEntry> page2 =
-                LibraryPanelSlashCmd.pageOf(service.searchLibrary("page song", 100), 2);
+        List<LibraryEntry> page1 = LibraryPanelSlashCmd.pageOf(service.searchLibrary("page song", 100), 1);
+        List<LibraryEntry> page2 = LibraryPanelSlashCmd.pageOf(service.searchLibrary("page song", 100), 2);
 
         assertEquals(LibraryPanelSlashCmd.PAGE_SIZE, page1.size());
         assertEquals(total - LibraryPanelSlashCmd.PAGE_SIZE, page2.size());
@@ -246,12 +389,118 @@ class LibraryPanelTest {
         for (int i = 0; i < total; i++) {
             record("pagebtn" + i, "Page Button " + i);
         }
-        fixture.withButtonId(ComponentIdParsers.libComponentId("page", fixture.getUser().getIdLong(),
-                ComponentIdParsers.libPageQueryArg(2, "page button")));
+        long ownerUserId = fixture.getUser().getIdLong();
+        String token = tokens.create(ownerUserId, "page button", 1,
+                LibraryPanelSlashCmd.pageOf(service.searchLibrary("page button", 100), 1)
+                        .stream().map(LibraryEntry::key).toList());
+        fixture.withButtonId(ComponentIdParsers.libComponentId("page", ownerUserId, token, 1));
         InteractionAckTracker acks = InteractionAckTracker.attach(fixture.getButtonInteractionEvent(), fixture.getReplyAction());
 
         runWithDj(fixture.getButtonInteractionEvent(), true);
 
         assertEquals(List.of("editMessageEmbeds"), acks.acks());
+    }
+
+    @Test
+    @DisplayName("Back from the detail view returns to the same search results page")
+    void onButtonInteraction_backWithToken_returnsToSameSearchPage() throws IOException {
+        record("backtest1", "Back Test One");
+        record("backtest2", "Back Test Two");
+        long ownerUserId = fixture.getUser().getIdLong();
+        String token = tokens.create(ownerUserId, "back test", 1, List.of("backtest1", "backtest2"));
+        fixture.withButtonId(ComponentIdParsers.libComponentId("back", ownerUserId, token));
+        InteractionAckTracker acks = InteractionAckTracker.attach(fixture.getButtonInteractionEvent(), fixture.getReplyAction());
+
+        runWithDj(fixture.getButtonInteractionEvent(), true);
+
+        assertEquals(List.of("editMessageEmbeds"), acks.acks());
+        ArgumentCaptor<MessageEmbed> embedCaptor = ArgumentCaptor.forClass(MessageEmbed.class);
+        verify(fixture.getButtonInteractionEvent()).editMessageEmbeds(embedCaptor.capture());
+        assertTrue(embedCaptor.getValue().getDescription().contains("back test"),
+                embedCaptor.getValue().getDescription());
+    }
+
+    // ---- pick -> detail ----
+
+    @Test
+    @DisplayName("picking a result opens its detail view")
+    void onStringSelectInteraction_pick_opensDetail() throws IOException {
+        record("pickone01", "Pick One");
+        long ownerUserId = fixture.getUser().getIdLong();
+        String token = tokens.create(ownerUserId, "pick", 1, List.of("pickone01"));
+        String componentId = ComponentIdParsers.libComponentId("pick", ownerUserId, token);
+        StringSelectInteractionEvent event = mockSelectEvent(componentId, List.of("0"));
+
+        runWithDj(event, true);
+
+        ArgumentCaptor<MessageEmbed> embedCaptor = ArgumentCaptor.forClass(MessageEmbed.class);
+        verify(event).editMessageEmbeds(embedCaptor.capture());
+        assertEquals("Pick One", embedCaptor.getValue().getTitle());
+    }
+
+    // ---- the long-key / long-query regression (the fix this round addresses) ----
+
+    @Test
+    @DisplayName("building views for a 150-char file: key and a 100-char query never throws, and every id stays <= 100 chars")
+    void buildViews_longKeyAndLongQuery_doNotThrowAndStayWithinIdLimits() throws IOException {
+        String longQuery = "x".repeat(100);
+        String longKey = "file:" + "y".repeat(150);
+        Path file = Files.createFile(tempDir.resolve("lib").resolve("Long.webm"));
+        LibraryEntry entry = new LibraryEntry(longKey, file, "Long Title", "Author", 120_000L, null,
+                "https://example.com/long");
+        long ownerUserId = Long.MAX_VALUE;
+        String token = tokens.create(ownerUserId, longQuery, 1, List.of(longKey));
+
+        List<ActionRow> searchComponents = assertDoesNotThrow(() -> {
+            LibraryPanelSlashCmd.buildSearchListEmbed(longQuery, List.of(entry), 1, 1, 1, null);
+            return LibraryPanelSlashCmd.buildSearchListComponents(ownerUserId, token, List.of(entry), 1, 1);
+        });
+        List<ActionRow> detailComponents = assertDoesNotThrow(() -> {
+            LibraryPanelSlashCmd.buildDetailEmbed(entry, null);
+            return LibraryPanelSlashCmd.buildDetailComponents(ownerUserId, token, 0);
+        });
+        List<ActionRow> confirmComponents = assertDoesNotThrow(() -> {
+            LibraryPanelSlashCmd.buildConfirmEmbed(entry, null);
+            return LibraryPanelSlashCmd.buildConfirmComponents(ownerUserId, token, 0);
+        });
+
+        for (String id : componentIds(searchComponents)) {
+            assertTrue(id.length() <= 100, id);
+        }
+        for (String id : componentIds(detailComponents)) {
+            assertTrue(id.length() <= 100, id);
+        }
+        for (String id : componentIds(confirmComponents)) {
+            assertTrue(id.length() <= 100, id);
+        }
+    }
+
+    @Test
+    @DisplayName("picking a long-key entry opens its detail (no truncation-caused 'no longer in the library')")
+    void onStringSelectInteraction_longKeyEntry_opensDetail() throws IOException {
+        String longKey = "soundcloud:" + "y".repeat(150);
+        recordWithKey(longKey, "Long Key Song");
+        long ownerUserId = fixture.getUser().getIdLong();
+        String token = tokens.create(ownerUserId, "long", 1, List.of(longKey));
+        String componentId = ComponentIdParsers.libComponentId("pick", ownerUserId, token);
+        StringSelectInteractionEvent event = mockSelectEvent(componentId, List.of("0"));
+
+        runWithDj(event, true);
+
+        ArgumentCaptor<MessageEmbed> embedCaptor = ArgumentCaptor.forClass(MessageEmbed.class);
+        verify(event).editMessageEmbeds(embedCaptor.capture());
+        assertEquals("Long Key Song", embedCaptor.getValue().getTitle());
+    }
+
+    @Test
+    @DisplayName("submitting a 100-char search query renders results without throwing, whether or not it matches anything")
+    void onModalInteraction_longQuery_rendersWithoutThrowing() throws IOException {
+        String longQuery = "x".repeat(100);
+        long ownerUserId = fixture.getUser().getIdLong();
+        ModalInteractionEvent event = mockModalEvent(ownerUserId, longQuery);
+
+        assertDoesNotThrow(() -> runWithDj(event, true));
+
+        verify(event).editMessageEmbeds(any(MessageEmbed[].class));
     }
 }
