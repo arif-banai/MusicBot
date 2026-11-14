@@ -255,6 +255,12 @@ public final class YtDlpService {
             if (!enabled) {
                 return CompletableFuture.failedFuture(new YtDlpException("yt-dlp is not available"));
             }
+            // Clones share this supplier but not the gate. A clone of a prompt's hold (e.g. from
+            // "previous" while the prompt is open) may download only if someone said yes.
+            if (gate != null && (!gate.isDone() || gate.isCompletedExceptionally())) {
+                return CompletableFuture.failedFuture(new YtDlpException(
+                        "its download prompt wasn't accepted; request the song again to get a new prompt"));
+            }
             return downloader.request(videoId, info, guildId, true);
         };
         LibraryAudioTrack wrapper = copyState(youtubeTrack,

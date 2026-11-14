@@ -53,6 +53,7 @@ import com.sedmelluq.discord.lavaplayer.tools.FriendlyException.Severity;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrackInfo;
 import dev.lavalink.youtube.AllClientsFailedException;
+import com.sedmelluq.discord.lavaplayer.track.playback.LocalAudioTrackExecutor;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.Member;
@@ -76,6 +77,7 @@ import org.mockito.MockedStatic;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
@@ -316,6 +318,27 @@ class YtDlpPromptTest {
         verify(player, times(1)).stopTrack();
         verify(channel, times(1)).editMessageById(anyLong(), any(CharSequence.class));
         assertEquals(PressOutcome.EXPIRED, state.press(GUILD, VIDEO_ID));
+    }
+
+    @Test
+    void holdClone_downloadsOnlyAfterPromptAccepted() {
+        YtDlpPrompt prompt = prompt(Mode.PROMPT);
+        openPrompt(prompt);
+        var pending = state.get(GUILD).orElseThrow();
+        when(downloader.request(any(), any(), anyLong(), anyBoolean()))
+                .thenReturn(CompletableFuture.failedFuture(new YtDlpException("stub")));
+
+        // e.g. "previous" while the prompt is still open: the clone has no gate of its own
+        LibraryAudioTrack unaccepted = (LibraryAudioTrack) pending.hold().makeClone();
+        FriendlyException refused = assertThrows(FriendlyException.class,
+                () -> unaccepted.process(mock(LocalAudioTrackExecutor.class)));
+        assertTrue(refused.getMessage().contains("prompt wasn't accepted"), refused.getMessage());
+        verifyNoInteractions(downloader);
+
+        pending.gate().complete(null); // someone pressed a button
+        LibraryAudioTrack accepted = (LibraryAudioTrack) pending.hold().makeClone();
+        assertThrows(FriendlyException.class, () -> accepted.process(mock(LocalAudioTrackExecutor.class)));
+        verify(downloader).request(eq(VIDEO_ID), any(), eq(GUILD), eq(true));
     }
 
     @Test

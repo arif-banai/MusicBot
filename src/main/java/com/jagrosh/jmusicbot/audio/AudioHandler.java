@@ -309,7 +309,9 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
         AudioTrack hold = pendingHold.getAndSet(null);
         if (hold != null)
         {
-            if (endReason == AudioTrackEndReason.LOAD_FAILED)
+            // Normally LOAD_FAILED. lavaplayer decides the reason on the audio thread, possibly
+            // before the failure is recorded, so a load failure can also arrive as FINISHED.
+            if (endReason == AudioTrackEndReason.LOAD_FAILED || endReason == AudioTrackEndReason.FINISHED)
             {
                 player.playTrack(hold);
                 return;
@@ -440,12 +442,27 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
             if (track instanceof LibraryAudioTrack)
                 prompt.notifyDownloadFailed(guild(), track, exception);
             else if (prompt.shouldOffer(track, exception))
-                prompt.holdFor(guild(), track).ifPresent(pendingHold::set);
+                prompt.holdFor(guild(), track).ifPresent(hold -> offerHold(prompt, track, hold));
         }
         catch (RuntimeException ex)
         {
             LOGGER.warn("yt-dlp couldn't handle the failure of track {}: {}", track.getIdentifier(), ex.toString());
         }
+    }
+
+    /**
+     * Hands the hold to the coming onTrackEnd of the blocked track. lavaplayer marks the track
+     * as ending before it calls onTrackException, so on the audio thread that end can run
+     * while this method is still running, and miss the hold. The player clears its playing
+     * track before it dispatches the end, so if the blocked track is no longer playing after
+     * the hold was published, that end has started; if it also didn't take the hold, withdraw
+     * the hold and close its prompt, and the queue moves on as it does without yt-dlp.
+     */
+    private void offerHold(YtDlpPrompt prompt, AudioTrack blocked, AudioTrack hold)
+    {
+        pendingHold.set(hold);
+        if (audioPlayer.getPlayingTrack() != blocked && pendingHold.compareAndSet(hold, null))
+            prompt.onHoldEnded(guildId);
     }
 
     @Override
@@ -481,7 +498,9 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
                     track.getSourceManager() != null ? track.getSourceManager().getSourceName() : "Unknown");
         }
         metricsListener.onTrackStart(trackTitle, trackUri);
-        if (track != null)
+        // A yt-dlp prompt's hold isn't recorded: the blocked YouTube track it stands in for
+        // already is, and replaying that asks again instead of downloading unasked.
+        if (track != null && !(track instanceof LibraryAudioTrack libraryTrack && libraryTrack.isGated()))
         {
             QueuedTrack startedTrack = new QueuedTrack(track.makeClone(), track.getUserData(RequestMetadata.class));
             queue.addToHistory(startedTrack);

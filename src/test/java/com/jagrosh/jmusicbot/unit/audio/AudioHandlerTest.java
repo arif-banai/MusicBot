@@ -538,6 +538,7 @@ public class AudioHandlerTest extends TestBase {
             when(prompt.shouldOffer(blocked, ex)).thenReturn(true);
             when(prompt.holdFor(guild, blocked)).thenReturn(Optional.of(hold));
             enqueue(track("next"));
+            when(audioPlayer.getPlayingTrack()).thenReturn(blocked); // still current while the exception is reported
 
             audioHandler.onTrackException(audioPlayer, blocked, ex);
             audioHandler.onTrackEnd(audioPlayer, blocked, AudioTrackEndReason.LOAD_FAILED);
@@ -558,6 +559,7 @@ public class AudioHandlerTest extends TestBase {
             when(prompt.shouldOffer(blocked, ex)).thenReturn(true);
             when(prompt.holdFor(guild, blocked)).thenReturn(Optional.of(hold));
             enqueue(next);
+            when(audioPlayer.getPlayingTrack()).thenReturn(blocked);
 
             audioHandler.onTrackException(audioPlayer, blocked, ex);
             audioHandler.onTrackEnd(audioPlayer, blocked, AudioTrackEndReason.STOPPED);
@@ -565,6 +567,61 @@ public class AudioHandlerTest extends TestBase {
             verify(prompt).onHoldEnded(GUILD_ID);
             verify(audioPlayer, never()).playTrack(hold);
             verify(audioPlayer).playTrack(next);
+        }
+
+        @Test
+        @DisplayName("a load failure reported as FINISHED (lavaplayer race) still plays the hold")
+        void offeredPrompt_finishedRace_playsHold()
+        {
+            AudioTrack blocked = track("blocked");
+            AudioTrack hold = track("hold");
+            FriendlyException ex = new FriendlyException("blocked", FriendlyException.Severity.SUSPICIOUS, null);
+            when(prompt.shouldOffer(blocked, ex)).thenReturn(true);
+            when(prompt.holdFor(guild, blocked)).thenReturn(Optional.of(hold));
+            enqueue(track("next"));
+            when(audioPlayer.getPlayingTrack()).thenReturn(blocked);
+
+            audioHandler.onTrackException(audioPlayer, blocked, ex);
+            audioHandler.onTrackEnd(audioPlayer, blocked, AudioTrackEndReason.FINISHED);
+
+            verify(audioPlayer).playTrack(hold);
+            assertEquals(1, audioHandler.getQueue().size());
+        }
+
+        @Test
+        @DisplayName("if the blocked track's end ran before its hold was offered, the hold is withdrawn")
+        void endBeforeException_withdrawsHoldAndClosesPrompt()
+        {
+            AudioTrack blocked = track("blocked");
+            AudioTrack hold = track("hold");
+            AudioTrack next = track("next");
+            AudioTrack later = track("later");
+            FriendlyException ex = new FriendlyException("blocked", FriendlyException.Severity.SUSPICIOUS, null);
+            when(prompt.shouldOffer(blocked, ex)).thenReturn(true);
+            when(prompt.holdFor(guild, blocked)).thenReturn(Optional.of(hold));
+            enqueue(next);
+            enqueue(later);
+
+            // The audio thread ends the blocked track first and moves on to the next song...
+            audioHandler.onTrackEnd(audioPlayer, blocked, AudioTrackEndReason.LOAD_FAILED);
+            when(audioPlayer.getPlayingTrack()).thenReturn(next);
+            // ...and only then does the playback thread report the exception.
+            audioHandler.onTrackException(audioPlayer, blocked, ex);
+
+            verify(prompt).onHoldEnded(GUILD_ID);
+            // The withdrawn hold must not hijack the end of an unrelated track.
+            audioHandler.onTrackEnd(audioPlayer, next, AudioTrackEndReason.FINISHED);
+            verify(audioPlayer, never()).playTrack(hold);
+            verify(audioPlayer).playTrack(later);
+        }
+
+        @Test
+        @DisplayName("a prompt's hold is not added to history; the blocked track already is")
+        void gatedHoldStart_notAddedToHistory()
+        {
+            audioHandler.onTrackStart(audioPlayer, libraryTrack(new CompletableFuture<>()));
+
+            assertTrue(audioHandler.getPreviousTracks().isEmpty());
         }
 
         @Test
