@@ -175,7 +175,7 @@ class SongMatcherTest {
     static Stream<String> versionSuffixes() {
         return Stream.of("(Instrumental)", "(Acoustic)", "(Live)", "(Karaoke)", "(Karaoke Version)",
                 "(A Cappella)", "(Acapella)", "(Remix)", "(Radio Edit)", "(Cover)", "(Slowed)", "(Sped Up)",
-                "(Nightcore)", "(Slowed + Reverb)", "(8D Audio)", "[8D]", "(Demo)", "- Live", "Live");
+                "(Nightcore)", "(Slowed + Reverb)", "(Reverb)", "(Sped)", "(8D Audio)", "[8D]", "(Demo)", "- Live", "Live");
     }
 
     @ParameterizedTest(name = "{0} vs the original")

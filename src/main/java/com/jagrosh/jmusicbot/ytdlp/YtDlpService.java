@@ -426,9 +426,10 @@ public final class YtDlpService {
     /**
      * For {@link LibrarySourceManager}: the library copy for a YouTube link whose video is linked
      * to a library song, built without loading the video. Empty if yt-dlp is off, the video isn't
-     * linked, or the linked entry is still missing details (then the link goes through YouTube
+     * linked, or the linked entry has no length, or no author (then the link goes through YouTube
      * once, so {@link #prepareForPlayback} can fill those in from the real track). An imported
-     * ({@code file:}) entry never gets an author, so for it only the length and artwork count.
+     * ({@code file:}) entry is never given an author, so for one without its own, artwork counts
+     * in its place.
      */
     Optional<LibraryAudioTrack> linkedLink(String videoId, @Nullable AudioSourceManager youtubeSource) {
         if (!enabled) {
@@ -439,8 +440,9 @@ public final class YtDlpService {
             return Optional.empty();
         }
         LibraryEntry target = resolved.get();
-        boolean ready = LibraryKeys.isFileKey(target.key()) ? !target.missingDetails()
-                : !target.author().isEmpty() && target.lengthMs() > 0;
+        boolean hasArtwork = target.artworkUrl() != null && !target.artworkUrl().isBlank();
+        boolean ready = target.lengthMs() > 0
+                && (!target.author().isEmpty() || (LibraryKeys.isFileKey(target.key()) && hasArtwork));
         if (!ready) {
             return Optional.empty();
         }

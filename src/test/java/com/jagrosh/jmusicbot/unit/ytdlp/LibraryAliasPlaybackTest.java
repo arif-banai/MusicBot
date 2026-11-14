@@ -363,6 +363,22 @@ class LibraryAliasPlaybackTest {
     }
 
     @Test
+    @DisplayName("a link aliased to a tagged import (artist and length, no artwork) loads it directly")
+    void link_aliasedToTaggedImportWithoutArtwork_loadsLibraryCopy() throws IOException {
+        Path imported = libraryFolder.resolve("Axel F.mp3");
+        Files.writeString(imported, "x");
+        String fileKey = "file:Axel F.mp3";
+        library.record(fileKey, imported, new AudioTrackInfo("Axel F", "Crazy Frog", 170_000L, imported.toString(),
+                false, imported.toString(), null, null));
+        library.alias(REQ_ID, fileKey);
+
+        LibraryAudioTrack track = assertInstanceOf(LibraryAudioTrack.class, loadLink(enabled(), YT + REQ_ID));
+
+        assertEquals(fileKey, track.getKey());
+        assertEquals("Crazy Frog", track.getInfo().author);
+    }
+
+    @Test
     @DisplayName("a link aliased to an imported entry with its length and artwork loads it directly, with no author")
     void link_aliasedToImportedEntryWithDetails_loadsLibraryCopy() throws IOException {
         Path imported = libraryFolder.resolve("Axel F - Crazy Frog.mp3");
