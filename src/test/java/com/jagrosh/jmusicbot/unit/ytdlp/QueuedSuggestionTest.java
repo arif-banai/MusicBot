@@ -332,7 +332,8 @@ class QueuedSuggestionTest {
         when(player.getPlayingTrack()).thenReturn(b); // B is now the current track
         suggestions.handlePress(pressEvent(REQUESTER, MESSAGE), switchIdFor(id));
 
-        // Task 4 later adds alignment to this path; here it's enough that it IS the play-time path.
+        // The play-time path may align (here it can't: the mocked handler has no ring); it's enough
+        // that this IS the play-time path.
         verify(handler).replaceWithLibraryCopy(eq(b), any());
     }
 

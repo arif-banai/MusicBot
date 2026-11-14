@@ -592,6 +592,59 @@ class MatchSuggestionsTest {
     }
 
     @Test
+    @DisplayName("an accepted alignment uses the stream position at swap time, not at press time")
+    void switch_alignmentAccepted_usesPositionAtSwapTime() {
+        AudioTrack request = playingRequest();
+        when(request.getPosition()).thenReturn(45_000L);
+        MatchSuggestions.Aligner stub = (snap, file, streamLen, libLen) -> {
+            // The stream keeps playing while the job runs.
+            when(request.getPosition()).thenReturn(45_800L);
+            return Optional.of(new SwitchAligner.Alignment(-3_100L, 0.9, 0.3));
+        };
+        MatchSuggestions suggestions = suggestionsWithAligner(stub);
+        suggest(suggestions, request);
+
+        suggestions.handlePress(pressEvent(REQUESTER, MESSAGE), switchId());
+
+        ArgumentCaptor<AudioTrack> replacement = ArgumentCaptor.forClass(AudioTrack.class);
+        verify(handler).replaceWithLibraryCopy(eq(request), replacement.capture());
+        assertEquals(45_800L - 3_100L, replacement.getValue().getPosition());
+    }
+
+    @Test
+    @DisplayName("a ring shorter than the minimum logs fallback(short history), not fallback(rejected)")
+    void switch_shortRing_logsShortHistory() {
+        MatchSuggestions.Aligner stub = (snap, file, streamLen, libLen) -> Optional.empty();
+        MatchSuggestions suggestions = suggestionsWithAligner(stub);
+        AudioTrack request = playingRequest();
+        suggest(suggestions, request);
+
+        List<String> lines = captureInfoLogs(() -> suggestions.handlePress(pressEvent(REQUESTER, MESSAGE), switchId()));
+
+        assertTrue(lines.stream().anyMatch(l -> l.startsWith("Switch alignment for") && l.endsWith("fallback(short history)")),
+                lines::toString);
+    }
+
+    /** Captures the INFO lines {@link MatchSuggestions} logs while {@code action} runs. */
+    private List<String> captureInfoLogs(Runnable action) {
+        ch.qos.logback.classic.Logger logger =
+                (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(MatchSuggestions.class);
+        ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> appender =
+                new ch.qos.logback.core.read.ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            action.run();
+        } finally {
+            logger.detachAppender(appender);
+        }
+        return appender.list.stream()
+                .filter(e -> e.getLevel() == ch.qos.logback.classic.Level.INFO)
+                .map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage)
+                .toList();
+    }
+
+    @Test
     @DisplayName("a rejected alignment (empty) starts at 0:00")
     void switch_alignmentRejected_startsAtZero() {
         MatchSuggestions.Aligner stub = (snap, file, streamLen, libLen) -> Optional.empty();

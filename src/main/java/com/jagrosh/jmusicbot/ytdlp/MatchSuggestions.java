@@ -553,7 +553,8 @@ public final class MatchSuggestions {
     /**
      * Replaces the currently playing {@code current} with its library copy. Snapshots the ring
      * (when alignment is on) and kicks the alignment job off this thread, with a hard 1 s
-     * timeout; the result reaches {@link #finishSwitchPlaying} later, never from here.
+     * timeout; the result reaches {@link #finishSwitchPlaying} later, which reads the stream's
+     * position only then.
      */
     private void switchPlaying(Guild guild, AudioHandler handler, AudioTrack current, Suggestion suggestion,
                                ButtonInteractionEvent event) {
@@ -563,7 +564,6 @@ public final class MatchSuggestions {
             return;
         }
         LibraryEntry target = entry.get();
-        long currentPosMs = safePosition(current);
         AudioTrackInfo info = current.getInfo();
         long streamLengthMs = info == null ? 0L : info.length;
         long libraryLengthMs = target.lengthMs();
@@ -571,27 +571,29 @@ public final class MatchSuggestions {
         RecentFrames.Snapshot snapshot = alignOn ? handler.snapshotRecentFrames() : null;
         Path libraryFile = target.file();
         try {
-            alignmentExecutor.execute(() -> runAlignmentAndFinish(guild, suggestion, target, currentPosMs,
-                    streamLengthMs, libraryLengthMs, alignOn, snapshot, libraryFile, event));
+            alignmentExecutor.execute(() -> runAlignmentAndFinish(guild, suggestion, target, streamLengthMs,
+                    libraryLengthMs, alignOn, snapshot, libraryFile, event));
         } catch (RuntimeException ex) { // e.g. the alignment executor is shut down
             LOGGER.debug("Couldn't schedule Switch alignment for {}: {}", suggestion.requestedKey, ex.toString());
-            finishSwitchPlaying(guild, suggestion, target, 0L, event);
+            finishSwitchPlaying(guild, suggestion, target, Optional.empty(), "error", event);
         }
     }
 
     /**
      * Runs off the caller's thread: tries the alignment job (unless {@code alignOn} is false)
-     * with a hard 1 s timeout, cancelling it on a timeout so its decode stops; logs the one
-     * summary line for this press, then hands off to {@link #finishSwitchPlaying}.
+     * with a hard 1 s timeout, cancelling it on a timeout so its decode stops, then hands off to
+     * {@link #finishSwitchPlaying} with the alignment (if any) and why there is none otherwise.
      */
-    private void runAlignmentAndFinish(Guild guild, Suggestion suggestion, LibraryEntry target, long currentPosMs,
+    private void runAlignmentAndFinish(Guild guild, Suggestion suggestion, LibraryEntry target,
                                        long streamLengthMs, long libraryLengthMs, boolean alignOn,
                                        @Nullable RecentFrames.Snapshot snapshot, @Nullable Path libraryFile,
                                        ButtonInteractionEvent event) {
         Optional<SwitchAligner.Alignment> alignment = Optional.empty();
         String reason = "off";
         if (alignOn) {
-            reason = "rejected";
+            // Too little contiguous history means the job can't even try; say so rather than "rejected".
+            reason = snapshot == null || snapshot.frames().size() < AlignmentJob.MIN_FRAMES
+                    ? "short history" : "rejected";
             try {
                 Future<Optional<SwitchAligner.Alignment>> future = alignmentExecutor.submit(
                         () -> aligner.run(snapshot, libraryFile, streamLengthMs, libraryLengthMs));
@@ -612,10 +614,32 @@ public final class MatchSuggestions {
                 reason = "error";
             }
         }
+        finishSwitchPlaying(guild, suggestion, target, alignment, reason, event);
+    }
+
+    /**
+     * Re-checks that {@code suggestion.track} is still playing (it may have changed while the
+     * alignment job ran): if so, reads its position now, right before the swap (the stream kept
+     * playing while the job ran), turns the alignment into a start position (0 without one, or
+     * when it lands out of range), logs the one summary line for this press, and replaces the
+     * track with the library copy; otherwise nothing changes, and the press is reported as expired.
+     *
+     * @param noAlignmentReason why {@code alignment} is empty ("off", "rejected", "timeout", ...)
+     */
+    private void finishSwitchPlaying(Guild guild, Suggestion suggestion, LibraryEntry target,
+                                     Optional<SwitchAligner.Alignment> alignment, String noAlignmentReason,
+                                     ButtonInteractionEvent event) {
+        AudioHandler handler = handler(guild);
+        AudioTrack current = handler == null ? null : handler.getPlayer().getPlayingTrack();
+        if (handler == null || current != suggestion.track) {
+            logAlignment(suggestion, alignment, "expired");
+            respond(event, SwitchOutcome.publicEdit(EXPIRED));
+            return;
+        }
         long startMs = 0L;
         String outcome;
         if (alignment.isPresent()) {
-            OptionalLong t = AlignmentJob.targetPosition(currentPosMs, alignment.get(), libraryLengthMs);
+            OptionalLong t = AlignmentJob.targetPosition(safePosition(current), alignment.get(), target.lengthMs());
             if (t.isPresent()) {
                 startMs = t.getAsLong();
                 outcome = "accepted";
@@ -623,28 +647,9 @@ public final class MatchSuggestions {
                 outcome = "fallback(out-of-range)";
             }
         } else {
-            outcome = "fallback(" + reason + ")";
+            outcome = "fallback(" + noAlignmentReason + ")";
         }
-        LOGGER.info("Switch alignment for {}: r={} margin={} offset={} -> {}", suggestion.requestedKey,
-                alignment.map(a -> String.format(Locale.ROOT, "%.2f", a.r())).orElse("-"),
-                alignment.map(a -> String.format(Locale.ROOT, "%.2f", a.margin())).orElse("-"),
-                alignment.map(a -> String.valueOf(a.offsetMs())).orElse("-"), outcome);
-        finishSwitchPlaying(guild, suggestion, target, startMs, event);
-    }
-
-    /**
-     * Re-checks that {@code suggestion.track} is still playing (it may have changed while the
-     * alignment job ran): if so, replaces it with the library copy at {@code startMs}; otherwise
-     * nothing changes, and the press is reported as expired.
-     */
-    private void finishSwitchPlaying(Guild guild, Suggestion suggestion, LibraryEntry target, long startMs,
-                                     ButtonInteractionEvent event) {
-        AudioHandler handler = handler(guild);
-        AudioTrack current = handler == null ? null : handler.getPlayer().getPlayingTrack();
-        if (handler == null || current != suggestion.track) {
-            respond(event, SwitchOutcome.publicEdit(EXPIRED));
-            return;
-        }
+        logAlignment(suggestion, alignment, outcome);
         boolean replaced;
         try {
             LibraryAudioTrack copy = service.linkedCopy(current, suggestion.requestedKey, target);
@@ -663,6 +668,14 @@ public final class MatchSuggestions {
         LOGGER.info("Switched {} to library song {} in guild {}", suggestion.requestedKey, target.key(),
                 suggestion.guildId);
         respond(event, SwitchOutcome.publicEdit(SWITCHED));
+    }
+
+    /** The one summary line logged per Switch press on a playing track. */
+    private static void logAlignment(Suggestion suggestion, Optional<SwitchAligner.Alignment> alignment, String outcome) {
+        LOGGER.info("Switch alignment for {}: r={} margin={} offset={} -> {}", suggestion.requestedKey,
+                alignment.map(a -> String.format(Locale.ROOT, "%.2f", a.r())).orElse("-"),
+                alignment.map(a -> String.format(Locale.ROOT, "%.2f", a.margin())).orElse("-"),
+                alignment.map(a -> String.valueOf(a.offsetMs())).orElse("-"), outcome);
     }
 
     /**
