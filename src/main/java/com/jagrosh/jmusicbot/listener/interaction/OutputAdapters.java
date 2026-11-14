@@ -272,6 +272,50 @@ public final class OutputAdapters {
     }
 
     /**
+     * Adapter for the library panel's Play/Queue buttons: all feedback is ephemeral. It is a
+     * reply while the interaction is unacknowledged, otherwise a follow-up through the
+     * interaction hook (the listener defers the button before running the action).
+     */
+    public static MusicService.OutputAdapter forLibraryReply(net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent event) {
+        return new MusicService.OutputAdapter() {
+            @Override
+            public void replySuccess(String content) {
+                sendEphemeral(event, content);
+            }
+
+            @Override
+            public void replyError(String content) {
+                sendEphemeral(event, content);
+            }
+
+            @Override
+            public void replyWarning(String content) {
+                sendEphemeral(event, content);
+            }
+
+            @Override
+            public void editMessage(String content) {
+            }
+
+            @Override
+            public void editMessage(String content, Consumer<net.dv8tion.jda.api.entities.Message> onSuccess) {
+            }
+
+            @Override
+            public void editNowPlaying(AudioHandler handler) {
+            }
+
+            @Override
+            public void editNoMusic(AudioHandler handler) {
+            }
+
+            @Override
+            public void onShowHelp() {
+            }
+        };
+    }
+
+    /**
      * Adapter for queue move select: only errors/warnings replied.
      */
     public static MusicService.OutputAdapter forQueueMoveSelect(net.dv8tion.jda.api.events.interaction.component.StringSelectInteractionEvent event) {

@@ -242,4 +242,78 @@ class ComponentIdParsersTest
         // The prompt parser doesn't take match buttons either.
         assertTrue(ComponentIdParsers.parseYtDlpButtonId("ytdlp_match_switch_42").isEmpty());
     }
+
+    @Test
+    void libComponentId_noArg_roundTrips()
+    {
+        String id = ComponentIdParsers.libComponentId("rescan", 123456789012345678L);
+        assertEquals("lib_rescan_123456789012345678", id);
+        var parsed = ComponentIdParsers.parseLibComponentId(id);
+        assertTrue(parsed.isPresent(), id);
+        assertEquals("rescan", parsed.get().action());
+        assertEquals(123456789012345678L, parsed.get().ownerUserId());
+        assertEquals(null, parsed.get().arg());
+    }
+
+    @Test
+    void libComponentId_withKeyArg_roundTrips_evenWithUnderscores()
+    {
+        String key = "file:My_Song (Remix)_v2.mp3";
+        String id = ComponentIdParsers.libComponentId("play", 42L, key);
+        assertEquals("lib_play_42_" + key, id);
+        var parsed = ComponentIdParsers.parseLibComponentId(id);
+        assertTrue(parsed.isPresent(), id);
+        assertEquals("play", parsed.get().action());
+        assertEquals(42L, parsed.get().ownerUserId());
+        assertEquals(key, parsed.get().arg());
+    }
+
+    @Test
+    void libComponentId_invalid_returnsEmpty()
+    {
+        assertTrue(ComponentIdParsers.parseLibComponentId(null).isEmpty());
+        assertTrue(ComponentIdParsers.parseLibComponentId("lib_rescan").isEmpty());
+        assertTrue(ComponentIdParsers.parseLibComponentId("lib_rescan_notanumber").isEmpty());
+        assertTrue(ComponentIdParsers.parseLibComponentId("playlists_rescan_1_1_1").isEmpty());
+        // The search-modal ID isn't a component ID.
+        assertTrue(ComponentIdParsers.parseLibComponentId(ComponentIdParsers.libSearchModalId(1L)).isEmpty());
+    }
+
+    @Test
+    void libSearchModalId_roundTrips()
+    {
+        String id = ComponentIdParsers.libSearchModalId(987654321L);
+        assertEquals("lib_searchmodal_987654321", id);
+        var parsed = ComponentIdParsers.parseLibSearchModalOwnerId(id);
+        assertTrue(parsed.isPresent(), id);
+        assertEquals(987654321L, parsed.get());
+    }
+
+    @Test
+    void libSearchModalId_rejectsOthers()
+    {
+        assertTrue(ComponentIdParsers.parseLibSearchModalOwnerId(null).isEmpty());
+        assertTrue(ComponentIdParsers.parseLibSearchModalOwnerId("lib_rescan_42").isEmpty());
+        assertTrue(ComponentIdParsers.parseLibSearchModalOwnerId("lib_searchmodal_notanumber").isEmpty());
+    }
+
+    @Test
+    void libPageQuery_roundTrips_evenWithColonsInQuery()
+    {
+        String arg = ComponentIdParsers.libPageQueryArg(3, "AC:DC - T.N.T");
+        assertEquals("3:AC:DC - T.N.T", arg);
+        var parsed = ComponentIdParsers.parseLibPageQuery(arg);
+        assertTrue(parsed.isPresent(), arg);
+        assertEquals(3, parsed.get().page());
+        assertEquals("AC:DC - T.N.T", parsed.get().query());
+    }
+
+    @Test
+    void libPageQuery_invalid_returnsEmpty()
+    {
+        assertTrue(ComponentIdParsers.parseLibPageQuery(null).isEmpty());
+        assertTrue(ComponentIdParsers.parseLibPageQuery("noColon").isEmpty());
+        assertTrue(ComponentIdParsers.parseLibPageQuery("abc:query").isEmpty());
+        assertTrue(ComponentIdParsers.parseLibPageQuery("1:").isEmpty());
+    }
 }

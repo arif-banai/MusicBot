@@ -17,12 +17,15 @@ package com.jagrosh.jmusicbot.listener.interaction;
 
 import java.util.Optional;
 
+import org.jetbrains.annotations.Nullable;
+
 /**
  * Parsing and validation for component IDs used by queue and history interactions.
  * Format contracts: queue_{action}_{page}_{selectedTrack}_{userId}, history_{action}_{page}_{selectedTrack}_{userId},
  * playlists_{action}_{page}_{selectedIndex}_{userId}, queue_move_select_{fromPosition}_{page}_{userId},
  * history_save_{userId}, settings_{action}_{key}_{value?}_{userId}, settings_modal_{key}_{userId},
- * settings_entity_{key}_{userId}, np_{action}, ytdlp_{one|all}_{requesterId}_{videoId}.
+ * settings_entity_{key}_{userId}, np_{action}, ytdlp_{one|all}_{requesterId}_{videoId},
+ * lib_{action}_{ownerUserId}[_{arg}], lib_searchmodal_{ownerUserId}.
  */
 public final class ComponentIdParsers {
 
@@ -39,6 +42,8 @@ public final class ComponentIdParsers {
     private static final String SETTINGS_ENTITY_PREFIX = "settings_entity_";
     private static final String NOW_PLAYING_PREFIX = "np_";
     private static final String YTDLP_PREFIX = "ytdlp_";
+    private static final String LIB_PREFIX = "lib_";
+    private static final String LIB_SEARCHMODAL_PREFIX = "lib_searchmodal_";
     /** Prefix of the similar-song suggestion buttons; checked before {@link #YTDLP_PREFIX}. */
     public static final String YTDLP_MATCH_PREFIX = "ytdlp_match_";
     /**
@@ -128,6 +133,104 @@ public final class ComponentIdParsers {
      * Parsed similar-song suggestion button ID: action ({@code switch} or {@code reject}), requesterId.
      */
     public record YtDlpMatchButtonId(String action, long requesterId) {
+    }
+
+    /**
+     * Parsed {@code /library panel} component ID: action, the DJ who opened the panel, and the
+     * trailing argument (a library key, or {@code page:query}), or null when the ID has none.
+     */
+    public record LibComponentId(String action, long ownerUserId, @Nullable String arg) {
+    }
+
+    /** A library search-results page and the query that produced it, packed into one component-ID argument. */
+    public record LibPageQuery(int page, String query) {
+    }
+
+    /**
+     * Builds a {@code /library panel} component ID with no trailing argument: {@code lib_{action}_{ownerUserId}}.
+     */
+    public static String libComponentId(String action, long ownerUserId) {
+        return LIB_PREFIX + action + "_" + ownerUserId;
+    }
+
+    /**
+     * Builds a {@code /library panel} component ID with a trailing argument: {@code lib_{action}_{ownerUserId}_{arg}}.
+     * The argument goes last and is never split further here, so a library key containing
+     * {@code _} (e.g. {@code file:My_Song.mp3}) round-trips exactly.
+     */
+    public static String libComponentId(String action, long ownerUserId, String arg) {
+        return LIB_PREFIX + action + "_" + ownerUserId + "_" + arg;
+    }
+
+    /**
+     * Parses {@code /library panel} component IDs (buttons and select menus). Expected format:
+     * {@code lib_{action}_{ownerUserId}[_{arg}]}. Only the first two underscores after the prefix
+     * separate fields; everything after the owner ID (if anything) is the argument, kept whole.
+     */
+    public static Optional<LibComponentId> parseLibComponentId(String componentId) {
+        if (componentId == null || !componentId.startsWith(LIB_PREFIX) || componentId.startsWith(LIB_SEARCHMODAL_PREFIX)) {
+            return Optional.empty();
+        }
+        String rest = componentId.substring(LIB_PREFIX.length());
+        int actionEnd = rest.indexOf('_');
+        if (actionEnd <= 0) {
+            return Optional.empty();
+        }
+        String action = rest.substring(0, actionEnd);
+        String afterAction = rest.substring(actionEnd + 1);
+        int ownerEnd = afterAction.indexOf('_');
+        String ownerPart = ownerEnd < 0 ? afterAction : afterAction.substring(0, ownerEnd);
+        String arg = ownerEnd < 0 ? null : afterAction.substring(ownerEnd + 1);
+        try {
+            long ownerUserId = Long.parseLong(ownerPart);
+            return Optional.of(new LibComponentId(action, ownerUserId, arg));
+        } catch (NumberFormatException e) {
+            return Optional.empty();
+        }
+    }
+
+    /** Builds the library search modal ID: {@code lib_searchmodal_{ownerUserId}}. */
+    public static String libSearchModalId(long ownerUserId) {
+        return LIB_SEARCHMODAL_PREFIX + ownerUserId;
+    }
+
+    /** Parses the library search modal ID. Expected format: {@code lib_searchmodal_{ownerUserId}}. */
+    public static Optional<Long> parseLibSearchModalOwnerId(String modalId) {
+        if (modalId == null || !modalId.startsWith(LIB_SEARCHMODAL_PREFIX)) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(Long.parseLong(modalId.substring(LIB_SEARCHMODAL_PREFIX.length())));
+        } catch (NumberFormatException e) {
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Packs a search-results page and its query into one component-ID argument: {@code {page}:{query}}.
+     */
+    public static String libPageQueryArg(int page, String query) {
+        return page + ":" + query;
+    }
+
+    /**
+     * Parses a {@code {page}:{query}} component-ID argument (see {@link #libPageQueryArg}). Only the
+     * first {@code :} separates the page from the query, so a query containing {@code :} round-trips.
+     */
+    public static Optional<LibPageQuery> parseLibPageQuery(@Nullable String arg) {
+        if (arg == null) {
+            return Optional.empty();
+        }
+        int sep = arg.indexOf(':');
+        if (sep <= 0 || sep == arg.length() - 1) {
+            return Optional.empty();
+        }
+        try {
+            int page = Integer.parseInt(arg.substring(0, sep));
+            return Optional.of(new LibPageQuery(page, arg.substring(sep + 1)));
+        } catch (NumberFormatException e) {
+            return Optional.empty();
+        }
     }
 
     /**
