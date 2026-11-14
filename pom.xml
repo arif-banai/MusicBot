@@ -595,9 +595,10 @@
         <project.build.outputTimestamp>2026-07-14T05:29:10Z</project.build.outputTimestamp>
 
         <!-- Dependency versions -->
-        <jda.version>6.4.2</jda.version>
+        <!-- 6.7.0+ is required once Discord makes channel obfuscation mandatory (2026-11-16) -->
+        <jda.version>6.7.0</jda.version>
         <jda-chewtils.version>2.2.1</jda-chewtils.version>
-        <jdave.version>0.1.7</jdave.version>
+        <jdave.version>0.1.8</jdave.version>
         <udpqueue.version>0.2.12</udpqueue.version>
         <lavaplayer.version>2.2.7</lavaplayer.version>
         <!-- Pinned to the youtube-source main-branch snapshot (e41dd95f, 2026-11-13). The latest
