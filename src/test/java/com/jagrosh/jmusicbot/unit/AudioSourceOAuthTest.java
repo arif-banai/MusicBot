@@ -236,8 +236,8 @@ class AudioSourceOAuthTest {
             assertEquals(5, oauthClients.length, "OAuth mode should use 5 clients");
             
             // Verify client types
-            assertEquals("AndroidVrWithThumbnail", oauthClients[0].getClass().getSimpleName(),
-                "First OAuth client should be <AndroidVrWithThumbnail>");
+            assertEquals("AndroidVrClient", oauthClients[0].getClass().getSimpleName(),
+                "First OAuth client should be <AndroidVrClient>");
             assertEquals("MWebWithThumbnail", oauthClients[1].getClass().getSimpleName(),
                 "Second OAuth client should be <MWebWithThumbnail>");
             assertEquals("WebWithThumbnail", oauthClients[2].getClass().getSimpleName(),
@@ -266,8 +266,8 @@ class AudioSourceOAuthTest {
             assertEquals(4, nonOauthClients.length, "Non-OAuth mode should use 4 clients");
             
             // Verify client types
-            assertEquals("AndroidVrWithThumbnail", nonOauthClients[0].getClass().getSimpleName(),
-                "First non-OAuth client should be <AndroidVrWithThumbnail>");
+            assertEquals("AndroidVrClient", nonOauthClients[0].getClass().getSimpleName(),
+                "First non-OAuth client should be <AndroidVrClient>");
             assertEquals("MWebWithThumbnail", nonOauthClients[1].getClass().getSimpleName(),
                 "Second non-OAuth client should be <MWebWithThumbnail>");
             assertEquals("WebWithThumbnail", nonOauthClients[2].getClass().getSimpleName(),

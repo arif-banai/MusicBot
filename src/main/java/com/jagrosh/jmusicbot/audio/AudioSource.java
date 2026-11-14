@@ -35,7 +35,6 @@ import com.sedmelluq.discord.lavaplayer.source.twitch.TwitchStreamAudioSourceMan
 import com.sedmelluq.discord.lavaplayer.source.vimeo.VimeoAudioSourceManager;
 import dev.lavalink.youtube.YoutubeAudioSourceManager;
 import dev.lavalink.youtube.YoutubeSourceOptions;
-import dev.lavalink.youtube.clients.AndroidVrWithThumbnail;
 import dev.lavalink.youtube.clients.MWebWithThumbnail;
 import dev.lavalink.youtube.clients.Tv;
 import dev.lavalink.youtube.clients.TvHtml5SimplyWithThumbnail;
@@ -271,7 +270,8 @@ public enum AudioSource
      * 
      * <p>When OAuth is enabled, we use a combination of clients:
      * <ul>
-     *   <li><b>AndroidVrWithThumbnail</b> - Non-embedded playback fallback with Opus support.</li>
+     *   <li><b>AndroidVrClient</b> - ANDROID_VR with a newer client version (see that class).
+     *       Non-embedded playback fallback with Opus support.</li>
      *   <li><b>MWebWithThumbnail</b> - Non-embedded playback fallback.</li>
      *   <li><b>WebWithThumbnail</b> - Non-embedded playback fallback.</li>
      *   <li><b>Tv</b> - OAuth-compatible playback client.</li>
@@ -285,7 +285,7 @@ public enum AudioSource
         if (useOauth)
         {
             return new Client[] {
-                new AndroidVrWithThumbnail(),       // audio-capable fallback for long-form playback
+                new AndroidVrClient(),              // audio-capable fallback for long-form playback
                 new MWebWithThumbnail(),            // audio-capable fallback for long-form playback
                 new WebWithThumbnail(),             // audio-capable fallback for long-form playback
                 new Tv(),                            // OAuth-compatible playback
@@ -294,10 +294,10 @@ public enum AudioSource
         }
         // Clients are required even without OAuth to properly handle YouTube URLs
         return new Client[] {
-            new AndroidVrWithThumbnail(),
+            new AndroidVrClient(),
             new MWebWithThumbnail(),
             new WebWithThumbnail(),
-            new TvHtml5SimplyWithThumbnail() 
+            new TvHtml5SimplyWithThumbnail()
         };
     }
     
