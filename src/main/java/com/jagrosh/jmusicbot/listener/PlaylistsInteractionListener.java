@@ -705,12 +705,16 @@ public class PlaylistsInteractionListener extends ListenerAdapter
                                         int playlistIndex, int listPage, int detailsPage, int selectedTrack,
                                         long userId)
     {
+        // Loading the page's tracks can take longer than Discord's 3-second window, so acknowledge
+        // first and render through the hook.
+        event.deferEdit().queue();
+        net.dv8tion.jda.api.interactions.InteractionHook hook = event.getHook();
         bot.getMusicService().loadPlaylistPageWithTracks(
                 draftContext, detailsPage, PlaylistsSlashCmd.PLAYLIST_TRACKS_PER_PAGE, result ->
                 {
                     if (result == null)
                     {
-                        event.reply("Playlist no longer exists. Click Back and Refresh.").setEphemeral(true).queue();
+                        hook.sendMessage("Playlist no longer exists. Click Back and Refresh.").setEphemeral(true).queue();
                         return;
                     }
                     int totalPages = Math.max(1, PlaylistsSlashCmd.getPlaylistTrackTotalPages(result.totalItems));
@@ -747,11 +751,11 @@ public class PlaylistsInteractionListener extends ListenerAdapter
                     }
                     String cancelMoveId = "playlistdetails_" + playlistIndex + "_" + listPage + "_cancelmove_"
                             + safePage + "_" + safeSelected + "_" + userId;
-                    event.editMessageEmbeds(embed)
-                            .setComponents(
+                    hook.editOriginalEmbeds(embed)
+                            .setComponents(List.of(
                                     ActionRow.of(menuBuilder.build()),
                                     ActionRow.of(net.dv8tion.jda.api.components.buttons.Button.secondary(cancelMoveId, "Back"))
-                            )
+                            ))
                             .queue();
                 });
     }

@@ -441,6 +441,45 @@ class PlaylistsInteractionListenerTest
     }
 
     @Test
+    @DisplayName("playlistdetails move: acknowledges before the track page loads, then shows the menu through the hook")
+    void playlistDetailsMove_defersBeforeLoadingTracks()
+    {
+        fixture.withButtonId("playlistdetails_1_1_move_1_2_" + fixture.getUser().getIdLong());
+        AtomicReference<Consumer<MusicService.PlaylistTracksPageInfo>> render = stubFavoriteDetails();
+        when(fixture.getMusicService().canEditPlaylistEntries(eq(fixture.getGuild()), eq(fixture.getMember())))
+                .thenReturn(true);
+        InteractionAckTracker acks = InteractionAckTracker.attach(fixture.getButtonInteractionEvent(), fixture.getReplyAction());
+
+        listener.onButtonInteraction(fixture.getButtonInteractionEvent());
+
+        assertEquals(List.of("deferEdit"), acks.acks(), "must acknowledge before the page's tracks finish loading");
+        render.get().accept(FAVORITE_PAGE);
+        assertEquals(List.of("deferEdit"), acks.acks());
+        verify(acks.hook()).editOriginalEmbeds(any(MessageEmbed[].class));
+        verify(acks.hookEdit()).setComponents(
+                argThat((java.util.Collection<? extends net.dv8tion.jda.api.components.MessageTopLevelComponent> rows)
+                        -> rows.size() == 2));
+        verify(acks.hookEdit()).queue();
+    }
+
+    @Test
+    @DisplayName("playlistdetails move: a playlist that vanished while loading gets an ephemeral follow-up")
+    void playlistDetailsMove_missingPlaylist_ephemeralFollowup()
+    {
+        fixture.withButtonId("playlistdetails_1_1_move_1_2_" + fixture.getUser().getIdLong());
+        AtomicReference<Consumer<MusicService.PlaylistTracksPageInfo>> render = stubFavoriteDetails();
+        when(fixture.getMusicService().canEditPlaylistEntries(eq(fixture.getGuild()), eq(fixture.getMember())))
+                .thenReturn(true);
+        InteractionAckTracker acks = InteractionAckTracker.attach(fixture.getButtonInteractionEvent(), fixture.getReplyAction());
+
+        listener.onButtonInteraction(fixture.getButtonInteractionEvent());
+        render.get().accept(null);
+
+        assertEquals(List.of("deferEdit"), acks.acks());
+        assertEphemeralFollowup(acks, "Playlist no longer exists. Click Back and Refresh.");
+    }
+
+    @Test
     @DisplayName("playlists playnow (list view): embed refresh and later playlist-loaded reply acknowledge once")
     void playlistsPlayNow_refreshThenLoaded_acknowledgesOnce()
     {

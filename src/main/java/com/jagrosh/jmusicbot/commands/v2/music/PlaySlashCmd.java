@@ -33,6 +33,9 @@ public class PlaySlashCmd extends MusicSlashCommand
      */
     static final long AUTOCOMPLETE_DEADLINE_MS = 2000;
 
+    /** Discord's limit for an autocomplete choice's name and string value. */
+    private static final int MAX_CHOICE_LENGTH = 100;
+
     private final String loadingEmoji;
     private final MusicService musicService;
 
@@ -79,7 +82,12 @@ public class PlaySlashCmd extends MusicSlashCommand
         String normalized = QueryNormalizer.normalize(input);
         if(isUrlOrPath(normalized))
         {
-            event.replyChoices(new Command.Choice(normalized, normalized)).queue();
+            // Discord rejects a choice value over 100 characters, and normalization can add
+            // "https://" to one that fit; offer no choice then (the typed text can still be sent).
+            if(normalized.length() > MAX_CHOICE_LENGTH)
+                event.replyChoices().queue();
+            else
+                event.replyChoices(new Command.Choice(truncateTitle(normalized), normalized)).queue();
             return;
         }
 
@@ -106,7 +114,9 @@ public class PlaySlashCmd extends MusicSlashCommand
             }
         };
 
-        bot.getPlayerManager().loadItemOrdered(event.getGuild(), "ytsearch:" + input,
+        // Unordered: on the guild's ordering key (MusicService.play's) every keystroke's search would
+        // run one after another, and a real /play would wait behind all the abandoned ones.
+        bot.getPlayerManager().loadItem("ytsearch:" + input,
                 bot.getAudioLoadWrapper().wrap("ytsearch:" + input, new AudioLoadResultHandler()
         {
             @Override
