@@ -42,13 +42,20 @@ public final class YtDlpCommand {
 
     /**
      * Builds the command line to download {@code videoId} into {@code settings}'
-     * library folder: {@code <path> -f bestaudio --no-playlist --no-progress
-     * --no-warnings -o "<libraryFolder>/%(title)s [%(id)s].%(ext)s" --print
-     * after_move:filepath <extraArgs...> https://www.youtube.com/watch?v=<id>}.
+     * library folder: {@code <path> --encoding utf-8 -f bestaudio --no-playlist
+     * --no-progress --no-warnings -o "<libraryFolder>/%(title)s [%(id)s].%(ext)s"
+     * --print after_move:filepath <extraArgs...> https://www.youtube.com/watch?v=<id>}.
+     *
+     * <p>{@code --encoding utf-8} forces yt-dlp's own stdout/stderr encoding. Some
+     * distributions (e.g. the winget/PyInstaller build on Windows) print in the
+     * console's ANSI code page regardless of {@code PYTHONUTF8}/{@code PYTHONIOENCODING},
+     * mangling non-ASCII titles in the {@code --print after_move:filepath} output.
      */
     public static List<String> download(YtDlpSettings settings, String videoId) {
         List<String> command = new ArrayList<>();
         command.add(settings.path());
+        command.add("--encoding");
+        command.add("utf-8");
         command.add("-f");
         command.add("bestaudio");
         command.add("--no-playlist");

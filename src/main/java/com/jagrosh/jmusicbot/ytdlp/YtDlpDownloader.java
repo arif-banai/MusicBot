@@ -16,6 +16,7 @@
 package com.jagrosh.jmusicbot.ytdlp;
 
 import java.io.IOException;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -281,17 +282,69 @@ public final class YtDlpDownloader {
         }
 
         Optional<Path> printed = YtDlpCommand.parsePrintedPath(result.stdout());
-        if (printed.isEmpty()) {
-            throw new YtDlpException("yt-dlp finished but its output path was missing");
+        Path file = printed.filter(Files::isRegularFile).orElse(null);
+        if (file == null) {
+            // Some yt-dlp builds (e.g. winget/PyInstaller on Windows) mangle non-ASCII
+            // characters in the --print output despite --encoding utf-8, so the printed
+            // path may not refer to the file that was actually written. Fall back to
+            // scanning the library folder for the one file yt-dlp's own naming scheme
+            // would have produced for this video.
+            file = findByIdSuffix(job.videoId).orElse(null);
         }
-        Path file = printed.get();
-        if (!Files.isRegularFile(file)) {
-            throw new YtDlpException("yt-dlp finished but its output path was missing: " + file);
+        if (file == null) {
+            if (printed.isEmpty()) {
+                throw new YtDlpException("yt-dlp finished but its output path was missing");
+            }
+            throw new YtDlpException("yt-dlp finished but its output path was missing: " + printed.get());
         }
 
         LibraryEntry entry = library.record(job.videoId, file, job.info);
         LOGGER.info("Downloaded {} to {} ({} bytes)", job.videoId, entry.file(), sizeOf(entry.file()));
         return entry;
+    }
+
+    /**
+     * Scans the library folder (non-recursive) for a regular file whose name matches
+     * {@code [videoId].<ext>} per {@link YtDlpLibrary#videoIdFromFileName}, ignoring
+     * yt-dlp's own in-progress temp names ({@code .part}, {@code .ytdl}, {@code .temp},
+     * and {@code .part-Frag*} fragment files). Returns the match only if there is
+     * exactly one; zero or several is treated as no usable fallback, same as today.
+     */
+    private Optional<Path> findByIdSuffix(String videoId) {
+        Path folder = settings.libraryFolder();
+        if (!Files.isDirectory(folder)) {
+            return Optional.empty();
+        }
+
+        Path match = null;
+        int matches = 0;
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(folder)) {
+            for (Path path : stream) {
+                if (!Files.isRegularFile(path)) {
+                    continue;
+                }
+                String fileName = path.getFileName().toString();
+                if (isTempFileName(fileName)) {
+                    continue;
+                }
+                Optional<String> id = YtDlpLibrary.videoIdFromFileName(fileName);
+                if (id.isPresent() && id.get().equals(videoId)) {
+                    match = path;
+                    matches++;
+                }
+            }
+        } catch (IOException ex) {
+            // Treat a scan failure as no usable fallback; the caller's existing
+            // "output path was missing" message still fires.
+            return Optional.empty();
+        }
+        return matches == 1 ? Optional.of(match) : Optional.empty();
+    }
+
+    /** True for yt-dlp's own in-progress temp names: {@code .part}, {@code .ytdl}, {@code .temp}, or a {@code .part-Frag*} fragment. */
+    private static boolean isTempFileName(String fileName) {
+        return fileName.endsWith(".part") || fileName.endsWith(".ytdl") || fileName.endsWith(".temp")
+                || fileName.contains(".part-Frag");
     }
 
     private static long sizeOf(Path file) {

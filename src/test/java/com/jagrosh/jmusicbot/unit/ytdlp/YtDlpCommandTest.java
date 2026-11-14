@@ -42,10 +42,20 @@ class YtDlpCommandTest {
 
         List<String> command = YtDlpCommand.download(settings, "abc");
 
-        assertEquals(List.of("yt-dlp", "-f", "bestaudio", "--no-playlist", "--no-progress", "--no-warnings",
-                "-o", Path.of("/lib").resolve("%(title)s [%(id)s].%(ext)s").toString(),
+        assertEquals(List.of("yt-dlp", "--encoding", "utf-8", "-f", "bestaudio", "--no-playlist", "--no-progress",
+                "--no-warnings", "-o", Path.of("/lib").resolve("%(title)s [%(id)s].%(ext)s").toString(),
                 "--print", "after_move:filepath",
                 "https://www.youtube.com/watch?v=abc"), command);
+    }
+
+    @Test
+    @DisplayName("download() forces UTF-8 output encoding right after the executable path")
+    void download_forcesUtf8Encoding() {
+        YtDlpSettings settings = settings(Path.of("/lib"), List.of());
+
+        List<String> command = YtDlpCommand.download(settings, "abc");
+
+        assertEquals(List.of("--encoding", "utf-8"), command.subList(1, 3));
     }
 
     @Test

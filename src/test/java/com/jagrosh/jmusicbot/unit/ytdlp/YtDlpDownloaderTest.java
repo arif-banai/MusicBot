@@ -245,6 +245,73 @@ class YtDlpDownloaderTest {
     }
 
     @Test
+    @DisplayName("a mangled printed path falls back to the lone [id] file in the library folder")
+    void mangledPrintedPath_fallsBackToIdFile() throws Exception {
+        String videoId = "vid00000001";
+        Path realFile = Files.writeString(libraryFolder.resolve("X Æ [" + videoId + "].webm"), "audio");
+        String mangledPrinted = libraryFolder.resolve("X �DIDIAS [" + videoId + "].webm").toString();
+        runner.script(videoId, new ProcessResult(0, mangledPrinted + "\n", "", false));
+        CompletableFuture<LibraryEntry> future = downloader.request(videoId, info(videoId), 1L, false);
+        downloader.start();
+
+        LibraryEntry entry = future.get(WAIT_SECONDS, TimeUnit.SECONDS);
+
+        assertEquals(realFile.toAbsolutePath().normalize(), entry.file());
+    }
+
+    @Test
+    @DisplayName("a mangled printed path with no matching [id] file in the library still fails")
+    void noMatchingFile_stillFails() throws Exception {
+        String videoId = "vid00000001";
+        Files.writeString(libraryFolder.resolve("Other [vid00000002].webm"), "audio");
+        String mangledPrinted = libraryFolder.resolve("X � [" + videoId + "].webm").toString();
+        runner.script(videoId, new ProcessResult(0, mangledPrinted + "\n", "", false));
+        CompletableFuture<LibraryEntry> future = downloader.request(videoId, info(videoId), 1L, false);
+        downloader.start();
+
+        ExecutionException ex = assertThrows(ExecutionException.class,
+                () -> future.get(WAIT_SECONDS, TimeUnit.SECONDS));
+
+        YtDlpException cause = assertInstanceOf(YtDlpException.class, ex.getCause());
+        assertTrue(cause.getMessage().contains("output path"), cause.getMessage());
+    }
+
+    @Test
+    @DisplayName("a .part sibling of the [id] file is ignored by the fallback scan")
+    void partFile_ignored() throws Exception {
+        String videoId = "vid00000001";
+        Files.writeString(libraryFolder.resolve("X [" + videoId + "].part"), "partial");
+        String mangledPrinted = libraryFolder.resolve("X � [" + videoId + "].webm").toString();
+        runner.script(videoId, new ProcessResult(0, mangledPrinted + "\n", "", false));
+        CompletableFuture<LibraryEntry> future = downloader.request(videoId, info(videoId), 1L, false);
+        downloader.start();
+
+        ExecutionException ex = assertThrows(ExecutionException.class,
+                () -> future.get(WAIT_SECONDS, TimeUnit.SECONDS));
+
+        YtDlpException cause = assertInstanceOf(YtDlpException.class, ex.getCause());
+        assertTrue(cause.getMessage().contains("output path"), cause.getMessage());
+    }
+
+    @Test
+    @DisplayName("several matching [id] files in the library still fails")
+    void multipleMatches_stillFails() throws Exception {
+        String videoId = "vid00000001";
+        Files.writeString(libraryFolder.resolve("X [" + videoId + "].webm"), "audio");
+        Files.writeString(libraryFolder.resolve("X [" + videoId + "].m4a"), "audio");
+        String mangledPrinted = libraryFolder.resolve("X � [" + videoId + "].webm").toString();
+        runner.script(videoId, new ProcessResult(0, mangledPrinted + "\n", "", false));
+        CompletableFuture<LibraryEntry> future = downloader.request(videoId, info(videoId), 1L, false);
+        downloader.start();
+
+        ExecutionException ex = assertThrows(ExecutionException.class,
+                () -> future.get(WAIT_SECONDS, TimeUnit.SECONDS));
+
+        YtDlpException cause = assertInstanceOf(YtDlpException.class, ex.getCause());
+        assertTrue(cause.getMessage().contains("output path"), cause.getMessage());
+    }
+
+    @Test
     @DisplayName("the worker survives a job whose runner throws, and paces after it")
     void runnerThrows_workerContinues() throws Exception {
         runner.throwFor("bad", new IOException("boom"));
