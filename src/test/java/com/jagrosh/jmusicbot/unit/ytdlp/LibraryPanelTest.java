@@ -39,11 +39,15 @@ import com.sedmelluq.discord.lavaplayer.track.AudioTrackInfo;
 import net.dv8tion.jda.api.components.actionrow.ActionRow;
 import net.dv8tion.jda.api.components.buttons.Button;
 import net.dv8tion.jda.api.components.selections.StringSelectMenu;
+import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.entities.MessageEmbed;
 import net.dv8tion.jda.api.events.interaction.ModalInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.component.StringSelectInteractionEvent;
+import net.dv8tion.jda.api.interactions.InteractionHook;
 import net.dv8tion.jda.api.interactions.modals.ModalMapping;
+import net.dv8tion.jda.api.requests.restaction.WebhookMessageCreateAction;
+import net.dv8tion.jda.api.requests.restaction.WebhookMessageEditAction;
 import net.dv8tion.jda.api.requests.restaction.interactions.MessageEditCallbackAction;
 import net.dv8tion.jda.api.requests.restaction.interactions.ReplyCallbackAction;
 import org.junit.jupiter.api.BeforeEach;
@@ -153,10 +157,21 @@ class LibraryPanelTest {
         doReturn(componentId).when(event).getComponentId();
         doReturn(values).when(event).getValues();
         doReturn(mock(ReplyCallbackAction.class, RETURNS_SELF)).when(event).reply(anyString());
-        MessageEditCallbackAction editAction = mock(MessageEditCallbackAction.class, RETURNS_SELF);
-        doReturn(editAction).when(event).editMessageEmbeds(any(MessageEmbed[].class));
-        doReturn(editAction).when(event).editMessageEmbeds(anyCollection());
+        doReturn(mock(MessageEditCallbackAction.class, RETURNS_SELF)).when(event).deferEdit();
+        doReturn(mockHook()).when(event).getHook();
         return event;
+    }
+
+    /** A hook whose edits and follow-ups can be verified (each returns a self-returning action). */
+    @SuppressWarnings("unchecked")
+    private static InteractionHook mockHook() {
+        InteractionHook hook = mock(InteractionHook.class);
+        WebhookMessageEditAction<Message> edit = mock(WebhookMessageEditAction.class, RETURNS_SELF);
+        doReturn(edit).when(hook).editOriginalEmbeds(any(MessageEmbed[].class));
+        doReturn(edit).when(hook).editOriginalEmbeds(anyCollection());
+        doReturn(edit).when(hook).editOriginal(anyString());
+        doReturn(mock(WebhookMessageCreateAction.class, RETURNS_SELF)).when(hook).sendMessage(anyString());
+        return hook;
     }
 
     private ModalInteractionEvent mockModalEvent(long ownerUserId, String query) {
@@ -170,9 +185,8 @@ class LibraryPanelTest {
         doReturn(query).when(mapping).getAsString();
         doReturn(List.of(mapping)).when(event).getValues();
         doReturn(mock(ReplyCallbackAction.class, RETURNS_SELF)).when(event).reply(anyString());
-        MessageEditCallbackAction editAction = mock(MessageEditCallbackAction.class, RETURNS_SELF);
-        doReturn(editAction).when(event).editMessageEmbeds(any(MessageEmbed[].class));
-        doReturn(editAction).when(event).editMessageEmbeds(anyCollection());
+        doReturn(mock(MessageEditCallbackAction.class, RETURNS_SELF)).when(event).deferEdit();
+        doReturn(mockHook()).when(event).getHook();
         return event;
     }
 
@@ -304,6 +318,177 @@ class LibraryPanelTest {
                 .reply(argThat((String s) -> s.contains("This panel has expired; run /library panel again.")));
     }
 
+    @Test
+    @DisplayName("a token minted for another user's panel counts as expired")
+    void onButtonInteraction_otherUsersToken_givesExpiredMessage() throws IOException {
+        record("othertok01", "Other Token");
+        long presser = fixture.getUser().getIdLong();
+        String othersToken = tokens.create(presser + 1, "other", 1, List.of("othertok01"));
+        fixture.withButtonId(ComponentIdParsers.libComponentId("play", presser, othersToken, 0));
+        InteractionAckTracker acks = InteractionAckTracker.attach(fixture.getButtonInteractionEvent(), fixture.getReplyAction());
+
+        runWithDj(fixture.getButtonInteractionEvent(), true);
+
+        assertEquals(List.of("reply"), acks.acks());
+        verify(fixture.getButtonInteractionEvent())
+                .reply(argThat((String s) -> s.contains("This panel has expired; run /library panel again.")));
+    }
+
+    // ---- Play/Queue feedback ----
+
+    @Test
+    @DisplayName("Queue's \"Added ...\" outcome (reported via editMessage) reaches the DJ as an ephemeral follow-up")
+    void libraryReplyAdapter_editMessageAfterDefer_isEphemeralFollowup() {
+        InteractionAckTracker acks = InteractionAckTracker.attach(fixture.getButtonInteractionEvent(), fixture.getReplyAction());
+        fixture.getButtonInteractionEvent().deferEdit().queue(); // the listener defers before playing
+        var output = com.jagrosh.jmusicbot.listener.interaction.OutputAdapters.forLibraryReply(fixture.getButtonInteractionEvent());
+
+        output.editMessage("Added **Song** to the queue at position 2");
+        output.editMessage("No results found", message -> { });
+
+        verify(acks.hook()).sendMessage("Added **Song** to the queue at position 2");
+        verify(acks.hook()).sendMessage("No results found");
+        verify(acks.followup(), org.mockito.Mockito.times(2)).setEphemeral(true);
+        assertEquals(List.of("deferEdit"), acks.acks());
+    }
+
+    // ---- Info view and embed limits ----
+
+    private LibraryEntry entryWith(String title, String author, @org.jetbrains.annotations.Nullable String artist,
+                                   String uri) throws IOException {
+        Path file = Files.createFile(tempDir.resolve("lib").resolve("Entry " + Math.abs(title.hashCode()) + ".webm"));
+        return new LibraryEntry("abcdefghijk", file, title, author, 120_000L, null, uri, null, List.of(), false,
+                artist, null, null, null, null);
+    }
+
+    private static String fieldValue(MessageEmbed embed, String name) {
+        return embed.getFields().stream().filter(f -> name.equals(f.getName())).findFirst()
+                .map(MessageEmbed.Field::getValue).orElse(null);
+    }
+
+    @Test
+    @DisplayName("Info shows the sidecar artist, the uploader beside it when different, and the alias keys")
+    void infoEmbed_showsArtistUploaderAndAliasKeys() throws IOException {
+        LibraryEntry entry = entryWith("Song", "Lyrics Channel", "Real Artist", "https://example.com/s");
+
+        MessageEmbed embed = LibraryPanelSlashCmd.buildInfoEmbed(entry, List.of("req00000001", "soundcloud:abc"), null);
+
+        assertEquals("Real Artist", fieldValue(embed, "Artist"));
+        assertEquals("Lyrics Channel", fieldValue(embed, "Uploader"));
+        assertEquals("`req00000001`, `soundcloud:abc`", fieldValue(embed, "Aliases"));
+
+        MessageEmbed noArtist = LibraryPanelSlashCmd.buildInfoEmbed(
+                entryWith("Other", "Uploader Only", null, "https://example.com/o"), List.of(), null);
+        assertEquals("Uploader Only", fieldValue(noArtist, "Artist"));
+        assertEquals(null, fieldValue(noArtist, "Uploader"));
+        assertEquals("none", fieldValue(noArtist, "Aliases"));
+    }
+
+    @Test
+    @DisplayName("many aliases are cut to fit the 1024-character field, saying how many more there are")
+    void infoEmbed_manyAliases_fitInOneField() throws IOException {
+        List<String> aliases = new java.util.ArrayList<>();
+        for (int i = 0; i < 200; i++) {
+            aliases.add("soundcloud:artist-" + i + "/a-fairly-long-track-name");
+        }
+        LibraryEntry entry = entryWith("Song", "Author", null, "https://example.com/s");
+
+        MessageEmbed embed = assertDoesNotThrow(() -> LibraryPanelSlashCmd.buildInfoEmbed(entry, aliases, null));
+
+        String value = fieldValue(embed, "Aliases");
+        assertTrue(value.length() <= MessageEmbed.VALUE_MAX_LENGTH, String.valueOf(value.length()));
+        assertTrue(value.matches("(?s).*\\(\\+\\d+ more\\)$"), value);
+    }
+
+    @Test
+    @DisplayName("a 300-character title and a 2000-character link fit Discord's embed limits")
+    void detailEmbed_longTitleAndLink_fitLimits() throws IOException {
+        LibraryEntry entry = entryWith("t".repeat(300), "Author", null, "https://example.com/" + "u".repeat(2000));
+
+        MessageEmbed detail = assertDoesNotThrow(() -> LibraryPanelSlashCmd.buildDetailEmbed(entry, null));
+        MessageEmbed info = assertDoesNotThrow(() -> LibraryPanelSlashCmd.buildInfoEmbed(entry, List.of(), null));
+
+        assertTrue(detail.getTitle().length() <= MessageEmbed.TITLE_MAX_LENGTH);
+        assertTrue(fieldValue(detail, "Link").length() <= MessageEmbed.VALUE_MAX_LENGTH);
+        assertTrue(fieldValue(info, "Link").length() <= MessageEmbed.VALUE_MAX_LENGTH);
+    }
+
+    @Test
+    @DisplayName("a search result with no author has no select-option description (null, not \"\")")
+    void searchList_noAuthor_optionHasNoDescription() throws IOException {
+        LibraryEntry entry = entryWith("No Author", "", null, "https://example.com/n");
+
+        List<ActionRow> rows = LibraryPanelSlashCmd.buildSearchListComponents(1L, "tok", List.of(entry), 1, 1);
+
+        StringSelectMenu menu = (StringSelectMenu) rows.get(0).getComponents().get(0);
+        assertEquals(null, menu.getOptions().get(0).getDescription());
+    }
+
+    // ---- off the event thread ----
+
+    /** Points the bot at a service whose library work is only queued, so a test can see what ran before it. */
+    private List<Runnable> queueLibraryWork() {
+        List<Runnable> queued = new java.util.ArrayList<>();
+        YtDlpService queuing = new YtDlpService(new YtDlpSettings("yt-dlp", Mode.PROMPT, tempDir.resolve("lib"),
+                "ytdlp-library", 0, 300, List.of(), 120), library, mock(YtDlpDownloader.class),
+                mock(ProcessRunner.class), Runnable::run, queued::add);
+        when(fixture.getBot().getYtDlp()).thenReturn(queuing);
+        return queued;
+    }
+
+    @Test
+    @DisplayName("Info defers first; the library is read later, off the event thread, and the view goes through the hook")
+    void onButtonInteraction_info_defersBeforeLibraryWork() {
+        List<Runnable> queued = queueLibraryWork();
+        fixture.withButtonId(ComponentIdParsers.libComponentId("info", fixture.getUser().getIdLong()));
+        InteractionAckTracker acks = InteractionAckTracker.attach(fixture.getButtonInteractionEvent(), fixture.getReplyAction());
+
+        runWithDj(fixture.getButtonInteractionEvent(), true);
+
+        assertEquals(List.of("deferEdit"), acks.acks());
+        assertEquals(1, queued.size(), "the library work was handed off, not run on the event thread");
+        verify(acks.hook(), never()).editOriginalEmbeds(any(MessageEmbed[].class));
+        queued.forEach(Runnable::run);
+        verify(acks.hook()).editOriginalEmbeds(any(MessageEmbed[].class));
+        assertEquals(List.of("deferEdit"), acks.acks(), "still exactly one acknowledgement");
+    }
+
+    @Test
+    @DisplayName("picking a result defers first and looks the song up off the event thread")
+    void onStringSelectInteraction_pick_defersBeforeLibraryWork() throws IOException {
+        record("pickdefer1", "Pick Defer");
+        List<Runnable> queued = queueLibraryWork();
+        long ownerUserId = fixture.getUser().getIdLong();
+        String token = tokens.create(ownerUserId, "pick", 1, List.of("pickdefer1"));
+        StringSelectInteractionEvent event = mockSelectEvent(ComponentIdParsers.libComponentId("pick", ownerUserId, token),
+                List.of("0"));
+
+        runWithDj(event, true);
+
+        verify(event).deferEdit();
+        verify(event, never()).reply(anyString());
+        verify(event.getHook(), never()).editOriginalEmbeds(any(MessageEmbed[].class));
+        queued.forEach(Runnable::run);
+        verify(event.getHook()).editOriginalEmbeds(any(MessageEmbed[].class));
+    }
+
+    @Test
+    @DisplayName("a song removed after the panel rendered: the deferred lookup says so through the hook")
+    void onButtonInteraction_queue_songGone_saysSoThroughHook() throws IOException {
+        record("gonesong01", "Gone Song");
+        library.remove("gonesong01", false);
+        long ownerUserId = fixture.getUser().getIdLong();
+        String token = tokens.create(ownerUserId, "gone", 1, List.of("gonesong01"));
+        fixture.withButtonId(ComponentIdParsers.libComponentId("remove", ownerUserId, token, 0));
+        InteractionAckTracker acks = InteractionAckTracker.attach(fixture.getButtonInteractionEvent(), fixture.getReplyAction());
+
+        runWithDj(fixture.getButtonInteractionEvent(), true);
+
+        assertEquals(List.of("deferEdit"), acks.acks());
+        verify(acks.hook()).sendMessage("That song is no longer in the library.");
+        verify(acks.followup()).setEphemeral(true);
+    }
+
     // ---- remove confirm flow ----
 
     @Test
@@ -398,7 +583,8 @@ class LibraryPanelTest {
 
         runWithDj(fixture.getButtonInteractionEvent(), true);
 
-        assertEquals(List.of("editMessageEmbeds"), acks.acks());
+        assertEquals(List.of("deferEdit"), acks.acks());
+        verify(acks.hook()).editOriginalEmbeds(any(MessageEmbed[].class));
     }
 
     @Test
@@ -413,9 +599,9 @@ class LibraryPanelTest {
 
         runWithDj(fixture.getButtonInteractionEvent(), true);
 
-        assertEquals(List.of("editMessageEmbeds"), acks.acks());
+        assertEquals(List.of("deferEdit"), acks.acks());
         ArgumentCaptor<MessageEmbed> embedCaptor = ArgumentCaptor.forClass(MessageEmbed.class);
-        verify(fixture.getButtonInteractionEvent()).editMessageEmbeds(embedCaptor.capture());
+        verify(acks.hook()).editOriginalEmbeds(embedCaptor.capture());
         assertTrue(embedCaptor.getValue().getDescription().contains("back test"),
                 embedCaptor.getValue().getDescription());
     }
@@ -434,7 +620,8 @@ class LibraryPanelTest {
         runWithDj(event, true);
 
         ArgumentCaptor<MessageEmbed> embedCaptor = ArgumentCaptor.forClass(MessageEmbed.class);
-        verify(event).editMessageEmbeds(embedCaptor.capture());
+        verify(event).deferEdit();
+        verify(event.getHook()).editOriginalEmbeds(embedCaptor.capture());
         assertEquals("Pick One", embedCaptor.getValue().getTitle());
     }
 
@@ -488,7 +675,8 @@ class LibraryPanelTest {
         runWithDj(event, true);
 
         ArgumentCaptor<MessageEmbed> embedCaptor = ArgumentCaptor.forClass(MessageEmbed.class);
-        verify(event).editMessageEmbeds(embedCaptor.capture());
+        verify(event).deferEdit();
+        verify(event.getHook()).editOriginalEmbeds(embedCaptor.capture());
         assertEquals("Long Key Song", embedCaptor.getValue().getTitle());
     }
 
@@ -501,6 +689,7 @@ class LibraryPanelTest {
 
         assertDoesNotThrow(() -> runWithDj(event, true));
 
-        verify(event).editMessageEmbeds(any(MessageEmbed[].class));
+        verify(event).deferEdit();
+        verify(event.getHook()).editOriginalEmbeds(any(MessageEmbed[].class));
     }
 }

@@ -125,14 +125,21 @@ public class LibraryPanelSlashCmd extends DJSlashCommand
         }
         else
         {
-            embed.setDescription("**" + FormatUtil.filter(entry.title()) + "**")
-                    .addField("Artist", entry.author().isEmpty() ? "*unknown*" : FormatUtil.filter(entry.author()), true)
-                    .addField("Source", entry.source() == null ? "file" : entry.source(), true)
-                    .addField("Key", "`" + entry.key() + "`", true)
-                    .addField("File", "`" + fileName(entry) + "`", true)
+            // The sidecar's artist when known; the uploader (often a label or lyrics channel) only besides it.
+            boolean hasArtist = entry.artist() != null && !entry.artist().isBlank();
+            String artist = hasArtist ? entry.artist() : entry.author();
+            embed.setDescription(truncate("**" + FormatUtil.filter(entry.title()) + "**", MessageEmbed.DESCRIPTION_MAX_LENGTH))
+                    .addField("Artist", artist.isEmpty() ? "*unknown*" : field(FormatUtil.filter(artist)), true);
+            if (hasArtist && !entry.author().isEmpty() && !entry.author().equalsIgnoreCase(entry.artist()))
+            {
+                embed.addField("Uploader", field(FormatUtil.filter(entry.author())), true);
+            }
+            embed.addField("Source", entry.source() == null ? "file" : field(entry.source()), true)
+                    .addField("Key", field("`" + entry.key() + "`"), true)
+                    .addField("File", field("`" + fileName(entry) + "`"), true)
                     .addField("Size", formatBytes(fileSize(entry.file())), true)
-                    .addField("Aliases", aliases.isEmpty() ? "none" : String.valueOf(aliases.size()), true)
-                    .addField("Link", entry.uri(), false);
+                    .addField("Aliases", aliasList(aliases), false)
+                    .addField("Link", field(entry.uri()), false);
         }
         PaginatedListEmbedUtil.applyStandardEmbedOptions(embed, null, color);
         return embed.build();
@@ -187,10 +194,16 @@ public class LibraryPanelSlashCmd extends DJSlashCommand
             {
                 LibraryEntry entry = pageEntries.get(i);
                 String label = truncate(entry.title(), 100);
-                String description = entry.author().isEmpty() ? "" : truncate(entry.author(), 100);
                 // The option's value is the index into pageEntries/token's keys, never the key
                 // itself: a file: or soundcloud: key can exceed Discord's own 100-char value limit.
-                menu.addOption(label, String.valueOf(i), description);
+                if (entry.author().isEmpty())
+                {
+                    menu.addOption(label, String.valueOf(i)); // no description at all, rather than ""
+                }
+                else
+                {
+                    menu.addOption(label, String.valueOf(i), truncate(entry.author(), 100));
+                }
             }
             rows.add(ActionRow.of(menu.build()));
         }
@@ -241,13 +254,13 @@ public class LibraryPanelSlashCmd extends DJSlashCommand
 
     public static MessageEmbed buildDetailEmbed(LibraryEntry entry, Color color)
     {
-        EmbedBuilder embed = new EmbedBuilder().setTitle(FormatUtil.filter(entry.title()))
-                .addField("Author", entry.author().isEmpty() ? "*unknown*" : FormatUtil.filter(entry.author()), true)
-                .addField("Source", entry.source() == null ? "file" : entry.source(), true)
-                .addField("Key", "`" + entry.key() + "`", true)
-                .addField("File", "`" + fileName(entry) + "`", true)
+        EmbedBuilder embed = new EmbedBuilder().setTitle(truncate(FormatUtil.filter(entry.title()), MessageEmbed.TITLE_MAX_LENGTH))
+                .addField("Author", entry.author().isEmpty() ? "*unknown*" : field(FormatUtil.filter(entry.author())), true)
+                .addField("Source", entry.source() == null ? "file" : field(entry.source()), true)
+                .addField("Key", field("`" + entry.key() + "`"), true)
+                .addField("File", field("`" + fileName(entry) + "`"), true)
                 .addField("Size", formatBytes(fileSize(entry.file())), true)
-                .addField("Link", entry.uri(), false);
+                .addField("Link", field(entry.uri()), false);
         PaginatedListEmbedUtil.applyStandardEmbedOptions(embed, null, color);
         return embed.build();
     }
@@ -271,7 +284,8 @@ public class LibraryPanelSlashCmd extends DJSlashCommand
     public static MessageEmbed buildConfirmEmbed(LibraryEntry entry, Color color)
     {
         EmbedBuilder embed = new EmbedBuilder().setTitle("Remove from library?")
-                .setDescription("Remove **" + FormatUtil.filter(entry.title()) + "** from the library?");
+                .setDescription(truncate("Remove **" + FormatUtil.filter(entry.title()) + "** from the library?",
+                        MessageEmbed.DESCRIPTION_MAX_LENGTH));
         PaginatedListEmbedUtil.applyStandardEmbedOptions(embed, null, color);
         return embed.build();
     }
@@ -324,6 +338,43 @@ public class LibraryPanelSlashCmd extends DJSlashCommand
         }
         while (value >= 1024.0 && unit < units.length - 1);
         return String.format("%.1f %s", value, units[unit]);
+    }
+
+    /** {@code text} cut to fit an embed field's value (1024 characters). */
+    static String field(String text)
+    {
+        return truncate(text, MessageEmbed.VALUE_MAX_LENGTH);
+    }
+
+    /**
+     * The aliases as a list of keys, as many as fit in one embed field, then how many more there
+     * are; "none" for none.
+     */
+    static String aliasList(List<String> aliases)
+    {
+        if (aliases.isEmpty())
+        {
+            return "none";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < aliases.size(); i++)
+        {
+            String item = (i == 0 ? "" : ", ") + "`" + aliases.get(i) + "`";
+            int remaining = aliases.size() - i;
+            String more = " (+" + remaining + " more)";
+            if (sb.length() + item.length() + (remaining > 1 ? more.length() : 0) > MessageEmbed.VALUE_MAX_LENGTH)
+            {
+                if (sb.length() == 0)
+                {
+                    // Even the first key alone is too long: cut it, and count only the others.
+                    String others = aliases.size() > 1 ? " (+" + (aliases.size() - 1) + " more)" : "";
+                    return truncate("`" + aliases.get(0) + "`", MessageEmbed.VALUE_MAX_LENGTH - others.length()) + others;
+                }
+                return sb.append(more).toString();
+            }
+            sb.append(item);
+        }
+        return sb.toString();
     }
 
     static String truncate(String text, int max)

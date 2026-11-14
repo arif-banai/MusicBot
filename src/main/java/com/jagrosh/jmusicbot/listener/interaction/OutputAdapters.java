@@ -274,7 +274,9 @@ public final class OutputAdapters {
     /**
      * Adapter for the library panel's Play/Queue buttons: all feedback is ephemeral. It is a
      * reply while the interaction is unacknowledged, otherwise a follow-up through the
-     * interaction hook (the listener defers the button before running the action).
+     * interaction hook (the listener defers the button before running the action). The load
+     * handlers report through {@code editMessage} ("Added ... to the queue", "No results"), so
+     * those become ephemeral follow-ups too, leaving the panel message itself alone.
      */
     public static MusicService.OutputAdapter forLibraryReply(net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent event) {
         return new MusicService.OutputAdapter() {
@@ -295,10 +297,16 @@ public final class OutputAdapters {
 
             @Override
             public void editMessage(String content) {
+                sendEphemeral(event, content);
             }
 
             @Override
             public void editMessage(String content, Consumer<net.dv8tion.jda.api.entities.Message> onSuccess) {
+                if (event.isAcknowledged()) {
+                    event.getHook().sendMessage(content).setEphemeral(true).queue(onSuccess);
+                    return;
+                }
+                event.reply(content).setEphemeral(true).queue(hook -> hook.retrieveOriginal().queue(onSuccess));
             }
 
             @Override
