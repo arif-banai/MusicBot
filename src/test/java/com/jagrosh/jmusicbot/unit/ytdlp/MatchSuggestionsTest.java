@@ -59,6 +59,7 @@ import net.dv8tion.jda.api.managers.AudioManager;
 import net.dv8tion.jda.api.requests.restaction.MessageCreateAction;
 import net.dv8tion.jda.api.requests.restaction.MessageEditAction;
 import net.dv8tion.jda.api.requests.restaction.WebhookMessageCreateAction;
+import net.dv8tion.jda.api.requests.restaction.WebhookMessageEditAction;
 import net.dv8tion.jda.api.requests.restaction.interactions.MessageEditCallbackAction;
 import net.dv8tion.jda.api.requests.restaction.interactions.ReplyCallbackAction;
 import org.junit.jupiter.api.BeforeEach;
@@ -66,6 +67,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.MockedStatic;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -77,6 +79,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.RETURNS_SELF;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
@@ -229,10 +232,12 @@ class MatchSuggestionsTest {
         MessageEditCallbackAction edit = mock(MessageEditCallbackAction.class, RETURNS_SELF);
         when(event.editMessage(anyString())).thenReturn(edit);
         when(event.editComponents()).thenReturn(edit);
+        when(event.deferEdit()).thenReturn(mock(MessageEditCallbackAction.class, RETURNS_SELF));
         when(event.reply(anyString())).thenReturn(mock(ReplyCallbackAction.class, RETURNS_SELF));
         InteractionHook hook = mock(InteractionHook.class);
         when(event.getHook()).thenReturn(hook);
         when(hook.sendMessage(anyString())).thenReturn(mock(WebhookMessageCreateAction.class, RETURNS_SELF));
+        when(hook.editOriginal(anyString())).thenReturn(mock(WebhookMessageEditAction.class, RETURNS_SELF));
         return event;
     }
 
@@ -379,10 +384,44 @@ class MatchSuggestionsTest {
         assertEquals(REQ_ID, copy.getLinkedFrom());
         assertEquals(42_000L, copy.getPosition());
         assertEquals(requestMetadata().getOwner(), copy.getUserData(RequestMetadata.class).getOwner());
-        verify(event, times(1)).editMessage(argThat((String s) -> s.contains("Switched to the library copy")));
+        verify(event, times(1)).deferEdit();
+        verify(event.getHook()).editOriginal(argThat((String s) -> s.contains("Switched to the library copy")));
+        verify(event, never()).editMessage(anyString());
         verify(event, never()).reply(anyString());
         verify(event, never()).editComponents();
         verify(expiryFuture).cancel(false);
+    }
+
+    @Test
+    @DisplayName("Switch acknowledges the press before it touches the player")
+    void switch_acknowledgesBeforeReplacing() {
+        MatchSuggestions suggestions = suggestions();
+        AudioTrack request = playingRequest();
+        suggest(suggestions, request);
+        ButtonInteractionEvent event = pressEvent(REQUESTER, MESSAGE);
+        MessageEditCallbackAction ack = event.deferEdit();
+
+        suggestions.handlePress(event, switchId());
+
+        InOrder order = inOrder(ack, handler, event.getHook());
+        order.verify(ack).queue(any(), any());
+        order.verify(handler).replaceWithLibraryCopy(eq(request), any());
+        order.verify(event.getHook()).editOriginal(anyString());
+    }
+
+    @Test
+    @DisplayName("a suggestion whose track ended during the scan is dropped, so no live buttons linger")
+    void endedDuringScan_notPosted() {
+        MatchSuggestions suggestions = suggestions();
+        AudioTrack request = playingRequest();
+        AudioTrack next = mock(AudioTrack.class);
+        // Playing when the scan starts, gone by the time the suggestion is registered.
+        when(player.getPlayingTrack()).thenReturn(request, next);
+
+        suggestions.consider(GUILD, request);
+        runTasks();
+
+        verify(channel, never()).sendMessage(any(CharSequence.class));
     }
 
     @Test
@@ -452,7 +491,8 @@ class MatchSuggestionsTest {
 
         assertTrue(library.aliasTarget(REQ_ID).isEmpty());
         verify(handler, never()).replaceWithLibraryCopy(any(), any());
-        verify(event, times(1)).editMessage(argThat((String s) -> s.contains("expired")));
+        verify(event, times(1)).deferEdit();
+        verify(event.getHook()).editOriginal(argThat((String s) -> s.contains("expired")));
     }
 
     // ---- Not the same ----

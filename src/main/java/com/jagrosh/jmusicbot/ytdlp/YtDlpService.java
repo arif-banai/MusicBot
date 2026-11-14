@@ -328,11 +328,14 @@ public final class YtDlpService {
      * Wraps a local track whose file is already in the library index, so the queue, history
      * and saved playlists show the library's title, author, length and URL as soon as the
      * track is queued, instead of waiting for {@link #prepareForPlayback} at play time.
+     * With yt-dlp enabled, a track from a supported source whose key a person linked to a
+     * library song is wrapped too (see {@link #linkedCopy(AudioTrack, String, LibraryEntry)}).
      * Returns the same instance for a {@code null} track, a track that's already a
-     * {@link LibraryAudioTrack}, a non-local track (e.g. YouTube; those are decided only at
-     * play time), or a local file that isn't in the library index. For an adopted file (no
-     * YouTube metadata recorded yet) the local track's own length and author are kept. Does no
-     * I/O beyond the in-memory index lookup.
+     * {@link LibraryAudioTrack}, any other non-local track (e.g. a YouTube exact hit or miss;
+     * those are decided only at play time), or a local file that isn't in the library index.
+     * For an adopted file (no YouTube metadata recorded yet) the local track's own length and
+     * author are kept. Does no I/O on the calling thread beyond the index lookup; filling in a
+     * linked entry's missing details is handed to the background executor.
      */
     public AudioTrack wrapLibraryFile(AudioTrack track) {
         if (track == null || track instanceof LibraryAudioTrack) {
@@ -522,14 +525,18 @@ public final class YtDlpService {
 
     /**
      * Whether a track could be fetched by a download: a YouTube track that isn't already
-     * wrapped, isn't a stream, and isn't in the library yet.
+     * wrapped, isn't a stream, and isn't in the library yet, nor (with yt-dlp enabled) linked
+     * to a library song, which plays that copy instead.
      */
     public boolean isDownloadable(AudioTrack track) {
         if (track == null || track instanceof LibraryAudioTrack || !isYoutube(track)) {
             return false;
         }
         Optional<String> key = LibraryKeys.of(track);
-        return key.isPresent() && library.find(key.get()).isEmpty();
+        if (key.isEmpty()) {
+            return false;
+        }
+        return (enabled ? library.resolve(key.get()) : library.find(key.get())).isEmpty();
     }
 
     /**

@@ -175,6 +175,11 @@ public final class MatchSuggestions {
         if (previous != null) {
             close(previous);
         }
+        if (handler.getPlayer().getPlayingTrack() != track) {
+            // It ended during the scan, before its end could find this suggestion.
+            open.remove(guildId, suggestion);
+            return;
+        }
         LOGGER.info("Suggesting library song {} for {} in guild {}", entry.key(), key, guildId);
         List<ActionRow> rows = List.of(ActionRow.of(
                 Button.primary(ComponentIdParsers.ytDlpMatchButtonId("switch", requesterId), "Switch to library copy"),
@@ -290,8 +295,10 @@ public final class MatchSuggestions {
             service.rememberRejection(suggestion.requestedKey, suggestion.entry.key());
             return;
         }
+        // Acknowledge before touching the player; the outcome follows through the hook.
+        event.deferEdit().queue(null, error -> { });
         String reply = switchToLibraryCopy(guild, suggestion);
-        event.editMessage(reply).setComponents().queue(null, error -> { });
+        event.getHook().editOriginal(reply).setComponents().queue(null, error -> { });
     }
 
     /** Replaces the requested track with the library copy; returns the message to show. */

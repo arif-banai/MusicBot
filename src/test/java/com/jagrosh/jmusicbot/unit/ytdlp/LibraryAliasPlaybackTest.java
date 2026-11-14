@@ -206,6 +206,18 @@ class LibraryAliasPlaybackTest {
     }
 
     @Test
+    @DisplayName("a linked song isn't downloaded by \"download all\" or prefetch (it plays the library copy)")
+    void isDownloadable_linked_false() throws IOException {
+        assertTrue(enabled().isDownloadable(requested()));
+
+        library.alias(REQ_ID, LIB_ID);
+
+        org.junit.jupiter.api.Assertions.assertFalse(enabled().isDownloadable(requested()));
+        // Feature off: aliases are ignored, as everywhere else.
+        assertTrue(disabled().isDownloadable(requested()));
+    }
+
+    @Test
     @DisplayName("queue-time wrapping shows an aliased request with the library title")
     void wrapLibraryFile_aliased_wrapped() throws IOException {
         library.alias(REQ_ID, LIB_ID);
