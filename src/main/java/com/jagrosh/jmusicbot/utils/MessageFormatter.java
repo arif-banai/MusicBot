@@ -144,7 +144,7 @@ public class MessageFormatter {
     }
 
     private static final String YTDLP_WAITING_LINE = AudioHandler.PAUSE_EMOJI
-            + " Waiting: YouTube blocked this song. Choose in the yt-dlp prompt above.";
+            + " Waiting: YouTube blocked this song. Choose in the yt-dlp download prompt.";
 
     private static String buildPlaybackStatusLine(Bot bot, NowPlayingInfo info) {
         if (info.isAwaitingYtDlpGate) {

@@ -521,6 +521,39 @@ class YtDlpPromptTest {
     }
 
     @Test
+    void handlePress_refreshesNowPlayingOnlyAfterQueueingTheAcknowledgement() {
+        YtDlpPrompt prompt = prompt(Mode.PROMPT);
+        openPrompt(prompt);
+        when(downloader.request(eq(VIDEO_ID), any(), eq(GUILD), eq(true))).thenReturn(new CompletableFuture<>());
+        ButtonInteractionEvent event = pressEvent(REQUESTER);
+        MessageEditCallbackAction ack = event.editMessage("");
+
+        prompt.handlePress(event, new ComponentIdParsers.YtDlpButtonId("one", REQUESTER, VIDEO_ID));
+
+        InOrder order = inOrder(ack, nowPlayingHandler);
+        order.verify(ack).queue(any(), any());
+        order.verify(nowPlayingHandler).refreshNowPlaying(GUILD);
+    }
+
+    @Test
+    void handlePress_nowPlayingRefreshThrows_stillAcknowledgesAndReportsTheDownload() {
+        YtDlpPrompt prompt = prompt(Mode.PROMPT);
+        openPrompt(prompt);
+        CompletableFuture<LibraryEntry> download = new CompletableFuture<>();
+        when(downloader.request(eq(VIDEO_ID), any(), eq(GUILD), eq(true))).thenReturn(download);
+        ButtonInteractionEvent event = pressEvent(REQUESTER);
+        org.mockito.Mockito.doThrow(new IllegalStateException("reconcile failed"))
+                .when(nowPlayingHandler).refreshNowPlaying(GUILD);
+
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow(() ->
+                prompt.handlePress(event, new ComponentIdParsers.YtDlpButtonId("one", REQUESTER, VIDEO_ID)));
+
+        acknowledge(event); // fails if the acknowledging edit was never queued
+        download.complete(entry(VIDEO_ID));
+        verify(channel).editMessageById(eq(MESSAGE), argThat((CharSequence s) -> s.toString().contains("Playing")));
+    }
+
+    @Test
     void handlePress_downloadFails_reportsReason() {
         YtDlpPrompt prompt = prompt(Mode.PROMPT);
         openPrompt(prompt);

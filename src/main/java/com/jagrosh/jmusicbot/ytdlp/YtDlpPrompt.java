@@ -269,9 +269,6 @@ public final class YtDlpPrompt {
                 emoji(BotConfig::getLoading, "⏳") + " Downloading **" + title + "**…");
         CompletableFuture<LibraryEntry> download = service.requestDownload(hold, guildId, true);
         pending.gate().complete(null);
-        // The hold keeps playing the same track object, so no onTrackStart fires to refresh the
-        // now-playing message; without this it would keep showing the yt-dlp waiting line forever.
-        bot.getNowplayingHandler().refreshNowPlaying(guildId);
 
         if ("all".equals(id.action())) {
             downloadQueue(guild, guildId, message);
@@ -280,6 +277,16 @@ public final class YtDlpPrompt {
         // Acknowledge by editing the prompt itself. Later edits wait for this one, so they land after it.
         event.editMessage(message.render()).setComponents().queue(
                 ok -> message.markReady(), error -> message.markReady());
+
+        // The hold keeps playing the same track object, so no onTrackStart fires to refresh the
+        // now-playing message; without this it would keep showing the yt-dlp waiting line forever.
+        // After the acknowledgement, and guarded, so a failure here can't leave the click unanswered.
+        try {
+            bot.getNowplayingHandler().refreshNowPlaying(guildId);
+        } catch (RuntimeException ex) {
+            LOGGER.warn("Couldn't refresh the now-playing message after a yt-dlp prompt press in guild {}: {}",
+                    guildId, ex.toString());
+        }
 
         download.whenComplete((entry, error) -> {
             if (error == null) {

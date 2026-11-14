@@ -258,7 +258,10 @@ class MessageFormatterTest
         MessageEmbed embed = getSingleEmbed(message);
         assertNotNull(embed.getDescription());
         assertTrue(embed.getDescription().contains("Waiting"));
-        assertTrue(embed.getDescription().contains("yt-dlp prompt"));
+        assertTrue(embed.getDescription().contains(
+                "Waiting: YouTube blocked this song. Choose in the yt-dlp download prompt."));
+        // The prompt can be in a different channel from the now-playing message.
+        assertFalse(embed.getDescription().contains("above"));
         assertFalse(embed.getDescription().contains("▬"));
         assertFalse(embed.getDescription().contains("`["));
     }
