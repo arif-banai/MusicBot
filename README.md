@@ -297,9 +297,21 @@ ytdlp {
 }
 ```
 
+On Windows, write the path with forward slashes or doubled backslashes. A single backslash is an escape character in `config.txt`: `"C:\Users\..."` fails to load, and `"C:\tools\yt-dlp.exe"` silently turns `\t` into a tab.
+
+```hocon
+ytdlp {
+  path = "C:/tools/yt-dlp.exe"    # or "C:\\tools\\yt-dlp.exe"
+}
+```
+
+The path must point at the yt-dlp executable itself (such as `yt-dlp.exe`), not at a `.cmd` or `.bat` wrapper. `cmd.exe` would expand the `%(title)s`-style parts of the bot's output template and break downloads.
+
+At startup the bot runs `yt-dlp --version`. If that fails, it logs a warning and keeps the feature off until the next restart. Songs already in the library still play from disk while the feature is off.
+
 ### Modes
 
-- **`prompt` (default):** when a YouTube song is blocked, the bot pauses it and posts "Download & play" and "Download all YouTube songs in queue" buttons in the request's channel. Only the requester or a DJ can press them. If nobody responds within `promptTimeoutSeconds`, the song is skipped.
+- **`prompt` (default):** when a YouTube song is blocked, the bot pauses it and posts "Download & play" and "Download all YouTube songs in queue" buttons in the request's channel. Only the requester or a DJ can press them. If nobody responds within `promptTimeoutSeconds`, the song is skipped. Live streams never get a prompt. Prompt buttons stop working when the bot restarts.
 - **`always`:** every YouTube song is downloaded and played through yt-dlp, with no buttons.
 
 ### Other settings
@@ -310,7 +322,7 @@ ytdlp {
 | `libraryPlaylist` | `"ytdlp-library"` | Playlist (in `Playlists/`) listing every downloaded song |
 | `delaySeconds` | `5` | Seconds to wait between downloads |
 | `timeoutSeconds` | `300` | Seconds before a single download is cancelled |
-| `extraArgs` | `[]` | Extra arguments passed to yt-dlp, e.g. cookies or PO-token provider options |
+| `extraArgs` | `[]` | Extra arguments passed to yt-dlp, e.g. cookies or PO-token provider options. They come after the bot's own arguments |
 | `promptTimeoutSeconds` | `120` | Seconds to wait for a button press in `prompt` mode before skipping |
 
 Downloading from YouTube may violate YouTube's Terms of Service. Use at your own risk.
