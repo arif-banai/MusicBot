@@ -42,7 +42,10 @@ import org.jetbrains.annotations.Nullable;
  * permission), then for the library file from {@code fileSource}, which may be a
  * download still in progress. It then plays the file by delegating to a local track,
  * so seeking works as for any local file. Waiting happens on the player thread; an
- * interrupt there means the track was stopped, and {@link #process} returns quietly.
+ * interrupt there means the track was stopped, and {@link #process} returns quietly
+ * with the interrupt flag restored. Every other way of not playing (failed or cancelled
+ * download, cancelled gate, unreadable file) throws a {@code FriendlyException}, because
+ * a normal return without playing would leave the player on a track that never ends.
  * <p>
  * User data is carried over by {@link #makeClone()}, as for every lavaplayer track.
  * When wrapping an existing track, the caller copies its user data with
@@ -54,6 +57,8 @@ public final class LibraryAudioTrack extends DelegatedAudioTrack {
 
     /** Stateless apart from its container registry; {@code loadItem} never uses its manager argument. */
     private static final LocalAudioSourceManager LOCAL = new LocalAudioSourceManager();
+
+    private static final String CANCELLED = "yt-dlp download was cancelled";
 
     private final String videoId;
     private final Supplier<CompletableFuture<LibraryEntry>> fileSource;
@@ -68,7 +73,10 @@ public final class LibraryAudioTrack extends DelegatedAudioTrack {
      *                      and its future is only ever waited on, never cancelled or
      *                      completed by this track.
      * @param gate          if not null, {@link #process} waits for it before asking for the file.
-     *                      If it is cancelled or fails, the track ends quietly.
+     *                      If it is cancelled or fails, {@link #process} throws a COMMON
+     *                      {@code FriendlyException("yt-dlp download was cancelled")} whose cause
+     *                      is the {@code CancellationException} (or the gate's failure), and the
+     *                      file is never asked for.
      * @param displaySource the original YouTube source manager, returned by {@link #getSourceManager()}
      */
     public LibraryAudioTrack(AudioTrackInfo info, String videoId,
@@ -104,8 +112,11 @@ public final class LibraryAudioTrack extends DelegatedAudioTrack {
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt(); // stopped while waiting
                 return;
-            } catch (CancellationException | ExecutionException e) {
-                return; // gate withdrawn: don't play
+            } catch (CancellationException e) {
+                // Not a stop: returning normally would leave the player on a track that never ends.
+                throw new FriendlyException(CANCELLED, Severity.COMMON, e);
+            } catch (ExecutionException e) {
+                throw new FriendlyException(CANCELLED, Severity.COMMON, e.getCause() != null ? e.getCause() : e);
             }
         }
 
@@ -117,10 +128,13 @@ public final class LibraryAudioTrack extends DelegatedAudioTrack {
             Thread.currentThread().interrupt(); // stopped while waiting
             return;
         } catch (CancellationException e) {
-            return; // download withdrawn: guild stopped/left, or the bot is shutting down
+            // Download withdrawn (guild stopped/left, or shutdown). Throw rather than return:
+            // only an exception makes lavaplayer queue a terminator and end the track.
+            throw new FriendlyException(CANCELLED, Severity.COMMON, e);
         } catch (ExecutionException e) {
             Throwable cause = e.getCause() != null ? e.getCause() : e;
-            throw new FriendlyException("yt-dlp couldn't download this track: " + cause.getMessage(),
+            String reason = cause.getMessage() != null ? cause.getMessage() : cause.toString();
+            throw new FriendlyException("yt-dlp couldn't download this track: " + reason,
                     Severity.COMMON, cause);
         }
 

@@ -20,6 +20,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -36,6 +37,7 @@ import com.sedmelluq.discord.lavaplayer.source.AudioSourceManager;
 import com.sedmelluq.discord.lavaplayer.tools.FriendlyException;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrackInfo;
+import com.sedmelluq.discord.lavaplayer.track.AudioTrackState;
 import com.sedmelluq.discord.lavaplayer.track.TrackStateListener;
 import com.sedmelluq.discord.lavaplayer.track.playback.AudioFrame;
 import com.sedmelluq.discord.lavaplayer.track.playback.LocalAudioTrackExecutor;
@@ -47,6 +49,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -209,10 +212,12 @@ class LibraryAudioTrackTest {
 
     private static void assertQuietOnInterrupt(LibraryAudioTrack track) throws InterruptedException {
         AtomicReference<Throwable> thrown = new AtomicReference<>();
+        AtomicBoolean interruptRestored = new AtomicBoolean();
         CountDownLatch done = new CountDownLatch(1);
         Thread t = new Thread(() -> {
             try {
                 track.process(mock(LocalAudioTrackExecutor.class));
+                interruptRestored.set(Thread.currentThread().isInterrupted());
             } catch (Throwable e) {
                 thrown.set(e);
             } finally {
@@ -224,21 +229,33 @@ class LibraryAudioTrackTest {
         t.interrupt();
         assertTrue(done.await(2, TimeUnit.SECONDS));
         assertNull(thrown.get(), () -> "expected a quiet return, got " + thrown.get());
+        assertTrue(interruptRestored.get(), "the interrupt flag must be restored after a quiet return");
+    }
+
+    private static void assertCancelledFriendly(FriendlyException ex) {
+        assertEquals("yt-dlp download was cancelled", ex.getMessage());
+        assertEquals(FriendlyException.Severity.COMMON, ex.severity);
+        boolean found = false;
+        for (Throwable c = ex.getCause(); c != null; c = c.getCause()) {
+            found |= c instanceof CancellationException;
+        }
+        assertTrue(found, "cause chain must contain a CancellationException");
     }
 
     @Test
-    @DisplayName("a cancelled download (guild stopped or bot shutting down) returns quietly")
-    void cancelledDownload_returnsQuietly() {
+    @DisplayName("a cancelled download throws a COMMON FriendlyException caused by the cancellation")
+    void cancelledDownload_isFriendlyException() {
         CompletableFuture<LibraryEntry> cancelled = new CompletableFuture<>();
         cancelled.cancel(false);
         LibraryAudioTrack track = track(() -> cancelled, null);
 
-        assertDoesNotThrow(() -> track.process(mock(LocalAudioTrackExecutor.class)));
+        assertCancelledFriendly(assertThrows(FriendlyException.class,
+                () -> track.process(mock(LocalAudioTrackExecutor.class))));
     }
 
     @Test
-    @DisplayName("a cancelled gate returns quietly without asking for the file")
-    void cancelledGate_returnsQuietly() {
+    @DisplayName("a cancelled gate throws a COMMON FriendlyException without asking for the file")
+    void cancelledGate_isFriendlyException() {
         CompletableFuture<Void> gate = new CompletableFuture<>();
         gate.cancel(false);
         AtomicBoolean asked = new AtomicBoolean();
@@ -247,8 +264,58 @@ class LibraryAudioTrackTest {
             return new CompletableFuture<>();
         }, gate);
 
-        assertDoesNotThrow(() -> track.process(mock(LocalAudioTrackExecutor.class)));
+        assertCancelledFriendly(assertThrows(FriendlyException.class,
+                () -> track.process(mock(LocalAudioTrackExecutor.class))));
         assertFalse(asked.get());
+    }
+
+    @Test
+    @DisplayName("a gate that fails throws the cancelled FriendlyException with the failure as cause")
+    void failedGate_isFriendlyException() {
+        IllegalStateException failure = new IllegalStateException("prompt expired");
+        LibraryAudioTrack track = track(failing("x"), CompletableFuture.failedFuture(failure));
+
+        FriendlyException ex = assertThrows(FriendlyException.class,
+                () -> track.process(mock(LocalAudioTrackExecutor.class)));
+        assertEquals("yt-dlp download was cancelled", ex.getMessage());
+        assertEquals(FriendlyException.Severity.COMMON, ex.severity);
+        assertSame(failure, ex.getCause());
+    }
+
+    @Test
+    @DisplayName("a download failure without a message never reads ': null'")
+    void failedDownloadWithoutMessage_usesToString() {
+        LibraryAudioTrack track = track(() -> CompletableFuture.failedFuture(new IllegalStateException()), null);
+
+        FriendlyException ex = assertThrows(FriendlyException.class,
+                () -> track.process(mock(LocalAudioTrackExecutor.class)));
+        assertFalse(ex.getMessage().endsWith("null"), ex.getMessage());
+        assertTrue(ex.getMessage().contains("IllegalStateException"), ex.getMessage());
+    }
+
+    @Test
+    @DisplayName("a cancelled gate ends the track in a real executor: terminator frame and track exception")
+    void cancelledGate_realExecutorTerminates() throws Exception {
+        CompletableFuture<Void> gate = new CompletableFuture<>();
+        gate.cancel(false);
+        LibraryAudioTrack track = track(failing("x"), gate);
+
+        AudioConfiguration config = new AudioConfiguration();
+        config.setOutputFormat(StandardAudioDataFormats.COMMON_PCM_S16_BE);
+        LocalAudioTrackExecutor executor =
+                new LocalAudioTrackExecutor(track, config, new AudioPlayerOptions(), false, 5000);
+        TrackStateListener listener = mock(TrackStateListener.class);
+
+        Thread t = new Thread(() -> executor.execute(listener));
+        t.start();
+        t.join(2000);
+        assertFalse(t.isAlive());
+
+        AudioFrame frame = executor.provide(1, TimeUnit.SECONDS);
+        assertNotNull(frame);
+        assertTrue(frame.isTerminator(), "the player only ends a track on a terminator frame");
+        assertEquals(AudioTrackState.FINISHED, executor.getState());
+        verify(listener).onTrackException(eq(track), any(FriendlyException.class));
     }
 
     @Test
