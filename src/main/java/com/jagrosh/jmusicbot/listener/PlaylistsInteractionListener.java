@@ -24,7 +24,7 @@ import com.jagrosh.jmusicbot.service.MusicService;
 import net.dv8tion.jda.api.components.actionrow.ActionRow;
 import net.dv8tion.jda.api.components.selections.StringSelectMenu;
 import net.dv8tion.jda.api.entities.MessageEmbed;
-import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
+import net.dv8tion.jda.api.entities.channel.middleman.GuildMessageChannel;
 import net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.component.StringSelectInteractionEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
@@ -207,7 +207,7 @@ public class PlaylistsInteractionListener extends ListenerAdapter
                 return;
             }
 
-            TextChannel channel = event.getChannel().asTextChannel();
+            GuildMessageChannel channel = event.getChannel().asGuildMessageChannel();
             MusicService.OutputAdapter output = OutputAdapters.forPlaylistsReply(event);
             if (action.equals("queueall"))
             {
@@ -325,7 +325,7 @@ public class PlaylistsInteractionListener extends ListenerAdapter
             return;
         }
 
-        TextChannel channel = event.getChannel().asTextChannel();
+        GuildMessageChannel channel = event.getChannel().asGuildMessageChannel();
         MusicService.OutputAdapter output = OutputAdapters.forPlaylistsReply(event);
         String selectedTrackUrl = musicService.getPlaylistTrackUrlAtPosition(draftContext, selectedTrack);
         if (selectedTrackUrl == null || selectedTrackUrl.isBlank())
@@ -545,7 +545,7 @@ public class PlaylistsInteractionListener extends ListenerAdapter
             return;
         }
 
-        TextChannel channel = event.getChannel().asTextChannel();
+        GuildMessageChannel channel = event.getChannel().asGuildMessageChannel();
         MusicService.OutputAdapter output = OutputAdapters.forPlaylistsReply(event);
         if (action.equals("queue"))
         {

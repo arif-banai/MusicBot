@@ -58,13 +58,13 @@ public class PlayCmd extends MusicCommand
 
         if (args.isEmpty())
         {
-            musicService.play(event.getGuild(), event.getMember(), args, event.getTextChannel(),
+            musicService.play(event.getGuild(), event.getMember(), args, event.getGuildChannel(),
                     new CommandEventOutputAdapter(event, name, children));
             return;
         }
 
         event.reply(loadingEmoji + " Loading... `[" + args + "]`", m -> {
-            musicService.play(event.getGuild(), event.getMember(), args, event.getTextChannel(),
+            musicService.play(event.getGuild(), event.getMember(), args, event.getGuildChannel(),
                     new MessageEditOutputAdapter(m));
         });
     }

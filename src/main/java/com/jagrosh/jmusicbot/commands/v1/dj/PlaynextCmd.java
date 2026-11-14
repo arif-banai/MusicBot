@@ -57,7 +57,7 @@ public class PlaynextCmd extends DJCommand
                 : event.getArgs().isEmpty() ? event.getMessage().getAttachments().get(0).getUrl() : event.getArgs();
 
         event.reply(loadingEmoji + " Loading... `[" + args + "]`", m ->
-                musicService.playNext(event.getGuild(), event.getMember(), args, event.getTextChannel(),
+                musicService.playNext(event.getGuild(), event.getMember(), args, event.getGuildChannel(),
                         new MessageEditOutputAdapter(m)));
     }
 }

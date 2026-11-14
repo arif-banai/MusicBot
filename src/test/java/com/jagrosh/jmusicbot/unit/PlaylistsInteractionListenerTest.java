@@ -19,6 +19,7 @@ import com.jagrosh.jmusicbot.listener.PlaylistsInteractionListener;
 import com.jagrosh.jmusicbot.service.MusicService;
 import com.jagrosh.jmusicbot.testutil.listener.ListenerTestFixture;
 import net.dv8tion.jda.api.entities.MessageEmbed;
+import net.dv8tion.jda.api.entities.channel.unions.GuildMessageChannelUnion;
 import net.dv8tion.jda.api.entities.channel.unions.MessageChannelUnion;
 import net.dv8tion.jda.api.requests.restaction.interactions.MessageEditCallbackAction;
 import org.junit.jupiter.api.BeforeEach;
@@ -85,7 +86,8 @@ class PlaylistsInteractionListenerTest
                 .thenReturn(MusicService.PlaylistNamesInfo.success(List.of("favorite")));
 
         MessageChannelUnion channelUnion = mock(MessageChannelUnion.class);
-        when(channelUnion.asTextChannel()).thenReturn(fixture.getTextChannel());
+        when(channelUnion.asGuildMessageChannel())
+                .thenReturn((GuildMessageChannelUnion) fixture.getTextChannel());
         when(fixture.getButtonInteractionEvent().getChannel()).thenReturn(channelUnion);
 
         MessageEditCallbackAction editAction = mock(MessageEditCallbackAction.class);
@@ -132,7 +134,8 @@ class PlaylistsInteractionListenerTest
         when(fixture.getMusicService().getPlaylistTrackCount(any())).thenReturn(3);
 
         MessageChannelUnion channelUnion = mock(MessageChannelUnion.class);
-        when(channelUnion.asTextChannel()).thenReturn(fixture.getTextChannel());
+        when(channelUnion.asGuildMessageChannel())
+                .thenReturn((GuildMessageChannelUnion) fixture.getTextChannel());
         when(channelUnion.getIdLong()).thenReturn(123L);
         when(fixture.getButtonInteractionEvent().getChannel()).thenReturn(channelUnion);
         when(fixture.getButtonInteractionEvent().getMessageIdLong()).thenReturn(456L);
