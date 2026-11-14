@@ -19,6 +19,7 @@ import java.io.IOException;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
@@ -217,6 +218,32 @@ public final class YtDlpService {
         inBackground("reject " + toKey + " for " + fromKey, () -> library.reject(fromKey, toKey));
     }
 
+    /** The library's songs matching {@code query}, for the library panel. In-memory only: no IO. */
+    public List<LibraryEntry> searchLibrary(String query, int limit) {
+        return library.search(query, limit);
+    }
+
+    /** The requested keys aliased to library song {@code key}, for the library panel. In-memory only: no IO. */
+    public List<String> aliasesTo(String key) {
+        return library.aliasesTo(key);
+    }
+
+    /** Removes a library song on the background executor (deletes files; rewrites the index and playlist). */
+    public CompletableFuture<YtDlpLibrary.RemoveResult> removeFromLibrary(String key, boolean deleteFile,
+                                                                           long actorUserId) {
+        return supplyInBackground(() -> library.remove(key, deleteFile, actorUserId));
+    }
+
+    /** Re-scans the library folder on the background executor, as the library panel's Rescan button does. */
+    public CompletableFuture<YtDlpLibrary.ScanSummary> rescanLibrary() {
+        return supplyInBackground(library::rescan);
+    }
+
+    /** The library's song count, total size and folder, on the background executor (sizes every file). */
+    public CompletableFuture<YtDlpLibrary.LibraryStats> libraryStats() {
+        return supplyInBackground(library::stats);
+    }
+
     /**
      * Removes the link (alias) behind the song now playing, if it has one: a library copy
      * played for a linked song, or a requested song whose key is linked.
@@ -270,6 +297,27 @@ public final class YtDlpService {
         } catch (RuntimeException ex) { // e.g. the executor is shut down
             LOGGER.warn("Couldn't {} in the library: {}", what, ex.toString());
         }
+    }
+
+    private interface IoSupplier<T> {
+        T get() throws IOException;
+    }
+
+    /** Runs an IO-doing library call on the background executor, completing the returned future with its result. */
+    private <T> CompletableFuture<T> supplyInBackground(IoSupplier<T> task) {
+        CompletableFuture<T> future = new CompletableFuture<>();
+        try {
+            background.execute(() -> {
+                try {
+                    future.complete(task.get());
+                } catch (IOException | RuntimeException ex) {
+                    future.completeExceptionally(ex);
+                }
+            });
+        } catch (RuntimeException ex) { // e.g. the executor is shut down
+            future.completeExceptionally(ex);
+        }
+        return future;
     }
 
     /**
