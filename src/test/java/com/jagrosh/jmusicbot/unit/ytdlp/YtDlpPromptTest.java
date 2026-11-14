@@ -108,6 +108,7 @@ class YtDlpPromptTest {
     private static final long REQUESTER = 42L;
     private static final long MESSAGE = 999L;
     private static final String VIDEO_ID = "a_b-c_d1234";
+    private static final String YT = "https://www.youtube.com/watch?v=";
 
     @TempDir
     Path tempDir;
@@ -331,7 +332,7 @@ class YtDlpPromptTest {
         YtDlpPrompt prompt = prompt(Mode.PROMPT);
         openPrompt(prompt);
         var pending = state.get(GUILD).orElseThrow();
-        when(downloader.request(any(), any(), anyLong(), anyBoolean()))
+        when(downloader.request(any(), any(), any(), anyLong(), anyBoolean()))
                 .thenReturn(CompletableFuture.failedFuture(new YtDlpException("stub")));
 
         // e.g. "previous" while the prompt is still open: the clone has no gate of its own
@@ -344,7 +345,7 @@ class YtDlpPromptTest {
         pending.gate().complete(null); // someone pressed a button
         LibraryAudioTrack accepted = (LibraryAudioTrack) pending.hold().makeClone();
         assertThrows(FriendlyException.class, () -> accepted.process(mock(LocalAudioTrackExecutor.class)));
-        verify(downloader).request(eq(VIDEO_ID), any(), eq(GUILD), eq(true));
+        verify(downloader).request(eq(VIDEO_ID), eq(YT + VIDEO_ID), any(), eq(GUILD), eq(true));
     }
 
     @Test
@@ -482,7 +483,7 @@ class YtDlpPromptTest {
         openPrompt(prompt);
         LibraryAudioTrack hold = state.get(GUILD).orElseThrow().hold();
         CompletableFuture<LibraryEntry> download = new CompletableFuture<>();
-        when(downloader.request(eq(VIDEO_ID), any(), eq(GUILD), eq(true))).thenReturn(download);
+        when(downloader.request(eq(VIDEO_ID), eq(YT + VIDEO_ID), any(), eq(GUILD), eq(true))).thenReturn(download);
         ButtonInteractionEvent event = pressEvent(REQUESTER);
 
         prompt.handlePress(event, new ComponentIdParsers.YtDlpButtonId("one", REQUESTER, VIDEO_ID));
@@ -502,7 +503,7 @@ class YtDlpPromptTest {
         YtDlpPrompt prompt = prompt(Mode.PROMPT);
         openPrompt(prompt);
         LibraryAudioTrack hold = state.get(GUILD).orElseThrow().hold();
-        when(downloader.request(eq(VIDEO_ID), any(), eq(GUILD), eq(true))).thenReturn(new CompletableFuture<>());
+        when(downloader.request(eq(VIDEO_ID), eq(YT + VIDEO_ID), any(), eq(GUILD), eq(true))).thenReturn(new CompletableFuture<>());
         ButtonInteractionEvent event = pressEvent(REQUESTER);
         // Pins the ordering: the gate must already be open by the time the refresh runs,
         // or the refreshed message would still render the waiting line.
@@ -524,7 +525,7 @@ class YtDlpPromptTest {
     void handlePress_refreshesNowPlayingOnlyAfterQueueingTheAcknowledgement() {
         YtDlpPrompt prompt = prompt(Mode.PROMPT);
         openPrompt(prompt);
-        when(downloader.request(eq(VIDEO_ID), any(), eq(GUILD), eq(true))).thenReturn(new CompletableFuture<>());
+        when(downloader.request(eq(VIDEO_ID), eq(YT + VIDEO_ID), any(), eq(GUILD), eq(true))).thenReturn(new CompletableFuture<>());
         ButtonInteractionEvent event = pressEvent(REQUESTER);
         MessageEditCallbackAction ack = event.editMessage("");
 
@@ -540,7 +541,7 @@ class YtDlpPromptTest {
         YtDlpPrompt prompt = prompt(Mode.PROMPT);
         openPrompt(prompt);
         CompletableFuture<LibraryEntry> download = new CompletableFuture<>();
-        when(downloader.request(eq(VIDEO_ID), any(), eq(GUILD), eq(true))).thenReturn(download);
+        when(downloader.request(eq(VIDEO_ID), eq(YT + VIDEO_ID), any(), eq(GUILD), eq(true))).thenReturn(download);
         ButtonInteractionEvent event = pressEvent(REQUESTER);
         org.mockito.Mockito.doThrow(new IllegalStateException("reconcile failed"))
                 .when(nowPlayingHandler).refreshNowPlaying(GUILD);
@@ -558,7 +559,7 @@ class YtDlpPromptTest {
         YtDlpPrompt prompt = prompt(Mode.PROMPT);
         openPrompt(prompt);
         CompletableFuture<LibraryEntry> download = new CompletableFuture<>();
-        when(downloader.request(eq(VIDEO_ID), any(), eq(GUILD), eq(true))).thenReturn(download);
+        when(downloader.request(eq(VIDEO_ID), eq(YT + VIDEO_ID), any(), eq(GUILD), eq(true))).thenReturn(download);
         ButtonInteractionEvent event = pressEvent(REQUESTER);
 
         prompt.handlePress(event, new ComponentIdParsers.YtDlpButtonId("one", REQUESTER, VIDEO_ID));
@@ -574,7 +575,7 @@ class YtDlpPromptTest {
     void handlePress_secondPress_isExpired() {
         YtDlpPrompt prompt = prompt(Mode.PROMPT);
         openPrompt(prompt);
-        when(downloader.request(any(), any(), anyLong(), anyBoolean())).thenReturn(new CompletableFuture<>());
+        when(downloader.request(any(), any(), any(), anyLong(), anyBoolean())).thenReturn(new CompletableFuture<>());
         ComponentIdParsers.YtDlpButtonId id = new ComponentIdParsers.YtDlpButtonId("one", REQUESTER, VIDEO_ID);
 
         prompt.handlePress(pressEvent(REQUESTER), id);
@@ -584,7 +585,7 @@ class YtDlpPromptTest {
         verify(second).editComponents();
         verify(second.getHook()).sendMessage(argThat((String s) -> s.contains("expired")));
         verify(second, never()).editMessage(anyString());
-        verify(downloader, times(1)).request(any(), any(), anyLong(), anyBoolean());
+        verify(downloader, times(1)).request(any(), any(), any(), anyLong(), anyBoolean());
     }
 
     @Test
@@ -609,7 +610,7 @@ class YtDlpPromptTest {
         YtDlpPrompt prompt = prompt(Mode.PROMPT);
         openPrompt(prompt);
         java.util.Map<String, CompletableFuture<LibraryEntry>> downloads = new java.util.HashMap<>();
-        when(downloader.request(any(), any(), anyLong(), anyBoolean()))
+        when(downloader.request(any(), any(), any(), anyLong(), anyBoolean()))
                 .thenAnswer(inv -> downloads.computeIfAbsent(inv.getArgument(0), k -> new CompletableFuture<>()));
 
         AbstractQueue<QueuedTrack> queue = QueueType.LINEAR.createInstance(null, 10);
@@ -628,15 +629,15 @@ class YtDlpPromptTest {
 
         prompt.handlePress(event, new ComponentIdParsers.YtDlpButtonId("all", REQUESTER, VIDEO_ID));
 
-        assertEquals("first000001", assertInstanceOf(LibraryAudioTrack.class, queue.get(0).getTrack()).getVideoId());
+        assertEquals("first000001", assertInstanceOf(LibraryAudioTrack.class, queue.get(0).getTrack()).getKey());
         assertEquals(otherQueued, queue.get(1));
         assertEquals(streamQueued, queue.get(2));
-        assertEquals("second00002", assertInstanceOf(LibraryAudioTrack.class, queue.get(3).getTrack()).getVideoId());
+        assertEquals("second00002", assertInstanceOf(LibraryAudioTrack.class, queue.get(3).getTrack()).getKey());
         assertEquals(requestMetadata().getOwner(), queue.get(0).getRequestMetadata().getOwner());
         InOrder order = inOrder(downloader);
-        order.verify(downloader).request(eq(VIDEO_ID), any(), eq(GUILD), eq(true));
-        order.verify(downloader, org.mockito.Mockito.atLeastOnce()).request(eq("first000001"), any(), eq(GUILD), eq(false));
-        order.verify(downloader, org.mockito.Mockito.atLeastOnce()).request(eq("second00002"), any(), eq(GUILD), eq(false));
+        order.verify(downloader).request(eq(VIDEO_ID), eq(YT + VIDEO_ID), any(), eq(GUILD), eq(true));
+        order.verify(downloader, org.mockito.Mockito.atLeastOnce()).request(eq("first000001"), eq(YT + "first000001"), any(), eq(GUILD), eq(false));
+        order.verify(downloader, org.mockito.Mockito.atLeastOnce()).request(eq("second00002"), eq(YT + "second00002"), any(), eq(GUILD), eq(false));
         verify(event).editMessage(argThat((String s) -> s.contains("Downloaded 0/2")));
 
         acknowledge(event);

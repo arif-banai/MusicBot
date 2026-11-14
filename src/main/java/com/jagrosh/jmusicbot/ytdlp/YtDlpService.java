@@ -45,9 +45,9 @@ import org.slf4j.LoggerFactory;
  * <p>
  * With {@code ytdlp.path} blank (the default) the feature is off: misses and every track
  * that isn't already in the library index are returned unchanged, no download is ever
- * requested, and no worker thread is started. Tracks already in the index (YouTube hits,
- * or local files from the library folder) are still wrapped so they show their YouTube
- * metadata.
+ * requested, and no worker thread is started. Tracks already in the index (exact-key hits
+ * from YouTube or another supported source, or local files from the library folder) are
+ * still wrapped so they play from disk and show their recorded metadata.
  *
  * @author Arif Banai (arif-banai)
  */
@@ -214,21 +214,33 @@ public final class YtDlpService {
             return track;
         }
 
+        Optional<String> key = LibraryKeys.of(track);
         if (isYoutube(track)) {
-            String videoId = info.identifier;
-            if (videoId == null || videoId.isEmpty()) {
+            if (key.isEmpty()) {
                 return track;
             }
-            Optional<LibraryEntry> hit = library.findById(videoId);
+            Optional<LibraryEntry> hit = library.find(key.get());
             if (hit.isPresent()) {
                 if (isAdopted(hit.get())) {
-                    fillInMetadata(videoId, info);
+                    fillInMetadata(key.get(), info);
                 }
-                return copyState(track, new LibraryAudioTrack(info, videoId, completed(hit.get()), null,
+                return copyState(track, new LibraryAudioTrack(info, key.get(), completed(hit.get()), null,
                         track.getSourceManager()));
             }
-            if (enabled && settings.mode() == YtDlpSettings.Mode.ALWAYS && !info.isStream) {
+            if (enabled && settings.mode() == YtDlpSettings.Mode.ALWAYS) {
                 return wrap(track, guildId, true, null);
+            }
+            return track;
+        }
+
+        // Another supported source (e.g. a SoundCloud song saved earlier): an exact library hit
+        // plays from disk, keeping the original track's info and source. Misses are unchanged;
+        // prompt and always mode stay YouTube-only.
+        if (key.isPresent()) {
+            Optional<LibraryEntry> hit = library.find(key.get());
+            if (hit.isPresent()) {
+                return copyState(track, new LibraryAudioTrack(info, key.get(), completed(hit.get()), null,
+                        track.getSourceManager()));
             }
             return track;
         }
@@ -262,12 +274,13 @@ public final class YtDlpService {
         if (!isAdopted(hit)) {
             return copyState(track, libraryTrack(hit, track.getSourceManager()));
         }
-        // An adopted file has no length or author in the index (only a title from its filename),
-        // so keep what the local track itself knows; otherwise the queue shows 00:00 for it.
+        // An adopted file's details came from its name or tags, not a real track, so it may lack a
+        // length or author; keep what the local track itself knows, otherwise the queue shows 00:00.
         AudioTrackInfo local = track.getInfo();
-        AudioTrackInfo info = new AudioTrackInfo(hit.title(), local.author, Math.max(hit.lengthMs(), local.length),
-                hit.videoId(), false, hit.uri(), hit.artworkUrl(), null);
-        return copyState(track, new LibraryAudioTrack(info, hit.videoId(), completed(hit), null,
+        String author = hit.author().isEmpty() ? local.author : hit.author();
+        AudioTrackInfo info = new AudioTrackInfo(hit.title(), author, Math.max(hit.lengthMs(), local.length),
+                hit.toTrackInfo().identifier, false, hit.uri(), hit.artworkUrl(), null);
+        return copyState(track, new LibraryAudioTrack(info, hit.key(), completed(hit), null,
                 track.getSourceManager()));
     }
 
@@ -279,7 +292,7 @@ public final class YtDlpService {
      * {@code loadItem} time, rather than wrapping an existing {@link AudioTrack}.
      */
     public LibraryAudioTrack libraryTrack(LibraryEntry entry, @Nullable AudioSourceManager displaySource) {
-        return new LibraryAudioTrack(entry.toTrackInfo(), entry.videoId(), completed(entry), null, displaySource);
+        return new LibraryAudioTrack(entry.toTrackInfo(), entry.key(), completed(entry), null, displaySource);
     }
 
     /**
@@ -306,6 +319,7 @@ public final class YtDlpService {
                                   @Nullable CompletableFuture<Void> gate) {
         AudioTrackInfo info = youtubeTrack.getInfo();
         String videoId = info.identifier;
+        String url = LibraryKeys.youtubeUrl(videoId);
         Supplier<CompletableFuture<LibraryEntry>> fileSource = () -> {
             if (!enabled) {
                 return CompletableFuture.failedFuture(new YtDlpException("yt-dlp is not available"));
@@ -316,23 +330,30 @@ public final class YtDlpService {
                 return CompletableFuture.failedFuture(new YtDlpException(
                         "its download prompt wasn't accepted; request the song again to get a new prompt"));
             }
-            return downloader.request(videoId, info, guildId, true);
+            return downloader.request(videoId, url, info, guildId, true);
         };
         LibraryAudioTrack wrapper = copyState(youtubeTrack,
                 new LibraryAudioTrack(info, videoId, fileSource, gate, youtubeTrack.getSourceManager()));
         if (gate == null) {
-            downloader.request(videoId, info, guildId, nextUp);
+            downloader.request(videoId, url, info, guildId, nextUp);
         }
         return wrapper;
     }
 
     /**
-     * Requests the library file for a YouTube track, returning the downloader's shared future.
-     * Never cancel or complete the returned future; use {@link #cancelGuild(long)}.
+     * Requests the library file for a track from any supported source (see {@link LibraryKeys}),
+     * returning the downloader's shared future: yt-dlp fetches the watch URL for YouTube and the
+     * track's URI otherwise, and the file is recorded under the track's library key. A track with
+     * no key (a stream, a local file, an HTTP link, an unsupported source) gets a failed future and
+     * no download. Never cancel or complete the returned future; use {@link #cancelGuild(long)}.
      */
-    public CompletableFuture<LibraryEntry> requestDownload(AudioTrack youtubeTrack, long guildId, boolean nextUp) {
-        AudioTrackInfo info = youtubeTrack.getInfo();
-        return downloader.request(info.identifier, info, guildId, nextUp);
+    public CompletableFuture<LibraryEntry> requestDownload(AudioTrack track, long guildId, boolean nextUp) {
+        Optional<String> key = LibraryKeys.of(track);
+        Optional<String> url = LibraryKeys.downloadUrl(track);
+        if (key.isEmpty() || url.isEmpty()) {
+            return CompletableFuture.failedFuture(new YtDlpException("yt-dlp can't download this track"));
+        }
+        return downloader.request(key.get(), url.get(), track.getInfo(), guildId, nextUp);
     }
 
     /**
@@ -343,22 +364,20 @@ public final class YtDlpService {
         if (track == null || track instanceof LibraryAudioTrack || !isYoutube(track)) {
             return false;
         }
-        AudioTrackInfo info = track.getInfo();
-        if (info == null || info.isStream || info.identifier == null || info.identifier.isEmpty()) {
-            return false;
-        }
-        return library.findById(info.identifier).isEmpty();
+        Optional<String> key = LibraryKeys.of(track);
+        return key.isPresent() && library.find(key.get()).isEmpty();
     }
 
     /**
      * Whether an entry was adopted from a file in the library folder rather than recorded from
-     * a YouTube track, so it only has a title guessed from the filename: no author, no length.
+     * a real track (see {@link LibraryEntry#adopted()}), so its details came only from the file's
+     * name or tags and may lack an author or length.
      * Package-private so {@link LibrarySourceManager} can reuse the same check: it must not
      * short-circuit an adopted entry's first link, so that link still goes through YouTube once
      * and {@link #prepareForPlayback} gets a chance to fill the real metadata in.
      */
     static boolean isAdopted(LibraryEntry entry) {
-        return (entry.author() == null || entry.author().isEmpty()) && entry.lengthMs() <= 0;
+        return entry.adopted();
     }
 
     /**
@@ -369,7 +388,7 @@ public final class YtDlpService {
         try {
             background.execute(() -> {
                 try {
-                    Optional<LibraryEntry> current = library.findById(videoId);
+                    Optional<LibraryEntry> current = library.find(videoId);
                     if (current.isPresent() && isAdopted(current.get())) {
                         library.record(videoId, current.get().file(), info);
                         LOGGER.info("Filled in YouTube metadata for library file {}", current.get().file());

@@ -324,6 +324,14 @@ At startup the bot runs `yt-dlp --version`. If that fails, it logs a warning and
 | `timeoutSeconds` | `300` | Seconds before a single download is cancelled |
 | `extraArgs` | `[]` | Extra arguments passed to yt-dlp, e.g. cookies or PO-token provider options. They come after the bot's own arguments |
 | `promptTimeoutSeconds` | `120` | Seconds to wait for a button press in `prompt` mode before skipping |
+| `downloadButton` | `true` | Show a Download button on now-playing that saves the current song (DJs only) |
+| `matching.enabled` | `true` | Offer a similar song from the library while a requested song plays |
+| `matching.durationToleranceSeconds` | `5` | How close song lengths must be to count as the same song (0-60) |
+| `matching.minScore` | `0.85` | How similar the cleaned-up titles and artists must be, 0.0-1.0 (higher is stricter) |
+
+### Adding songs you downloaded earlier
+
+Copy the files (any format the bot can play) into `libraryFolder` and restart the bot. It reads each new file's details from a yt-dlp `.info.json` file with the same name if there is one (`yt-dlp --write-info-json`), otherwise from a YouTube `[id]` at the end of the filename, otherwise from the file's tags and length, otherwise from the filename. Files are never moved, renamed or changed. Only new files are read, so later restarts stay fast.
 
 Downloading from YouTube may violate YouTube's Terms of Service. Use at your own risk.
 

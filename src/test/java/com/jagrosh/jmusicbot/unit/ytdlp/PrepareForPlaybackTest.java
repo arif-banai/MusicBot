@@ -79,7 +79,7 @@ class PrepareForPlaybackTest {
         library.record(HIT_ID, hitFile, new AudioTrackInfo("Indexed Title", "Indexed Author", 123_000L, HIT_ID,
                 false, "https://www.youtube.com/watch?v=" + HIT_ID));
         downloader = mock(YtDlpDownloader.class);
-        when(downloader.request(any(), any(), anyLong(), anyBoolean())).thenReturn(new CompletableFuture<>());
+        when(downloader.request(any(), any(), any(), anyLong(), anyBoolean())).thenReturn(new CompletableFuture<>());
         runner = mock(ProcessRunner.class);
     }
 
@@ -129,7 +129,7 @@ class PrepareForPlaybackTest {
         AudioTrack result = disabled().prepareForPlayback(yt, GUILD);
 
         LibraryAudioTrack wrapped = assertInstanceOf(LibraryAudioTrack.class, result);
-        assertEquals(HIT_ID, wrapped.getVideoId());
+        assertEquals(HIT_ID, wrapped.getKey());
         assertEquals("YouTube Title", wrapped.getInfo().title);
         assertSame(yt.getSourceManager(), wrapped.getSourceManager());
         assertSame(userData, wrapped.getUserData());
@@ -145,7 +145,7 @@ class PrepareForPlaybackTest {
         AudioTrack result = disabled().prepareForPlayback(local, GUILD);
 
         LibraryAudioTrack wrapped = assertInstanceOf(LibraryAudioTrack.class, result);
-        assertEquals(HIT_ID, wrapped.getVideoId());
+        assertEquals(HIT_ID, wrapped.getKey());
         assertEquals("Indexed Title", wrapped.getInfo().title);
         assertEquals("Indexed Author", wrapped.getInfo().author);
         assertSame(userData, wrapped.getUserData());
@@ -166,9 +166,9 @@ class PrepareForPlaybackTest {
         AudioTrack result = always().prepareForPlayback(yt, GUILD);
 
         LibraryAudioTrack wrapped = assertInstanceOf(LibraryAudioTrack.class, result);
-        assertEquals(MISS_ID, wrapped.getVideoId());
+        assertEquals(MISS_ID, wrapped.getKey());
         assertEquals("YouTube Title", wrapped.getInfo().title);
-        verify(downloader).request(eq(MISS_ID), same(info), eq(GUILD), eq(true));
+        verify(downloader).request(eq(MISS_ID), eq("https://www.youtube.com/watch?v=" + MISS_ID), same(info), eq(GUILD), eq(true));
     }
 
     @Test
@@ -186,6 +186,53 @@ class PrepareForPlaybackTest {
     }
 
     @Test
+    void nonYoutube_exactKeyHit_playsFromLibrary() throws IOException {
+        String permalink = "https://soundcloud.com/crazyfrog/axel-f";
+        Path scFile = Files.writeString(libraryFolder.resolve("Axel F [soundcloud-1].mp3"), "not really audio");
+        library.record("soundcloud:" + permalink, scFile, new AudioTrackInfo("Axel F", "Crazy Frog", 170_000L,
+                "O:https://x", false, permalink));
+        AudioTrack sc = mock(AudioTrack.class);
+        AudioSourceManager source = mock(AudioSourceManager.class);
+        when(source.getSourceName()).thenReturn("soundcloud");
+        when(sc.getSourceManager()).thenReturn(source);
+        when(sc.getInfo()).thenReturn(new AudioTrackInfo("Axel F", "Crazy Frog", 170_000L, "O:https://x", false,
+                permalink));
+
+        AudioTrack result = disabled().prepareForPlayback(sc, GUILD);
+
+        LibraryAudioTrack wrapped = assertInstanceOf(LibraryAudioTrack.class, result);
+        assertEquals("soundcloud:" + permalink, wrapped.getKey());
+        assertSame(source, wrapped.getSourceManager());
+        assertSame(sc.getInfo(), wrapped.getInfo());
+        verifyNoInteractions(downloader);
+    }
+
+    @Test
+    void requestDownload_nonYoutube_usesCompositeKeyAndTrackUri() {
+        String permalink = "https://soundcloud.com/a/b";
+        AudioTrack sc = mock(AudioTrack.class);
+        AudioSourceManager source = mock(AudioSourceManager.class);
+        when(source.getSourceName()).thenReturn("soundcloud");
+        when(sc.getSourceManager()).thenReturn(source);
+        AudioTrackInfo info = new AudioTrackInfo("B", "A", 1000L, "O:https://x", false, permalink);
+        when(sc.getInfo()).thenReturn(info);
+
+        always().requestDownload(sc, GUILD, false);
+
+        verify(downloader).request(eq("soundcloud:" + permalink), eq(permalink), same(info), eq(GUILD), eq(false));
+    }
+
+    @Test
+    void requestDownload_unsupportedTrack_failsWithoutRequesting() {
+        AudioTrack local = track("local", tempDir.resolve("x.mp3").toString(), false);
+
+        CompletableFuture<LibraryEntry> future = always().requestDownload(local, GUILD, false);
+
+        assertTrue(future.isCompletedExceptionally());
+        verifyNoInteractions(downloader);
+    }
+
+    @Test
     void alreadyWrapped_unchanged() {
         LibraryAudioTrack wrapped = new LibraryAudioTrack(youtube(MISS_ID).getInfo(), MISS_ID,
                 () -> CompletableFuture.<LibraryEntry>completedFuture(null), null, null);
@@ -199,7 +246,7 @@ class PrepareForPlaybackTest {
         Path adoptedFile = libraryFolder.resolve("Hand Named [" + adoptedId + "].webm");
         Files.writeString(adoptedFile, "not really audio");
         library.load(); // adopts the file with a title guessed from its name
-        assertEquals("", library.findById(adoptedId).orElseThrow().author());
+        assertEquals("", library.find(adoptedId).orElseThrow().author());
         List<Runnable> background = new ArrayList<>();
         YtDlpService service = new YtDlpService(
                 new YtDlpSettings("", Mode.PROMPT, libraryFolder, "ytdlp-library", 0, 300, List.of(), 120),
@@ -209,11 +256,11 @@ class PrepareForPlaybackTest {
 
         assertInstanceOf(LibraryAudioTrack.class, result);
         // Nothing was written on the calling (player/audio) thread.
-        assertEquals("", library.findById(adoptedId).orElseThrow().author());
+        assertEquals("", library.find(adoptedId).orElseThrow().author());
         assertEquals(1, background.size());
 
         background.forEach(Runnable::run);
-        LibraryEntry recorded = library.findById(adoptedId).orElseThrow();
+        LibraryEntry recorded = library.find(adoptedId).orElseThrow();
         assertEquals("YouTube Title", recorded.title());
         assertEquals("YouTube Author", recorded.author());
         assertEquals(200_000L, recorded.lengthMs());
@@ -235,7 +282,7 @@ class PrepareForPlaybackTest {
         assertInstanceOf(LibraryAudioTrack.class, service.prepareForPlayback(youtube(HIT_ID), GUILD));
 
         assertTrue(background.isEmpty());
-        assertEquals("Indexed Title", library.findById(HIT_ID).orElseThrow().title());
+        assertEquals("Indexed Title", library.find(HIT_ID).orElseThrow().title());
     }
 
     @Test
@@ -256,7 +303,7 @@ class PrepareForPlaybackTest {
         AudioTrack result = disabled().wrapLibraryFile(local);
 
         LibraryAudioTrack wrapped = assertInstanceOf(LibraryAudioTrack.class, result);
-        assertEquals(HIT_ID, wrapped.getVideoId());
+        assertEquals(HIT_ID, wrapped.getKey());
         assertEquals("Indexed Title", wrapped.getInfo().title);
         assertEquals("Indexed Author", wrapped.getInfo().author);
         assertSame(userData, wrapped.getUserData());

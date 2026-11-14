@@ -32,9 +32,25 @@ import org.slf4j.LoggerFactory;
  */
 public record YtDlpSettings(String path, Mode mode, Path libraryFolder, String libraryPlaylist,
                              int delaySeconds, int timeoutSeconds, List<String> extraArgs,
-                             int promptTimeoutSeconds) {
+                             int promptTimeoutSeconds, boolean downloadButton, boolean matchingEnabled,
+                             int durationToleranceSeconds, double minScore) {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(YtDlpSettings.class);
+
+    public static final boolean DEFAULT_DOWNLOAD_BUTTON = true;
+    public static final boolean DEFAULT_MATCHING_ENABLED = true;
+    public static final int DEFAULT_DURATION_TOLERANCE_SECONDS = 5;
+    public static final double DEFAULT_MIN_SCORE = 0.85;
+    /** Upper bound for {@code matching.durationToleranceSeconds}; larger values are clamped to it. */
+    public static final int MAX_DURATION_TOLERANCE_SECONDS = 60;
+
+    /** Settings with the {@code downloadButton} and {@code matching.*} defaults. */
+    public YtDlpSettings(String path, Mode mode, Path libraryFolder, String libraryPlaylist,
+                         int delaySeconds, int timeoutSeconds, List<String> extraArgs, int promptTimeoutSeconds) {
+        this(path, mode, libraryFolder, libraryPlaylist, delaySeconds, timeoutSeconds, extraArgs, promptTimeoutSeconds,
+                DEFAULT_DOWNLOAD_BUTTON, DEFAULT_MATCHING_ENABLED, DEFAULT_DURATION_TOLERANCE_SECONDS,
+                DEFAULT_MIN_SCORE);
+    }
 
     /**
      * How the bot reacts to YouTube tracks when yt-dlp is configured.
@@ -90,9 +106,37 @@ public record YtDlpSettings(String path, Mode mode, Path libraryFolder, String l
         int timeoutSeconds = ConfigOption.YTDLP_TIMEOUT_SECONDS.getInt(config);
         List<String> extraArgs = ConfigOption.YTDLP_EXTRA_ARGS.getStringList(config);
         int promptTimeoutSeconds = ConfigOption.YTDLP_PROMPT_TIMEOUT_SECONDS.getInt(config);
+        // Read with defaults: a config parsed without reference.conf as fallback may lack these newer keys.
+        boolean downloadButton = ConfigOption.YTDLP_DOWNLOAD_BUTTON.hasValue(config)
+                ? ConfigOption.YTDLP_DOWNLOAD_BUTTON.getBoolean(config) : DEFAULT_DOWNLOAD_BUTTON;
+        boolean matchingEnabled = ConfigOption.YTDLP_MATCHING_ENABLED.hasValue(config)
+                ? ConfigOption.YTDLP_MATCHING_ENABLED.getBoolean(config) : DEFAULT_MATCHING_ENABLED;
+        int durationTolerance = ConfigOption.YTDLP_MATCHING_DURATION_TOLERANCE_SECONDS.hasValue(config)
+                ? ConfigOption.YTDLP_MATCHING_DURATION_TOLERANCE_SECONDS.getInt(config)
+                : DEFAULT_DURATION_TOLERANCE_SECONDS;
+        double minScore = ConfigOption.YTDLP_MATCHING_MIN_SCORE.hasValue(config)
+                ? ConfigOption.YTDLP_MATCHING_MIN_SCORE.getDouble(config) : DEFAULT_MIN_SCORE;
 
         return new YtDlpSettings(path, mode, libraryFolder, libraryPlaylist, delaySeconds, timeoutSeconds,
-                extraArgs, promptTimeoutSeconds);
+                extraArgs, promptTimeoutSeconds, downloadButton, matchingEnabled,
+                clampTolerance(durationTolerance), clampMinScore(minScore));
+    }
+
+    private static int clampTolerance(int raw) {
+        int clamped = Math.max(0, Math.min(MAX_DURATION_TOLERANCE_SECONDS, raw));
+        if (clamped != raw) {
+            LOGGER.warn("ytdlp.matching.durationToleranceSeconds = {} is out of range 0-{}; using {}", raw,
+                    MAX_DURATION_TOLERANCE_SECONDS, clamped);
+        }
+        return clamped;
+    }
+
+    private static double clampMinScore(double raw) {
+        double clamped = Double.isNaN(raw) ? DEFAULT_MIN_SCORE : Math.max(0.0, Math.min(1.0, raw));
+        if (clamped != raw) {
+            LOGGER.warn("ytdlp.matching.minScore = {} is out of range 0.0-1.0; using {}", raw, clamped);
+        }
+        return clamped;
     }
 
     /**

@@ -101,7 +101,7 @@ class LibrarySourceManagerTest {
         AudioItem item = loadItem("https://www.youtube.com/watch?v=" + HIT_ID);
 
         LibraryAudioTrack track = assertInstanceOf(LibraryAudioTrack.class, item);
-        assertEquals(HIT_ID, track.getVideoId());
+        assertEquals(HIT_ID, track.getKey());
         assertEquals("Indexed Title", track.getInfo().title);
         assertEquals("Indexed Author", track.getInfo().author);
         assertSame(youtubeSource, track.getSourceManager());
@@ -112,7 +112,7 @@ class LibrarySourceManagerTest {
         AudioItem item = loadItem("youtu.be/" + HIT_ID);
 
         LibraryAudioTrack track = assertInstanceOf(LibraryAudioTrack.class, item);
-        assertEquals(HIT_ID, track.getVideoId());
+        assertEquals(HIT_ID, track.getKey());
         assertEquals("Indexed Title", track.getInfo().title);
     }
 
@@ -151,7 +151,7 @@ class LibrarySourceManagerTest {
         Path adoptedFile = libraryFolder.resolve("Hand Named [" + adoptedId + "].webm");
         Files.writeString(adoptedFile, "not really audio");
         library.load();
-        assertEquals("", library.findById(adoptedId).orElseThrow().author());
+        assertEquals("", library.find(adoptedId).orElseThrow().author());
 
         assertNull(loadItem("https://www.youtube.com/watch?v=" + adoptedId));
     }
@@ -174,7 +174,7 @@ class LibrarySourceManagerTest {
         AudioItem item = loadItem(url);
 
         LibraryAudioTrack track = assertInstanceOf(LibraryAudioTrack.class, item, "for URL: " + url);
-        assertEquals(HIT_ID, track.getVideoId(), "for URL: " + url);
+        assertEquals(HIT_ID, track.getKey(), "for URL: " + url);
     }
 
     static List<String> nonMatchingUrlForms() {

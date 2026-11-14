@@ -94,7 +94,7 @@ public final class LibrarySourceManager implements AudioSourceManager {
         if (service == null) {
             return null;
         }
-        Optional<LibraryEntry> hit = service.library().findById(videoId);
+        Optional<LibraryEntry> hit = service.library().find(videoId);
         if (hit.isEmpty()) {
             return null;
         }

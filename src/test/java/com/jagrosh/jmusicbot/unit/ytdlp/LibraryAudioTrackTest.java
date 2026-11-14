@@ -89,7 +89,7 @@ class LibraryAudioTrackTest {
         assertEquals(in.identifier, out.identifier);
         assertEquals(in.uri, out.uri);
         assertEquals(in.artworkUrl, out.artworkUrl);
-        assertEquals(VIDEO_ID, track.getVideoId());
+        assertEquals(VIDEO_ID, track.getKey());
     }
 
     @Test
@@ -120,7 +120,7 @@ class LibraryAudioTrackTest {
         assertEquals(track.getInfo().length, libClone.getInfo().length);
         assertEquals(track.getInfo().identifier, libClone.getInfo().identifier);
         assertEquals(track.getInfo().uri, libClone.getInfo().uri);
-        assertEquals(VIDEO_ID, libClone.getVideoId());
+        assertEquals(VIDEO_ID, libClone.getKey());
         assertFalse(libClone.isGated());
         assertFalse(libClone.isAwaitingGate());
         assertSame(userData, libClone.getUserData());

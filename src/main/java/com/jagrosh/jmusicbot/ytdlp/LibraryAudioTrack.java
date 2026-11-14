@@ -60,14 +60,14 @@ public final class LibraryAudioTrack extends DelegatedAudioTrack {
 
     private static final String CANCELLED = "yt-dlp download was cancelled";
 
-    private final String videoId;
+    private final String key;
     private final Supplier<CompletableFuture<LibraryEntry>> fileSource;
     private final @Nullable CompletableFuture<Void> gate;
     private final @Nullable AudioSourceManager displaySource;
 
     /**
      * @param info          the original YouTube track's info, shown everywhere for this track
-     * @param videoId       the YouTube video ID
+     * @param key           the library key (see {@link LibraryKeys}); for YouTube, the video ID
      * @param fileSource    supplies the library entry, typically the downloader's shared
      *                      future for this video. It is asked only once the gate is open,
      *                      and its future is only ever waited on, never cancelled or
@@ -79,19 +79,20 @@ public final class LibraryAudioTrack extends DelegatedAudioTrack {
      *                      file is never asked for.
      * @param displaySource the original YouTube source manager, returned by {@link #getSourceManager()}
      */
-    public LibraryAudioTrack(AudioTrackInfo info, String videoId,
+    public LibraryAudioTrack(AudioTrackInfo info, String key,
                              Supplier<CompletableFuture<LibraryEntry>> fileSource,
                              @Nullable CompletableFuture<Void> gate,
                              @Nullable AudioSourceManager displaySource) {
         super(info);
-        this.videoId = videoId;
+        this.key = key;
         this.fileSource = fileSource;
         this.gate = gate;
         this.displaySource = displaySource;
     }
 
-    public String getVideoId() {
-        return videoId;
+    /** The library key this track plays (for YouTube, the video ID). */
+    public String getKey() {
+        return key;
     }
 
     /** Whether this track was created with a gate, whether or not it has opened yet. */
@@ -148,7 +149,7 @@ public final class LibraryAudioTrack extends DelegatedAudioTrack {
 
     @Override
     protected AudioTrack makeShallowClone() {
-        return new LibraryAudioTrack(trackInfo, videoId, fileSource, null, displaySource);
+        return new LibraryAudioTrack(trackInfo, key, fileSource, null, displaySource);
     }
 
     @Override

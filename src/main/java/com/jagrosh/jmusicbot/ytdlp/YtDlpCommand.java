@@ -35,23 +35,39 @@ import com.jagrosh.jmusicbot.ytdlp.ProcessRunner.ProcessResult;
  */
 public final class YtDlpCommand {
 
-    private static final String OUTPUT_TEMPLATE = "%(title)s [%(id)s].%(ext)s";
+    private static final String YOUTUBE_TEMPLATE = "%(title)s [%(id)s].%(ext)s";
 
     private YtDlpCommand() {
     }
 
     /**
-     * Builds the command line to download {@code videoId} into {@code settings}'
-     * library folder: {@code <path> --encoding utf-8 -f bestaudio --no-playlist
-     * --no-progress --no-warnings -o "<libraryFolder>/%(title)s [%(id)s].%(ext)s"
-     * --print after_move:filepath <extraArgs...> https://www.youtube.com/watch?v=<id>}.
+     * The output filename template for a library key: {@code %(title)s [%(id)s].%(ext)s} for
+     * YouTube (unchanged from v1), and {@code %(title)s [<source>-%(id)s].%(ext)s} for other
+     * sources, where {@code %(id)s} is yt-dlp's own ID. The index maps key to file, so the name
+     * only needs to be unique.
+     */
+    public static String outputTemplate(String key) {
+        if (LibraryKeys.isYoutubeKey(key)) {
+            return YOUTUBE_TEMPLATE;
+        }
+        String source = LibraryKeys.sourceOf(key).orElse("file");
+        return "%(title)s [" + source + "-%(id)s].%(ext)s";
+    }
+
+    /**
+     * Builds the command line to download {@code url} into {@code settings}' library folder:
+     * {@code <path> --encoding utf-8 -f bestaudio --no-playlist --no-progress --no-warnings
+     * -o "<libraryFolder>/<outputTemplate>" --print after_move:filepath <extraArgs...> <url>}.
      *
      * <p>{@code --encoding utf-8} forces yt-dlp's own stdout/stderr encoding. Some
      * distributions (e.g. the winget/PyInstaller build on Windows) print in the
      * console's ANSI code page regardless of {@code PYTHONUTF8}/{@code PYTHONIOENCODING},
      * mangling non-ASCII titles in the {@code --print after_move:filepath} output.
+     *
+     * @param url            the page yt-dlp fetches (the watch URL for YouTube, the track URI otherwise)
+     * @param outputTemplate the filename template, see {@link #outputTemplate(String)}
      */
-    public static List<String> download(YtDlpSettings settings, String videoId) {
+    public static List<String> download(YtDlpSettings settings, String url, String outputTemplate) {
         List<String> command = new ArrayList<>();
         command.add(settings.path());
         command.add("--encoding");
@@ -62,11 +78,11 @@ public final class YtDlpCommand {
         command.add("--no-progress");
         command.add("--no-warnings");
         command.add("-o");
-        command.add(settings.libraryFolder().resolve(OUTPUT_TEMPLATE).toString());
+        command.add(settings.libraryFolder().resolve(outputTemplate).toString());
         command.add("--print");
         command.add("after_move:filepath");
         command.addAll(settings.extraArgs());
-        command.add(videoUrl(videoId));
+        command.add(url);
         return List.copyOf(command);
     }
 
@@ -122,9 +138,5 @@ public final class YtDlpCommand {
         }
         int from = Math.max(0, nonBlank.size() - 3);
         return String.join("\n", nonBlank.subList(from, nonBlank.size()));
-    }
-
-    private static String videoUrl(String videoId) {
-        return "https://www.youtube.com/watch?v=" + videoId;
     }
 }

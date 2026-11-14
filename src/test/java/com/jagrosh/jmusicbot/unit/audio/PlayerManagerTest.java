@@ -247,7 +247,7 @@ class PlayerManagerTest {
                     "https://www.youtube.com/watch?v=" + videoId, null));
 
             LibraryAudioTrack track = assertInstanceOf(LibraryAudioTrack.class, item);
-            assertEquals(videoId, track.getVideoId());
+            assertEquals(videoId, track.getKey());
         }
     }
 }

@@ -21,6 +21,9 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.jagrosh.jmusicbot.ytdlp.LibraryEntry;
 import com.jagrosh.jmusicbot.ytdlp.YtDlpLibrary;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrackInfo;
@@ -93,7 +96,7 @@ class YtDlpLibraryTest {
         AudioTrackInfo info = sampleInfo("vid00000001");
         library.record("vid00000001", file, info);
 
-        Optional<LibraryEntry> found = library.findById("vid00000001");
+        Optional<LibraryEntry> found = library.find("vid00000001");
         assertTrue(found.isPresent());
         LibraryEntry entry = found.get();
         assertEquals("Song Title", entry.title());
@@ -130,7 +133,7 @@ class YtDlpLibraryTest {
         YtDlpLibrary second = new YtDlpLibrary(libraryFolder, playlistFile);
         second.load();
 
-        Optional<LibraryEntry> found = second.findById("vid00000003");
+        Optional<LibraryEntry> found = second.find("vid00000003");
         assertTrue(found.isPresent());
         LibraryEntry entry = found.get();
         assertEquals("Song Title", entry.title());
@@ -149,7 +152,7 @@ class YtDlpLibraryTest {
 
         library.load();
 
-        Optional<LibraryEntry> found = library.findById("abcdefghijk");
+        Optional<LibraryEntry> found = library.find("abcdefghijk");
         assertTrue(found.isPresent());
         assertEquals("Some Song", found.get().title());
     }
@@ -163,7 +166,7 @@ class YtDlpLibraryTest {
 
         library.load();
 
-        assertTrue(library.findById("UTR035").isEmpty());
+        assertTrue(library.find("UTR035").isEmpty());
         assertTrue(library.findByFile(file).isEmpty());
     }
 
@@ -177,7 +180,7 @@ class YtDlpLibraryTest {
 
         Files.delete(file);
 
-        assertTrue(library.findById("vid00000004").isEmpty());
+        assertTrue(library.find("vid00000004").isEmpty());
     }
 
     @Test
@@ -192,7 +195,7 @@ class YtDlpLibraryTest {
 
         Optional<LibraryEntry> found = library.findByFile(dotForm);
         assertTrue(found.isPresent());
-        assertEquals("vid00000005", found.get().videoId());
+        assertEquals("vid00000005", found.get().key());
     }
 
     @Test
@@ -208,7 +211,7 @@ class YtDlpLibraryTest {
         library.record("vid00000008", newFile, sampleInfo("vid00000008"));
 
         assertTrue(library.findByFile(oldFile).isEmpty());
-        assertEquals("vid00000008", library.findByFile(newFile).orElseThrow().videoId());
+        assertEquals("vid00000008", library.findByFile(newFile).orElseThrow().key());
     }
 
     @Test
@@ -225,8 +228,8 @@ class YtDlpLibraryTest {
         library.load();
 
         assertTrue(library.findByFile(gone).isEmpty());
-        assertTrue(library.findById("vid00000010").isEmpty());
-        assertEquals("vid00000009", library.findByFile(kept).orElseThrow().videoId());
+        assertTrue(library.find("vid00000010").isEmpty());
+        assertEquals("vid00000009", library.findByFile(kept).orElseThrow().key());
     }
 
     @Test
@@ -256,7 +259,7 @@ class YtDlpLibraryTest {
         }
         YtDlpLibrary library = new YtDlpLibrary(folder, tempDir.resolve(name + ".txt"));
         library.load();
-        assertTrue(library.findById(String.format("v%010d", size - 1)).isPresent());
+        assertTrue(library.find(String.format("v%010d", size - 1)).isPresent());
         return library;
     }
 
@@ -310,5 +313,265 @@ class YtDlpLibraryTest {
         assertEquals(2, lines.size());
         assertEquals(otherFile.toAbsolutePath().toString(), lines.get(0));
         assertEquals(file.toAbsolutePath().toString(), lines.get(1));
+    }
+
+    // ---- schema v2, aliases and rejections ----
+
+    private static final ObjectMapper JSON = new ObjectMapper();
+
+    /** Writes a v1 library.json shaped like the real one: a flat map of video ID to entry. */
+    private void writeV1Index(String videoId, Path file) throws IOException {
+        ObjectNode root = JSON.createObjectNode();
+        ObjectNode entry = root.putObject(videoId);
+        entry.put("file", file.toAbsolutePath().toString());
+        entry.put("title", "Crazy Frog - Axel F (Official Video)");
+        entry.put("author", "Crazy Frog");
+        entry.put("lengthMs", 172000);
+        entry.put("artworkUrl", "https://i.ytimg.com/vi/" + videoId + "/mqdefault.jpg");
+        entry.put("uri", "https://www.youtube.com/watch?v=" + videoId);
+        JSON.writerWithDefaultPrettyPrinter().writeValue(libraryFolder.resolve("library.json").toFile(), root);
+    }
+
+    private JsonNode readIndex() throws IOException {
+        return JSON.readTree(libraryFolder.resolve("library.json").toFile());
+    }
+
+    @Test
+    @DisplayName("a v1 library.json (flat video ID map) loads, and the next save writes v2")
+    void v1Index_loads_andNextSaveWritesV2() throws IOException {
+        Path axel = Files.createFile(libraryFolder.resolve("Crazy Frog - Axel F (Official Video) [k85mRPqvMbE].webm"));
+        writeV1Index("k85mRPqvMbE", axel);
+
+        YtDlpLibrary library = new YtDlpLibrary(libraryFolder, playlistFile, file -> Optional.empty());
+        library.load();
+
+        LibraryEntry entry = library.find("k85mRPqvMbE").orElseThrow();
+        assertEquals("Crazy Frog - Axel F (Official Video)", entry.title());
+        assertEquals("Crazy Frog", entry.author());
+        assertEquals(172000L, entry.lengthMs());
+        assertEquals("https://www.youtube.com/watch?v=k85mRPqvMbE", entry.uri());
+        assertEquals("youtube", entry.source());
+        assertFalse(entry.adopted());
+        assertTrue(readIndex().has("k85mRPqvMbE"), "loading alone doesn't rewrite a v1 index");
+
+        Path other = Files.createFile(libraryFolder.resolve("Other [vid00000011].webm"));
+        library.record("vid00000011", other, sampleInfo("vid00000011"));
+
+        JsonNode saved = readIndex();
+        assertEquals(2, saved.get("version").asInt());
+        assertEquals("Crazy Frog", saved.get("entries").get("k85mRPqvMbE").get("author").asText());
+        assertEquals(axel.toAbsolutePath().toString(), saved.get("entries").get("k85mRPqvMbE").get("file").asText());
+        assertTrue(saved.get("entries").has("vid00000011"));
+        assertFalse(saved.has("k85mRPqvMbE"), "entries live under \"entries\" in v2");
+    }
+
+    @Test
+    @DisplayName("a v1 adopted entry (no author, no length) stays adopted after loading")
+    void v1AdoptedEntry_staysAdopted() throws IOException {
+        Path file = Files.createFile(libraryFolder.resolve("Some Song [abcdefghijk].m4a"));
+        ObjectNode root = JSON.createObjectNode();
+        ObjectNode entry = root.putObject("abcdefghijk");
+        entry.put("file", file.toAbsolutePath().toString());
+        entry.put("title", "Some Song");
+        entry.put("author", "");
+        entry.put("lengthMs", 0);
+        entry.putNull("artworkUrl");
+        entry.put("uri", "https://www.youtube.com/watch?v=abcdefghijk");
+        JSON.writeValue(libraryFolder.resolve("library.json").toFile(), root);
+
+        YtDlpLibrary library = new YtDlpLibrary(libraryFolder, playlistFile, f -> Optional.empty());
+        library.load();
+
+        assertTrue(library.find("abcdefghijk").orElseThrow().adopted());
+    }
+
+    @Test
+    @DisplayName("v2 round-trips entries, aliases and rejections")
+    void v2_roundTripsAliasesAndRejections() throws IOException {
+        Path yt = Files.createFile(libraryFolder.resolve("Song Title [vid00000012].webm"));
+        Path sc = Files.createFile(libraryFolder.resolve("Song Title [soundcloud-123456].mp3"));
+        YtDlpLibrary first = new YtDlpLibrary(libraryFolder, playlistFile, f -> Optional.empty());
+        first.record("vid00000012", yt, sampleInfo("vid00000012"));
+        String scKey = "soundcloud:https://soundcloud.com/a/song";
+        first.record(scKey, sc, new AudioTrackInfo("SC Song", "SC Author", 2000L, "O:https://x", false,
+                "https://soundcloud.com/a/song", null, null));
+        first.alias("otherUpload1", "vid00000012");
+        first.reject("otherUpload2", "vid00000012");
+
+        YtDlpLibrary second = new YtDlpLibrary(libraryFolder, playlistFile, f -> Optional.empty());
+        second.load();
+
+        assertEquals("vid00000012", second.resolve("otherUpload1").orElseThrow().key());
+        assertTrue(second.isRejected("otherUpload2", "vid00000012"));
+        assertFalse(second.isRejected("otherUpload1", "vid00000012"));
+        LibraryEntry scEntry = second.find(scKey).orElseThrow();
+        assertEquals("SC Song", scEntry.title());
+        assertEquals("soundcloud", scEntry.source());
+        assertEquals(sc.toAbsolutePath().normalize(), scEntry.file());
+        assertEquals(2, second.entries().size());
+    }
+
+    @Test
+    @DisplayName("resolve() prefers the exact key over an alias, and falls back to the alias target")
+    void resolve_prefersExactKey() throws IOException {
+        Path a = Files.createFile(libraryFolder.resolve("A [vid00000013].webm"));
+        Path b = Files.createFile(libraryFolder.resolve("B [vid00000014].webm"));
+        YtDlpLibrary library = new YtDlpLibrary(libraryFolder, playlistFile, f -> Optional.empty());
+        library.record("vid00000013", a, sampleInfo("vid00000013"));
+        library.record("vid00000014", b, sampleInfo("vid00000014"));
+
+        library.alias("vid00000013", "vid00000014");
+        library.alias("requested01", "vid00000014");
+
+        assertEquals("vid00000013", library.resolve("vid00000013").orElseThrow().key());
+        assertEquals("vid00000014", library.resolve("requested01").orElseThrow().key());
+        assertTrue(library.find("requested01").isEmpty(), "find() never follows aliases");
+        assertTrue(library.resolve("nothing0000").isEmpty());
+    }
+
+    @Test
+    @DisplayName("unalias() removes the alias, persists it, and returns the old target")
+    void unalias_removesAndPersists() throws IOException {
+        Path a = Files.createFile(libraryFolder.resolve("A [vid00000015].webm"));
+        YtDlpLibrary library = new YtDlpLibrary(libraryFolder, playlistFile, f -> Optional.empty());
+        library.record("vid00000015", a, sampleInfo("vid00000015"));
+        library.alias("requested02", "vid00000015");
+
+        assertEquals(Optional.of("vid00000015"), library.unalias("requested02"));
+        assertEquals(Optional.empty(), library.unalias("requested02"));
+        assertTrue(library.resolve("requested02").isEmpty());
+
+        YtDlpLibrary reloaded = new YtDlpLibrary(libraryFolder, playlistFile, f -> Optional.empty());
+        reloaded.load();
+        assertTrue(reloaded.resolve("requested02").isEmpty());
+    }
+
+    @Test
+    @DisplayName("an alias to an entry whose file is gone resolves to nothing")
+    void resolve_aliasTargetFileGone_isEmpty() throws IOException {
+        Path a = Files.createFile(libraryFolder.resolve("A [vid00000016].webm"));
+        YtDlpLibrary library = new YtDlpLibrary(libraryFolder, playlistFile, f -> Optional.empty());
+        library.record("vid00000016", a, sampleInfo("vid00000016"));
+        library.alias("requested03", "vid00000016");
+
+        Files.delete(a);
+
+        assertTrue(library.resolve("requested03").isEmpty());
+    }
+
+    @Test
+    @DisplayName("entries() is a snapshot that doesn't change when the library does")
+    void entries_isSnapshot() throws IOException {
+        Path a = Files.createFile(libraryFolder.resolve("A [vid00000017].webm"));
+        Path b = Files.createFile(libraryFolder.resolve("B [vid00000018].webm"));
+        YtDlpLibrary library = new YtDlpLibrary(libraryFolder, playlistFile, f -> Optional.empty());
+        library.record("vid00000017", a, sampleInfo("vid00000017"));
+
+        List<LibraryEntry> snapshot = library.entries();
+        library.record("vid00000018", b, sampleInfo("vid00000018"));
+
+        assertEquals(1, snapshot.size());
+        assertEquals(2, library.entries().size());
+        assertThrows(UnsupportedOperationException.class, () -> snapshot.add(snapshot.get(0)));
+    }
+
+    @Test
+    @DisplayName("a non-YouTube key is recorded with its source, and survives a reload")
+    void nonYoutubeKey_recordAndReload() throws IOException {
+        Path file = Files.createFile(libraryFolder.resolve("Clip [vimeo-76979871].m4a"));
+        YtDlpLibrary library = new YtDlpLibrary(libraryFolder, playlistFile, f -> Optional.empty());
+        library.record("vimeo:76979871", file, new AudioTrackInfo("Clip", "Owner", 5000L, "76979871", false,
+                "https://vimeo.com/76979871", null, null));
+
+        YtDlpLibrary reloaded = new YtDlpLibrary(libraryFolder, playlistFile, f -> Optional.empty());
+        reloaded.load();
+
+        LibraryEntry entry = reloaded.find("vimeo:76979871").orElseThrow();
+        assertEquals("vimeo", entry.source());
+        assertEquals("https://vimeo.com/76979871", entry.uri());
+        assertEquals(1, reloaded.entries().size());
+    }
+
+    @Test
+    @DisplayName("bad entries and malformed aliases/rejections are skipped one by one")
+    void corruptFields_areTolerated() throws IOException {
+        Path good = Files.createFile(libraryFolder.resolve("Good [vid00000019].webm"));
+        String json = """
+                {
+                  "version": 2,
+                  "entries": {
+                    "vid00000019": { "file": %s, "title": "Good", "author": "A", "lengthMs": 1000, "uri": "u",
+                                     "someFutureField": [1, 2, 3] },
+                    "noFile00001": { "title": "No file" },
+                    "badFile0001": { "file": 42 },
+                    "notAnObject": "oops"
+                  },
+                  "aliases": { "requested04": "vid00000019", "badAlias001": 7, "danglingAl1": "missingKey1" },
+                  "rejections": [ ["requested05", "vid00000019"], ["only-one"], "nope", [1, 2], ["a", "missingKey1"] ]
+                }
+                """.formatted(JSON.writeValueAsString(good.toAbsolutePath().toString()));
+        Files.writeString(libraryFolder.resolve("library.json"), json);
+
+        YtDlpLibrary library = new YtDlpLibrary(libraryFolder, playlistFile, f -> Optional.empty());
+        library.load();
+
+        assertEquals("Good", library.find("vid00000019").orElseThrow().title());
+        assertTrue(library.find("noFile00001").isEmpty());
+        assertTrue(library.find("badFile0001").isEmpty());
+        assertTrue(library.find("notAnObject").isEmpty());
+        assertEquals("vid00000019", library.resolve("requested04").orElseThrow().key());
+        assertTrue(library.resolve("danglingAl1").isEmpty());
+        assertTrue(library.isRejected("requested05", "vid00000019"));
+        assertFalse(library.isRejected("a", "missingKey1"));
+    }
+
+    @Test
+    @DisplayName("a v2 index with missing or mistyped schema fields still loads its entries")
+    void missingSchemaFields_areTolerated() throws IOException {
+        Path good = Files.createFile(libraryFolder.resolve("Good [vid00000020].webm"));
+        Files.writeString(libraryFolder.resolve("library.json"), """
+                { "version": 2,
+                  "entries": { "vid00000020": { "file": %s, "title": "Good" } },
+                  "aliases": [],
+                  "rejections": {} }
+                """.formatted(JSON.writeValueAsString(good.toAbsolutePath().toString())));
+
+        YtDlpLibrary library = new YtDlpLibrary(libraryFolder, playlistFile, f -> Optional.empty());
+        library.load();
+
+        LibraryEntry entry = library.find("vid00000020").orElseThrow();
+        assertEquals("Good", entry.title());
+        assertEquals("", entry.author());
+        assertEquals(0L, entry.lengthMs());
+        assertEquals("https://www.youtube.com/watch?v=vid00000020", entry.uri());
+    }
+
+    @Test
+    @DisplayName("an unreadable library.json is copied aside before anything overwrites it")
+    void unparseableIndex_isCopiedAside() throws IOException {
+        Files.writeString(libraryFolder.resolve("library.json"), "{ this is not json");
+        Path file = Files.createFile(libraryFolder.resolve("Song [vid00000021].webm"));
+        YtDlpLibrary library = new YtDlpLibrary(libraryFolder, playlistFile, f -> Optional.empty());
+
+        library.load();
+        library.record("vid00000021", file, sampleInfo("vid00000021"));
+
+        assertEquals("{ this is not json", Files.readString(libraryFolder.resolve("library.json.corrupt")));
+        assertEquals(2, readIndex().get("version").asInt());
+    }
+
+    @Test
+    @DisplayName("reject() is per pair and persisted")
+    void reject_isPerPair() throws IOException {
+        Path a = Files.createFile(libraryFolder.resolve("A [vid00000022].webm"));
+        YtDlpLibrary library = new YtDlpLibrary(libraryFolder, playlistFile, f -> Optional.empty());
+        library.record("vid00000022", a, sampleInfo("vid00000022"));
+
+        library.reject("requested06", "vid00000022");
+        library.reject("requested06", "vid00000022");
+
+        assertTrue(library.isRejected("requested06", "vid00000022"));
+        assertFalse(library.isRejected("vid00000022", "requested06"));
+        assertEquals(1, readIndex().get("rejections").size());
     }
 }

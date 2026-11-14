@@ -30,6 +30,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @DisplayName("YtDlpCommand Tests")
 class YtDlpCommandTest {
 
+    private static final String YT_URL = "https://www.youtube.com/watch?v=abc00000000";
+
     private static YtDlpSettings settings(Path libraryFolder, List<String> extraArgs) {
         return new YtDlpSettings("yt-dlp", YtDlpSettings.Mode.PROMPT, libraryFolder, "ytdlp-library",
                 5, 300, extraArgs, 120);
@@ -40,12 +42,12 @@ class YtDlpCommandTest {
     void download_buildsExactArgs() {
         YtDlpSettings settings = settings(Path.of("/lib"), List.of());
 
-        List<String> command = YtDlpCommand.download(settings, "abc");
+        List<String> command = YtDlpCommand.download(settings, YT_URL, YtDlpCommand.outputTemplate("abc00000000"));
 
         assertEquals(List.of("yt-dlp", "--encoding", "utf-8", "-f", "bestaudio", "--no-playlist", "--no-progress",
                 "--no-warnings", "-o", Path.of("/lib").resolve("%(title)s [%(id)s].%(ext)s").toString(),
                 "--print", "after_move:filepath",
-                "https://www.youtube.com/watch?v=abc"), command);
+                YT_URL), command);
     }
 
     @Test
@@ -53,7 +55,7 @@ class YtDlpCommandTest {
     void download_forcesUtf8Encoding() {
         YtDlpSettings settings = settings(Path.of("/lib"), List.of());
 
-        List<String> command = YtDlpCommand.download(settings, "abc");
+        List<String> command = YtDlpCommand.download(settings, YT_URL, YtDlpCommand.outputTemplate("abc00000000"));
 
         assertEquals(List.of("--encoding", "utf-8"), command.subList(1, 3));
     }
@@ -63,11 +65,35 @@ class YtDlpCommandTest {
     void download_extraArgsGoBeforeUrl() {
         YtDlpSettings settings = settings(Path.of("/lib"), List.of("--cookies", "c.txt"));
 
-        List<String> command = YtDlpCommand.download(settings, "abc");
+        List<String> command = YtDlpCommand.download(settings, YT_URL, YtDlpCommand.outputTemplate("abc00000000"));
 
         int size = command.size();
-        assertEquals(List.of("--cookies", "c.txt", "https://www.youtube.com/watch?v=abc"),
+        assertEquals(List.of("--cookies", "c.txt", YT_URL),
                 command.subList(size - 3, size));
+    }
+
+    @Test
+    @DisplayName("download() fetches a non-YouTube page URL with a [source-id] output template")
+    void download_nonYoutube_usesUrlAndSourceTemplate() {
+        YtDlpSettings settings = settings(Path.of("/lib"), List.of());
+        String url = "https://soundcloud.com/crazyfrog/axel-f";
+
+        List<String> command = YtDlpCommand.download(settings, url,
+                YtDlpCommand.outputTemplate("soundcloud:" + url));
+
+        assertEquals(url, command.get(command.size() - 1));
+        assertEquals(Path.of("/lib").resolve("%(title)s [soundcloud-%(id)s].%(ext)s").toString(),
+                command.get(command.indexOf("-o") + 1));
+        assertEquals(List.of("--encoding", "utf-8"), command.subList(1, 3));
+    }
+
+    @Test
+    @DisplayName("outputTemplate() keeps YouTube's [id] form and prefixes other sources")
+    void outputTemplate_perSource() {
+        assertEquals("%(title)s [%(id)s].%(ext)s", YtDlpCommand.outputTemplate("k85mRPqvMbE"));
+        assertEquals("%(title)s [vimeo-%(id)s].%(ext)s", YtDlpCommand.outputTemplate("vimeo:76979871"));
+        assertEquals("%(title)s [bandcamp-%(id)s].%(ext)s",
+                YtDlpCommand.outputTemplate("bandcamp:https://a.bandcamp.com/track/b"));
     }
 
     @Test
