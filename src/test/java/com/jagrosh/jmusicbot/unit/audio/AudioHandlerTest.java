@@ -20,6 +20,11 @@ import com.jagrosh.jmusicbot.audio.AudioHandler;
 import com.jagrosh.jmusicbot.audio.QueuedTrack;
 import com.jagrosh.jmusicbot.settings.QueueType;
 import com.jagrosh.jmusicbot.settings.RepeatMode;
+import com.jagrosh.jmusicbot.ytdlp.LibraryAudioTrack;
+import com.jagrosh.jmusicbot.ytdlp.LibraryEntry;
+import com.jagrosh.jmusicbot.ytdlp.YtDlpPrompt;
+import com.jagrosh.jmusicbot.ytdlp.YtDlpService;
+import com.sedmelluq.discord.lavaplayer.tools.FriendlyException;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrackEndReason;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrackInfo;
@@ -30,6 +35,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
+
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -459,6 +467,168 @@ public class AudioHandlerTest extends TestBase {
             when(queuedTrack.getTrack()).thenReturn(track);
             when(queuedTrack.getIdentifier()).thenReturn(0L);
             audioHandler.getQueue().add(queuedTrack);
+        }
+    }
+
+    // ==================== yt-dlp wiring ====================
+
+    @Nested
+    @DisplayName("yt-dlp wiring")
+    class YtDlpWiringTests
+    {
+        private YtDlpService ytDlp;
+        private YtDlpPrompt prompt;
+
+        @BeforeEach
+        void setUpYtDlp()
+        {
+            ytDlp = mock(YtDlpService.class);
+            prompt = mock(YtDlpPrompt.class);
+            when(bot.getYtDlp()).thenReturn(ytDlp);
+            when(ytDlp.getPrompt()).thenReturn(prompt);
+            when(ytDlp.prepareForPlayback(any(), anyLong())).thenAnswer(inv -> inv.getArgument(0));
+            when(jda.getGuildById(GUILD_ID)).thenReturn(guild);
+            when(bot.getNowplayingHandler()).thenReturn(mock(com.jagrosh.jmusicbot.audio.NowPlayingHandler.class));
+        }
+
+        private AudioTrack track(String identifier)
+        {
+            AudioTrack track = mock(AudioTrack.class);
+            when(track.getInfo()).thenReturn(new AudioTrackInfo("Title " + identifier, "Author", 1000, identifier, false, "uri"));
+            when(track.getIdentifier()).thenReturn(identifier);
+            return track;
+        }
+
+        private LibraryAudioTrack libraryTrack(CompletableFuture<Void> gate)
+        {
+            return new LibraryAudioTrack(new AudioTrackInfo("Lib", "Author", 1000, "abcdefghijk", false, "uri"),
+                    "abcdefghijk", () -> new CompletableFuture<LibraryEntry>(), gate, null);
+        }
+
+        private void enqueue(AudioTrack track)
+        {
+            QueuedTrack queued = mock(QueuedTrack.class);
+            when(queued.getTrack()).thenReturn(track);
+            audioHandler.getQueue().add(queued);
+        }
+
+        @Test
+        @DisplayName("addTrack() plays the track prepared by the yt-dlp library")
+        void addTrack_playsPreparedTrack()
+        {
+            AudioTrack original = track("orig");
+            AudioTrack prepared = track("prepared");
+            when(ytDlp.prepareForPlayback(original, GUILD_ID)).thenReturn(prepared);
+            QueuedTrack queued = mock(QueuedTrack.class);
+            when(queued.getTrack()).thenReturn(original);
+            when(audioPlayer.getPlayingTrack()).thenReturn(null);
+
+            audioHandler.addTrack(queued);
+
+            verify(audioPlayer).playTrack(prepared);
+        }
+
+        @Test
+        @DisplayName("a blocked track that gets a prompt is replaced by its hold, and the queue waits")
+        void offeredPrompt_loadFailed_playsHoldWithoutPullingQueue()
+        {
+            AudioTrack blocked = track("blocked");
+            AudioTrack hold = track("hold");
+            FriendlyException ex = new FriendlyException("blocked", FriendlyException.Severity.SUSPICIOUS, null);
+            when(prompt.shouldOffer(blocked, ex)).thenReturn(true);
+            when(prompt.holdFor(guild, blocked)).thenReturn(Optional.of(hold));
+            enqueue(track("next"));
+
+            audioHandler.onTrackException(audioPlayer, blocked, ex);
+            audioHandler.onTrackEnd(audioPlayer, blocked, AudioTrackEndReason.LOAD_FAILED);
+
+            verify(audioPlayer).playTrack(hold);
+            assertEquals(1, audioHandler.getQueue().size());
+            verify(prompt, never()).onHoldEnded(anyLong());
+        }
+
+        @Test
+        @DisplayName("a blocked track stopped before its hold starts closes the prompt and moves on")
+        void blockedTrackStopped_closesPromptAndPullsNext()
+        {
+            AudioTrack blocked = track("blocked");
+            AudioTrack hold = track("hold");
+            AudioTrack next = track("next");
+            FriendlyException ex = new FriendlyException("blocked", FriendlyException.Severity.SUSPICIOUS, null);
+            when(prompt.shouldOffer(blocked, ex)).thenReturn(true);
+            when(prompt.holdFor(guild, blocked)).thenReturn(Optional.of(hold));
+            enqueue(next);
+
+            audioHandler.onTrackException(audioPlayer, blocked, ex);
+            audioHandler.onTrackEnd(audioPlayer, blocked, AudioTrackEndReason.STOPPED);
+
+            verify(prompt).onHoldEnded(GUILD_ID);
+            verify(audioPlayer, never()).playTrack(hold);
+            verify(audioPlayer).playTrack(next);
+        }
+
+        @Test
+        @DisplayName("a failure without a prompt moves on to the next song as before")
+        void notOffered_loadFailed_pullsNext()
+        {
+            AudioTrack failed = track("failed");
+            AudioTrack next = track("next");
+            FriendlyException ex = new FriendlyException("broken", FriendlyException.Severity.COMMON, null);
+            enqueue(next);
+
+            audioHandler.onTrackException(audioPlayer, failed, ex);
+            audioHandler.onTrackEnd(audioPlayer, failed, AudioTrackEndReason.LOAD_FAILED);
+
+            verify(prompt, never()).holdFor(any(), any());
+            verify(audioPlayer).playTrack(next);
+        }
+
+        @Test
+        @DisplayName("a hold track ending (skip, stop, finish) reports back to the prompt")
+        void gatedLibraryTrackEnds_endsPrompt()
+        {
+            LibraryAudioTrack hold = libraryTrack(new CompletableFuture<>());
+
+            audioHandler.onTrackEnd(audioPlayer, hold, AudioTrackEndReason.STOPPED);
+
+            verify(prompt).onHoldEnded(GUILD_ID);
+        }
+
+        @Test
+        @DisplayName("a library track failing is reported, not offered a prompt")
+        void libraryTrackException_notifiesDownloadFailed()
+        {
+            LibraryAudioTrack library = libraryTrack(null);
+            FriendlyException ex = new FriendlyException("yt-dlp couldn't download this track: x",
+                    FriendlyException.Severity.COMMON, null);
+
+            audioHandler.onTrackException(audioPlayer, library, ex);
+
+            verify(prompt).notifyDownloadFailed(guild, library, ex);
+            verify(prompt, never()).holdFor(any(), any());
+        }
+
+        @Test
+        @DisplayName("status emoji shows paused while a hold waits for its prompt")
+        void statusEmoji_pausedWhileHoldAwaitsGate()
+        {
+            CompletableFuture<Void> gate = new CompletableFuture<>();
+            when(audioPlayer.getPlayingTrack()).thenReturn(libraryTrack(gate));
+            when(audioPlayer.isPaused()).thenReturn(false);
+
+            assertEquals(AudioHandler.PAUSE_EMOJI, audioHandler.getStatusEmoji());
+            gate.complete(null);
+            assertEquals(AudioHandler.PLAY_EMOJI, audioHandler.getStatusEmoji());
+        }
+
+        @Test
+        @DisplayName("stopping cancels the guild's queued downloads")
+        void stop_cancelsGuildDownloads()
+        {
+            audioHandler.stopAndClear();
+            audioHandler.stopAndClearQueuePreserveHistory();
+
+            verify(ytDlp, times(2)).cancelGuild(GUILD_ID);
         }
     }
 }

@@ -21,6 +21,10 @@ import com.jagrosh.jmusicbot.settings.QueueType;
 import com.jagrosh.jmusicbot.settings.RepeatMode;
 import com.jagrosh.jmusicbot.settings.Settings;
 import com.jagrosh.jmusicbot.utils.MessageFormatter;
+import com.jagrosh.jmusicbot.ytdlp.LibraryAudioTrack;
+import com.jagrosh.jmusicbot.ytdlp.YtDlpPrompt;
+import com.jagrosh.jmusicbot.ytdlp.YtDlpService;
+import com.jagrosh.jmusicbot.ytdlp.YtDlpSettings;
 import com.sedmelluq.discord.lavaplayer.player.AudioPlayer;
 import com.sedmelluq.discord.lavaplayer.player.event.AudioEventAdapter;
 import com.sedmelluq.discord.lavaplayer.tools.FriendlyException;
@@ -40,6 +44,7 @@ import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  *
@@ -65,6 +70,11 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
     private AbstractQueue<QueuedTrack> queue;
     private String lastReason = null;
     private volatile String favoritedTrackUri = null;
+    /**
+     * yt-dlp prompt mode: the hold track to play in place of a YouTube track that was just
+     * blocked, set in onTrackException and taken by the following onTrackEnd.
+     */
+    private final AtomicReference<AudioTrack> pendingHold = new AtomicReference<>();
 
     protected AudioHandler(PlayerManager manager, Guild guild, AudioPlayer player)
     {
@@ -97,7 +107,7 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
     {
         if(audioPlayer.getPlayingTrack()==null)
         {
-            audioPlayer.playTrack(qtrack.getTrack());
+            playPrepared(qtrack.getTrack());
             return -1;
         }
         else
@@ -112,7 +122,7 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
     {
         if(audioPlayer.getPlayingTrack()==null)
         {
-            audioPlayer.playTrack(qtrack.getTrack());
+            playPrepared(qtrack.getTrack());
             return -1;
         }
 
@@ -142,6 +152,7 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
         queue.clearAll();
         defaultQueue.clear();
         audioPlayer.stopTrack();
+        cancelYtDlpDownloads();
         //current = null;
     }
 
@@ -155,6 +166,64 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
         queue.clear();
         defaultQueue.clear();
         audioPlayer.stopTrack();
+        cancelYtDlpDownloads();
+    }
+
+    /**
+     * Starts a track on the player, after giving the yt-dlp library a chance to swap in its
+     * library copy. Every path that hands a track to the player goes through here.
+     */
+    public void playPrepared(AudioTrack track)
+    {
+        audioPlayer.playTrack(prepareForPlayback(track));
+    }
+
+    private AudioTrack prepareForPlayback(AudioTrack track)
+    {
+        YtDlpService ytDlp = ytDlp();
+        if (ytDlp == null || track == null)
+            return track;
+        try
+        {
+            return ytDlp.prepareForPlayback(track, guildId);
+        }
+        catch (RuntimeException ex)
+        {
+            LOGGER.warn("yt-dlp library couldn't prepare track {}, playing it as is: {}", track.getIdentifier(), ex.toString());
+            return track;
+        }
+    }
+
+    /** The yt-dlp service, or null when the bot has none (e.g. a mocked bot in tests). */
+    private YtDlpService ytDlp()
+    {
+        return manager.getBot().getYtDlp();
+    }
+
+    private YtDlpPrompt ytDlpPrompt()
+    {
+        YtDlpService ytDlp = ytDlp();
+        return ytDlp == null ? null : ytDlp.getPrompt();
+    }
+
+    private Guild guild()
+    {
+        JDA jda = manager.getBot().getJDA();
+        return jda == null ? null : jda.getGuildById(guildId);
+    }
+
+    private void cancelYtDlpDownloads()
+    {
+        YtDlpService ytDlp = ytDlp();
+        if (ytDlp != null)
+            ytDlp.cancelGuild(guildId);
+    }
+
+    private void endYtDlpPrompt()
+    {
+        YtDlpPrompt prompt = ytDlpPrompt();
+        if (prompt != null)
+            prompt.onHoldEnded(guildId);
     }
 
     public boolean isMusicPlaying(JDA jda)
@@ -188,7 +257,7 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
     {
         if(!defaultQueue.isEmpty())
         {
-            audioPlayer.playTrack(defaultQueue.remove(0));
+            playPrepared(defaultQueue.remove(0));
             return true;
         }
         Settings settings = manager.getBot().getSettingsManager().getSettings(guildId);
@@ -201,7 +270,7 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
         pl.loadTracks(manager, (at) -> 
         {
             if(audioPlayer.getPlayingTrack()==null)
-                audioPlayer.playTrack(at);
+                playPrepared(at);
             else
                 defaultQueue.add(at);
         }, () -> 
@@ -235,6 +304,20 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
         else if (track != null && track.getInfo() != null) {
             LOGGER.debug("Track ended: {} Reason: {}", track.getInfo().title, endReason);
         }
+
+        // yt-dlp prompt mode: a blocked YouTube track pauses the queue on its hold track
+        AudioTrack hold = pendingHold.getAndSet(null);
+        if (hold != null)
+        {
+            if (endReason == AudioTrackEndReason.LOAD_FAILED)
+            {
+                player.playTrack(hold);
+                return;
+            }
+            endYtDlpPrompt(); // the blocked track was stopped before its hold could start
+        }
+        if (track instanceof LibraryAudioTrack libraryTrack && libraryTrack.isGated())
+            endYtDlpPrompt();
 
         RepeatMode repeatMode = manager.getBot().getSettingsManager().getSettings(guildId).getRepeatMode();
         // if the track ended normally, and we're in repeat mode, re-add it to the queue
@@ -271,7 +354,7 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
             QueuedTrack qt = queue.pull();
             if (lastReason == null || (!lastReason.startsWith("Repeating") && !lastReason.startsWith("Skipped")))
                 lastReason = "Playing next song.";
-            player.playTrack(qt.getTrack());
+            playPrepared(qt.getTrack());
         }
     }
 
@@ -285,6 +368,7 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
             trackUri = track.getInfo().uri;
         }
         metricsListener.onTrackException(trackTitle, trackUri);
+        handleYtDlpException(track, exception);
         
         // Build detailed error message with track information
         StringBuilder errorDetails = new StringBuilder();
@@ -345,6 +429,25 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
         }
     }
 
+    /** yt-dlp: offer a download for a blocked YouTube track, or report a failed library track. */
+    private void handleYtDlpException(AudioTrack track, FriendlyException exception)
+    {
+        YtDlpPrompt prompt = ytDlpPrompt();
+        if (prompt == null)
+            return;
+        try
+        {
+            if (track instanceof LibraryAudioTrack)
+                prompt.notifyDownloadFailed(guild(), track, exception);
+            else if (prompt.shouldOffer(track, exception))
+                prompt.holdFor(guild(), track).ifPresent(pendingHold::set);
+        }
+        catch (RuntimeException ex)
+        {
+            LOGGER.warn("yt-dlp couldn't handle the failure of track {}: {}", track.getIdentifier(), ex.toString());
+        }
+    }
+
     @Override
     public void onTrackStart(AudioPlayer player, AudioTrack track)
     {
@@ -387,12 +490,37 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
         if (lastReason == null)
             lastReason = "Playing next song.";
 
+        prefetchNext();
+
         manager.getBot().getNowplayingHandler().onTrackUpdate(guildId, track);
     }
     
+    /** yt-dlp {@code always} mode: start downloading the next song while this one plays. */
+    private void prefetchNext()
+    {
+        YtDlpService ytDlp = ytDlp();
+        if (ytDlp == null || !ytDlp.isEnabled() || ytDlp.mode() != YtDlpSettings.Mode.ALWAYS || queue.isEmpty())
+            return;
+        try
+        {
+            ytDlp.prefetch(queue.get(0).getTrack(), guildId);
+        }
+        catch (RuntimeException ex)
+        {
+            LOGGER.debug("yt-dlp prefetch skipped: {}", ex.toString());
+        }
+    }
+
     @Override
     public void onTrackStuck(AudioPlayer player, AudioTrack track, long thresholdMs)
     {
+        // A library track waits (for a prompt answer or its download) before its first frame;
+        // that is expected, not a decoder stall.
+        if (track instanceof LibraryAudioTrack && track.getPosition() == 0)
+        {
+            LOGGER.debug("Library track {} is waiting for its yt-dlp download", track.getIdentifier());
+            return;
+        }
         // Record the stuck event in performance metrics
         String trackTitle = null;
         String trackUri = null;
@@ -465,6 +593,9 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
 
     public String getStatusEmoji()
     {
+        // A yt-dlp prompt's hold track is "playing" but waits for an answer: show it as paused.
+        if (audioPlayer.getPlayingTrack() instanceof LibraryAudioTrack libraryTrack && libraryTrack.isAwaitingGate())
+            return PAUSE_EMOJI;
         return audioPlayer.isPaused() ? PAUSE_EMOJI : PLAY_EMOJI;
     }
 

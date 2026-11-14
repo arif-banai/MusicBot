@@ -175,4 +175,38 @@ class ComponentIdParsersTest
         assertTrue(ComponentIdParsers.parseNowPlayingButtonId("np_").isEmpty());
         assertTrue(ComponentIdParsers.parseNowPlayingButtonId("np_pause_more").isEmpty());
     }
+
+    @Test
+    void parse_videoIdWithUnderscores()
+    {
+        var parsed = ComponentIdParsers.parseYtDlpButtonId("ytdlp_all_42_a_b-c_d1234");
+        assertTrue(parsed.isPresent());
+        assertEquals("all", parsed.get().action());
+        assertEquals(42L, parsed.get().requesterId());
+        assertEquals("a_b-c_d1234", parsed.get().videoId());
+    }
+
+    @Test
+    void roundTrip_oneAndAll()
+    {
+        for (String action : new String[] { "one", "all" })
+        {
+            String id = ComponentIdParsers.ytDlpButtonId(action, 123456789012345678L, "_a-b_c__d1");
+            var parsed = ComponentIdParsers.parseYtDlpButtonId(id);
+            assertTrue(parsed.isPresent(), id);
+            assertEquals(action, parsed.get().action());
+            assertEquals(123456789012345678L, parsed.get().requesterId());
+            assertEquals("_a-b_c__d1", parsed.get().videoId());
+        }
+    }
+
+    @Test
+    void parse_rejectsOtherPrefixes()
+    {
+        assertTrue(ComponentIdParsers.parseYtDlpButtonId("np_skip").isEmpty());
+        assertTrue(ComponentIdParsers.parseYtDlpButtonId("ytdlp_one_notanumber_abc").isEmpty());
+        assertTrue(ComponentIdParsers.parseYtDlpButtonId("ytdlp_one_42_").isEmpty());
+        assertTrue(ComponentIdParsers.parseYtDlpButtonId("ytdlp_one_42").isEmpty());
+        assertTrue(ComponentIdParsers.parseYtDlpButtonId("ytdlp_maybe_42_abc").isEmpty());
+    }
 }

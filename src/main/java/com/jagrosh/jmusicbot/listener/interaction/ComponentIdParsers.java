@@ -22,7 +22,7 @@ import java.util.Optional;
  * Format contracts: queue_{action}_{page}_{selectedTrack}_{userId}, history_{action}_{page}_{selectedTrack}_{userId},
  * playlists_{action}_{page}_{selectedIndex}_{userId}, queue_move_select_{fromPosition}_{page}_{userId},
  * history_save_{userId}, settings_{action}_{key}_{value?}_{userId}, settings_modal_{key}_{userId},
- * settings_entity_{key}_{userId}, np_{action}.
+ * settings_entity_{key}_{userId}, np_{action}, ytdlp_{one|all}_{requesterId}_{videoId}.
  */
 public final class ComponentIdParsers {
 
@@ -38,6 +38,7 @@ public final class ComponentIdParsers {
     private static final String SETTINGS_MODAL_PREFIX = "settings_modal_";
     private static final String SETTINGS_ENTITY_PREFIX = "settings_entity_";
     private static final String NOW_PLAYING_PREFIX = "np_";
+    private static final String YTDLP_PREFIX = "ytdlp_";
 
     private ComponentIdParsers() {
     }
@@ -108,6 +109,12 @@ public final class ComponentIdParsers {
      * Parsed now-playing button ID: action.
      */
     public record NowPlayingButtonId(String action) {
+    }
+
+    /**
+     * Parsed yt-dlp prompt button ID: action ({@code one} or {@code all}), requesterId, videoId.
+     */
+    public record YtDlpButtonId(String action, long requesterId, String videoId) {
     }
 
     /**
@@ -389,5 +396,47 @@ public final class ComponentIdParsers {
             return Optional.empty();
         }
         return Optional.of(new NowPlayingButtonId(parts[1]));
+    }
+
+    /**
+     * Builds a yt-dlp prompt button ID: ytdlp_{action}_{requesterId}_{videoId}.
+     * The video ID goes last because it may itself contain underscores.
+     */
+    public static String ytDlpButtonId(String action, long requesterId, String videoId) {
+        return YTDLP_PREFIX + action + "_" + requesterId + "_" + videoId;
+    }
+
+    /**
+     * Parses yt-dlp prompt button IDs. Expected format: ytdlp_{one|all}_{requesterId}_{videoId}.
+     * Only the first two underscores after the prefix separate fields; everything after the
+     * requester ID is the video ID, so IDs such as {@code a_b-c_d1234} round-trip exactly.
+     */
+    public static Optional<YtDlpButtonId> parseYtDlpButtonId(String componentId) {
+        if (componentId == null || !componentId.startsWith(YTDLP_PREFIX)) {
+            return Optional.empty();
+        }
+        String rest = componentId.substring(YTDLP_PREFIX.length());
+        int actionEnd = rest.indexOf('_');
+        if (actionEnd <= 0) {
+            return Optional.empty();
+        }
+        int requesterEnd = rest.indexOf('_', actionEnd + 1);
+        if (requesterEnd < 0) {
+            return Optional.empty();
+        }
+        String action = rest.substring(0, actionEnd);
+        if (!action.equals("one") && !action.equals("all")) {
+            return Optional.empty();
+        }
+        String videoId = rest.substring(requesterEnd + 1);
+        if (videoId.isEmpty()) {
+            return Optional.empty();
+        }
+        try {
+            long requesterId = Long.parseLong(rest.substring(actionEnd + 1, requesterEnd));
+            return Optional.of(new YtDlpButtonId(action, requesterId, videoId));
+        } catch (NumberFormatException e) {
+            return Optional.empty();
+        }
     }
 }

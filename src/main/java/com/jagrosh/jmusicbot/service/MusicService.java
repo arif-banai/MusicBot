@@ -362,7 +362,7 @@ public class MusicService
         QueuedTrack previous = handler.getQueue().rewind(currentQueued);
         if (previous != null)
         {
-            handler.getPlayer().playTrack(previous.getTrack());
+            handler.playPrepared(previous.getTrack());
             LOG.info("Went to previous track: guild={}, track=\"{}\"",
                     guild.getId(), previous.getTrack().getInfo().title);
             output.replySuccess("Went back to **" + FormatUtil.getTrackTitle(previous.getTrack()) + "**");

@@ -292,7 +292,7 @@ public class MusicServiceTest
 
             // Then
             verify(fixture.getQueue()).removeFromHistoryAt(0);
-            verify(fixture.getAudioPlayer()).playTrack(prevAudioTrack);
+            verify(fixture.getAudioHandler()).playPrepared(prevAudioTrack);
             output.assertSuccessMessageContains("Went back to");
         }
 
