@@ -26,7 +26,7 @@ import org.jetbrains.annotations.Nullable;
  *                      library entry shared any word with the requested title or artist
  * @param score        the candidate's score: the real match score when {@link #reason} is
  *                      {@link Reason#SUGGESTED} or {@link Reason#ALREADY_OFFERED}, otherwise the
- *                      raw title/artist score (ignoring duration) used to pick the candidate for
+ *                      raw title/artist score (ignoring duration and version words) used to pick the candidate for
  *                      this report
  * @param reason        why no suggestion went out, or {@link Reason#SUGGESTED} when one did
  * @param entry         the library entry to suggest, set only when {@link #reason} is

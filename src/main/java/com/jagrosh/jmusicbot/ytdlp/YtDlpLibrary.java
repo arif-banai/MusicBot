@@ -245,8 +245,9 @@ public final class YtDlpLibrary {
             Path indexFile = libraryFolder.resolve(INDEX_FILE_NAME);
             boolean indexExisted = Files.exists(indexFile);
             boolean loaded = false;
+            Swapped swapped;
             try {
-                scanAndSwap(indexFile, false);
+                swapped = scanAndSwap(indexFile, false);
                 loaded = true;
             } finally {
                 if (!loaded && indexExisted && saveBlocked == null) {
@@ -254,6 +255,12 @@ public final class YtDlpLibrary {
                     saveBlocked = "loading the library failed earlier this run";
                     LOGGER.warn("Loading the library in {} failed; {} won't be saved this run", libraryFolder,
                             INDEX_FILE_NAME);
+                }
+            }
+            // Outside the guard above: the index is in memory now, so a failed write fails only itself.
+            if (swapped.save()) {
+                synchronized (this) {
+                    saveIndex();
                 }
             }
         }
@@ -264,7 +271,7 @@ public final class YtDlpLibrary {
 
     /**
      * Scans (reads the index, walks the folder, probes new files, reads sidecars) without this
-     * object's lock, then takes it only to swap the result in, and saves when needed. If the
+     * object's lock, then takes it only to swap the result in; the caller saves if told to. If the
      * in-memory index changed while the scan ran (a download recorded, a link saved), the scan is
      * thrown away and run again from the index as now saved; the last attempt holds the lock
      * throughout. The caller holds {@link #scanLock}.
@@ -272,7 +279,7 @@ public final class YtDlpLibrary {
      * @param rescan whether to also save when the swap changed the in-memory entries (a rescan
      *               does; a load saves only for the reasons {@link #load()} lists)
      */
-    private ScanSummary scanAndSwap(Path indexFile, boolean rescan) throws IOException {
+    private Swapped scanAndSwap(Path indexFile, boolean rescan) throws IOException {
         for (int attempt = 1; ; attempt++) {
             if (attempt == MAX_SCAN_ATTEMPTS) {
                 synchronized (this) {
@@ -291,6 +298,10 @@ public final class YtDlpLibrary {
             }
             LOGGER.debug("The library changed during a scan; scanning again");
         }
+    }
+
+    /** What a swap changed, and whether the index should now be saved. */
+    private record Swapped(ScanSummary summary, boolean save) {
     }
 
     /** What one {@link #scan} found, ready to swap into memory. */
@@ -369,10 +380,10 @@ public final class YtDlpLibrary {
     }
 
     /**
-     * Puts a scan's result in memory, counting how the entries changed, and saves if the scan says
-     * so (or, for a rescan, if anything changed). Caller holds this object's lock.
+     * Puts a scan's result in memory, counting how the entries changed, and says whether to save:
+     * if the scan says so, or (for a rescan) if anything changed. Caller holds this object's lock.
      */
-    private ScanSummary swap(ScanResult result, boolean rescan) throws IOException {
+    private Swapped swap(ScanResult result, boolean rescan) {
         if (result.blocked() != null && saveBlocked == null) {
             saveBlocked = result.blocked();
         }
@@ -409,10 +420,8 @@ public final class YtDlpLibrary {
         LOGGER.info("Library: {} songs ({} already indexed; {} from sidecars, {} from YouTube IDs, {} from tags/filenames;"
                         + " {} with unknown length)",
                 entries.size(), result.fromIndex(), counts.sidecars, counts.youtubeIds, counts.probed, unknownLength);
-        if (result.save() || (rescan && (added > 0 || updated > 0 || missing > 0))) {
-            saveIndex();
-        }
-        return new ScanSummary(added, updated, missing);
+        boolean save = result.save() || (rescan && (added > 0 || updated > 0 || missing > 0));
+        return new Swapped(new ScanSummary(added, updated, missing), save);
     }
 
     /** Returns the entry for the given key, if indexed and its file still exists. Never follows aliases. */
@@ -661,7 +670,13 @@ public final class YtDlpLibrary {
             if (!Files.isDirectory(libraryFolder)) {
                 return new ScanSummary(0, 0, 0);
             }
-            return scanAndSwap(libraryFolder.resolve(INDEX_FILE_NAME), true);
+            Swapped swapped = scanAndSwap(libraryFolder.resolve(INDEX_FILE_NAME), true);
+            if (swapped.save()) {
+                synchronized (this) {
+                    saveIndex();
+                }
+            }
+            return swapped.summary();
         }
     }
 

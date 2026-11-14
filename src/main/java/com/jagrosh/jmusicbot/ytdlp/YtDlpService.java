@@ -303,11 +303,18 @@ public final class YtDlpService {
      * thread never waits on it. If the executor refuses the task (shut down), runs it here.
      */
     public void runLibraryWork(Runnable task) {
+        Runnable logged = () -> {
+            try {
+                task.run();
+            } catch (RuntimeException ex) {
+                LOGGER.warn("Library panel work failed: {}", ex.toString(), ex);
+            }
+        };
         try {
-            libraryWork.execute(task);
+            libraryWork.execute(logged);
         } catch (RuntimeException ex) { // e.g. the executor is shut down
             LOGGER.debug("Running library work on the caller's thread: {}", ex.toString());
-            task.run();
+            logged.run();
         }
     }
 

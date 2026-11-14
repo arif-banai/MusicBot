@@ -65,6 +65,7 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.RETURNS_SELF;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doReturn;
@@ -350,6 +351,26 @@ class LibraryPanelTest {
         verify(acks.hook()).sendMessage("No results found");
         verify(acks.followup(), org.mockito.Mockito.times(2)).setEphemeral(true);
         assertEquals(List.of("deferEdit"), acks.acks());
+    }
+
+    @Test
+    @DisplayName("Queue defers, then queues the library file through the music service with the library adapter")
+    void onButtonInteraction_queue_defersThenQueuesFile() throws IOException {
+        record("queueok001", "Queue Ok");
+        Path file = library.find("queueok001").orElseThrow().file();
+        long ownerUserId = fixture.getUser().getIdLong();
+        String token = tokens.create(ownerUserId, "queue ok", 1, List.of("queueok001"));
+        fixture.withButtonId(ComponentIdParsers.libComponentId("queue", ownerUserId, token, 0)).withMemberInVoiceChannel();
+        net.dv8tion.jda.api.entities.channel.unions.MessageChannelUnion channel =
+                mock(net.dv8tion.jda.api.entities.channel.unions.MessageChannelUnion.class);
+        doReturn(fixture.getTextChannel()).when(channel).asGuildMessageChannel();
+        doReturn(channel).when(fixture.getButtonInteractionEvent()).getChannel();
+        InteractionAckTracker acks = InteractionAckTracker.attach(fixture.getButtonInteractionEvent(), fixture.getReplyAction());
+
+        runWithDj(fixture.getButtonInteractionEvent(), true);
+
+        assertEquals(List.of("deferEdit"), acks.acks());
+        verify(fixture.getMusicService()).play(any(), any(), eq(file.toAbsolutePath().toString()), any(), any());
     }
 
     // ---- Info view and embed limits ----

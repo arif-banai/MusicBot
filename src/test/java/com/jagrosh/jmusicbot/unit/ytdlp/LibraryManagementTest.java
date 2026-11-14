@@ -272,6 +272,9 @@ class LibraryManagementTest {
                     try {
                         holder[0].find("concurrent1");
                         holder[0].alias("requested01", "concurrent1");
+                        // A download finishing mid-rescan (plan Review Focus 4).
+                        Path downloaded = Files.createFile(libraryFolder.resolve("D [concurrent2].webm"));
+                        holder[0].record("concurrent2", downloaded, info("concurrent2", "D", "Author"));
                         otherThreadDone.set(true);
                     } catch (IOException ex) {
                         throw new java.io.UncheckedIOException(ex);
@@ -297,7 +300,26 @@ class LibraryManagementTest {
         assertEquals(1, summary.added());
         assertEquals("concurrent1", library.aliasTarget("requested01").orElseThrow(),
                 "the link saved during the scan survives it");
+        assertEquals("Author", library.find("concurrent2").orElseThrow().author(),
+                "the song recorded during the scan survives it, with its recorded details");
         assertTrue(library.find("file:New Song.mp3").isPresent());
+    }
+
+    @Test
+    @DisplayName("a failed save at load fails only that write: saving (and Rescan) still work afterwards")
+    void load_failedSave_doesNotBlockLaterSaves() throws IOException {
+        Files.writeString(libraryFolder.resolve("New Song.mp3"), "x"); // probed, so load wants to save
+        Path indexDir = Files.createDirectories(libraryFolder.resolve("library.json").resolve("occupied"));
+        YtDlpLibrary library = new YtDlpLibrary(libraryFolder, playlistFile,
+                f -> java.util.Optional.of(new YtDlpLibrary.ProbeResult("New", "Artist", 1000L)));
+
+        assertThrows(IOException.class, library::load);
+        assertTrue(library.find("file:New Song.mp3").isPresent(), "the scan still landed in memory");
+
+        Files.delete(indexDir);
+        Files.delete(indexDir.getParent());
+        assertDoesNotThrow(library::rescan);
+        assertTrue(Files.isRegularFile(libraryFolder.resolve("library.json")));
     }
 
     @Test
