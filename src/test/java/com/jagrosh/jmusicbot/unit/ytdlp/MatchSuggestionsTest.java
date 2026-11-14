@@ -36,6 +36,7 @@ import com.jagrosh.jmusicbot.ytdlp.LibraryAudioTrack;
 import com.jagrosh.jmusicbot.ytdlp.LibraryEntry;
 import com.jagrosh.jmusicbot.ytdlp.MatchSuggestions;
 import com.jagrosh.jmusicbot.ytdlp.ProcessRunner;
+import com.jagrosh.jmusicbot.ytdlp.SongMatcher;
 import com.jagrosh.jmusicbot.ytdlp.YtDlpDownloader;
 import com.jagrosh.jmusicbot.ytdlp.YtDlpLibrary;
 import com.jagrosh.jmusicbot.ytdlp.YtDlpPrompt;
@@ -473,9 +474,34 @@ class MatchSuggestionsTest {
         String fileKey = "file:Axel F - Crazy Frog.mp3";
         assertEquals(fileKey, library.aliasTarget(REQ_ID).orElseThrow());
         LibraryEntry filled = library.find(fileKey).orElseThrow();
-        assertEquals("Lyrics Hub", filled.author());
+        assertEquals("", filled.author(), "an imported entry never takes the uploader as its artist");
         assertEquals("https://img/req.jpg", filled.artworkUrl());
         assertEquals(169_500L, filled.lengthMs());
+    }
+
+    @Test
+    @DisplayName("an imported entry stays matchable by the real artist's uploads after a Switch onto it")
+    void switch_importedEntryStaysMatchable() throws IOException {
+        Path imported = libraryFolder.resolve("Axel F.mp3");
+        Files.writeString(imported, "x");
+        YtDlpLibrary.Prober prober = file -> java.util.Optional.of(new YtDlpLibrary.ProbeResult(null, null, 169_500L));
+        library = new YtDlpLibrary(libraryFolder, tempDir.resolve("pl.txt"), prober);
+        library.load();
+        library.reject(REQ_ID, LIB_ID); // only the imported file is left to suggest
+        String fileKey = "file:Axel F.mp3";
+        SongMatcher.Song topic = SongMatcher.of(new AudioTrackInfo("Axel F", "Crazy Frog - Topic", 169_000L,
+                "topicTopic1", false, YT + "topicTopic1"));
+        assertTrue(SongMatcher.matchScore(topic, library.find(fileKey).orElseThrow(), 5_000L, 0.85).isPresent());
+        MatchSuggestions suggestions = suggestions();
+        suggest(suggestions, playingRequest());
+
+        suggestions.handlePress(pressEvent(REQUESTER, MESSAGE), switchId());
+
+        assertEquals(fileKey, library.aliasTarget(REQ_ID).orElseThrow());
+        LibraryEntry after = library.find(fileKey).orElseThrow();
+        assertEquals("", after.author());
+        assertTrue(SongMatcher.matchScore(topic, after, 5_000L, 0.85).isPresent(),
+                "the uploader of the switched request isn't taken as the artist");
     }
 
     @Test
@@ -622,6 +648,43 @@ class MatchSuggestionsTest {
         ButtonInteractionEvent late = pressEvent(REQUESTER, MESSAGE);
         suggestions.handlePress(late, switchId());
         assertExpiredAck(late);
+    }
+
+    @Test
+    @DisplayName("repeat-one: each loop's start doesn't post the same suggestion again")
+    void repeatLoops_offeredOnce() {
+        MatchSuggestions suggestions = suggestions();
+        AudioTrack request = playingRequest();
+        suggest(suggestions, request);
+        suggestions.onTrackEnded(GUILD, request);
+
+        for (int loop = 0; loop < 2; loop++) {
+            AudioTrack clone = track("youtube", REQ_ID, "Crazy Frog - Axel F (Lyrics)", 169_000L, false);
+            when(player.getPlayingTrack()).thenReturn(clone);
+            suggestions.consider(GUILD, clone);
+            runTasks();
+            suggestions.onTrackEnded(GUILD, clone);
+        }
+
+        verify(channel, times(1)).sendMessage(any(CharSequence.class));
+    }
+
+    @Test
+    @DisplayName("an expired suggestion isn't offered again later in the run")
+    void expiredPair_notOfferedAgain() {
+        MatchSuggestions suggestions = suggestions();
+        suggest(suggestions, playingRequest());
+        ArgumentCaptor<Runnable> expiry = ArgumentCaptor.forClass(Runnable.class);
+        verify(scheduler).schedule(expiry.capture(), eq(10L), eq(TimeUnit.MINUTES));
+        expiry.getValue().run();
+
+        assertNothingMorePosted(suggestions, playingRequest());
+    }
+
+    private void assertNothingMorePosted(MatchSuggestions suggestions, AudioTrack track) {
+        suggestions.consider(GUILD, track);
+        runTasks();
+        verify(channel, times(1)).sendMessage(any(CharSequence.class));
     }
 
     @Test

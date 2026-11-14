@@ -22,6 +22,7 @@ import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.OptionalDouble;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -43,6 +44,9 @@ import org.jetbrains.annotations.Nullable;
  *       whose lengths differ by more than the tolerance, or with an unknown length, scores 0.</li>
  *   <li>When either side has no artist, only the title counts, it must reach
  *       {@code max(minScore, 0.9)}, and generic or one-word titles never match.</li>
+ *   <li>Version words in the title (instrumental, acoustic, live, karaoke, a cappella, remix, edit,
+ *       cover, slowed, sped up, nightcore, reverb, 8D, demo) must agree: a pair where only one side
+ *       has them, or the two have different ones, scores 0.</li>
  * </ul>
  *
  * @author Arif Banai (arif-banai)
@@ -70,6 +74,21 @@ public final class SongMatcher {
             "(?:\\s*-\\s*topic|\\s*vevo|\\s+official(?:\\s+channel)?|(?<=\\p{L})official)$");
     private static final Pattern GENERIC = Pattern.compile("(?:intro|outro|interlude|untitled)(?: \\d+)?|track \\d+");
 
+    /**
+     * Title words that mark a different version of a song, each mapped to its class ("a cappella"
+     * and "acapella" are one class; "sped up" is matched by "sped").
+     */
+    private static final Map<String, String> VERSION_WORDS = Map.ofEntries(
+            Map.entry("instrumental", "instrumental"), Map.entry("acoustic", "acoustic"),
+            Map.entry("live", "live"), Map.entry("karaoke", "karaoke"),
+            Map.entry("cappella", "acappella"), Map.entry("capella", "acappella"),
+            Map.entry("acappella", "acappella"), Map.entry("acapella", "acappella"),
+            Map.entry("remix", "remix"), Map.entry("edit", "edit"),
+            Map.entry("cover", "cover"), Map.entry("slowed", "slowed"),
+            Map.entry("sped", "sped"), Map.entry("nightcore", "nightcore"),
+            Map.entry("reverb", "reverb"), Map.entry("8d", "8d"),
+            Map.entry("demo", "demo"));
+
     private SongMatcher() {
     }
 
@@ -83,13 +102,16 @@ public final class SongMatcher {
      *                      "Crazy Frog" agree); empty when unknown
      * @param lengthMs      0 or less when unknown
      * @param isrc          the recording's ISRC, if known
+     * @param versions      the version classes named in the title ("live", "remix", ...); empty for
+     *                      the original
      */
     public record Song(Set<String> title, Set<String> artist, String titleText, String artistCompact,
-                       long lengthMs, @Nullable String isrc) {
+                       long lengthMs, @Nullable String isrc, Set<String> versions) {
 
         public Song {
             title = Set.copyOf(title);
             artist = Set.copyOf(artist);
+            versions = Set.copyOf(versions);
         }
 
         public boolean hasArtist() {
@@ -154,8 +176,8 @@ public final class SongMatcher {
 
     /**
      * The raw similarity of two songs, 0.0-1.0. 0 when the lengths are unknown or further apart than
-     * {@code toleranceMs}. 1.0 for the same ISRC. When either side has no artist, the title
-     * similarity alone, or 0 for a generic or one-word title.
+     * {@code toleranceMs}. 1.0 for the same ISRC. 0 when their version words differ. When either
+     * side has no artist, the title similarity alone, or 0 for a generic or one-word title.
      */
     public static double score(Song a, Song b, long toleranceMs) {
         if (a.lengthMs() <= 0 || b.lengthMs() <= 0 || Math.abs(a.lengthMs() - b.lengthMs()) > toleranceMs) {
@@ -163,6 +185,9 @@ public final class SongMatcher {
         }
         if (a.isrc() != null && b.isrc() != null && !a.isrc().isBlank() && a.isrc().equalsIgnoreCase(b.isrc())) {
             return 1.0;
+        }
+        if (!a.versions().equals(b.versions())) {
+            return 0.0; // e.g. the live or instrumental version of the same song
         }
         double title = jaccard(a.title(), b.title());
         if (!a.hasArtist() || !b.hasArtist()) {
@@ -200,7 +225,22 @@ public final class SongMatcher {
         List<String> titleWords = words(stripTrailingNoise(stripFeaturing(titleText)));
         List<String> artistWords = words(stripFeaturing(artistText));
         return new Song(new LinkedHashSet<>(titleWords), new LinkedHashSet<>(artistWords),
-                String.join(" ", titleWords), String.join("", artistWords), lengthMs, isrc);
+                String.join(" ", titleWords), String.join("", artistWords), lengthMs, isrc, versions(titleText));
+    }
+
+    /**
+     * The version classes named anywhere in a title, including after a featured artist
+     * ("ft. X (Live)"), which the title words themselves drop.
+     */
+    private static Set<String> versions(String titleText) {
+        Set<String> versions = new LinkedHashSet<>();
+        for (String word : words(titleText)) {
+            String version = VERSION_WORDS.get(word);
+            if (version != null) {
+                versions.add(version);
+            }
+        }
+        return versions;
     }
 
     /** Lower-cases and strips accents. */
@@ -230,7 +270,7 @@ public final class SongMatcher {
 
     /**
      * Drops bracketed groups that are only noise, a featured artist, or a code (a catalogue
-     * number or video ID); other groups ("Live", "Radio Edit") keep their words.
+     * number or video ID); other groups ("Live", "Radio Edit", "[8D]") keep their words.
      */
     private static String stripBrackets(String text) {
         Matcher m = BRACKETS.matcher(text);
@@ -238,7 +278,9 @@ public final class SongMatcher {
         while (m.find()) {
             String inside = m.group(1).strip();
             String kept;
-            if (FEATURING.matcher(inside).lookingAt() || (m.group().startsWith("[") && CODE.matcher(inside).matches())) {
+            boolean code = m.group().startsWith("[") && CODE.matcher(inside).matches()
+                    && !VERSION_WORDS.containsKey(inside);
+            if (FEATURING.matcher(inside).lookingAt() || code) {
                 kept = " ";
             } else {
                 String remainder = NOISE.matcher(inside).replaceAll(" ");

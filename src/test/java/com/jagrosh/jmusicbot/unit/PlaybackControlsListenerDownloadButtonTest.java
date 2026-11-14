@@ -276,15 +276,46 @@ class PlaybackControlsListenerDownloadButtonTest {
     }
 
     @Test
-    @DisplayName("no guild or member: does nothing")
-    void noGuildOrMember_doesNothing() {
+    @DisplayName("no guild or member: acknowledged once with an ephemeral error, and nothing is requested")
+    void noGuildOrMember_repliesOnce() {
         when(event.getGuild()).thenReturn(null);
+        ReplyCallbackAction reply = stubReply();
 
         listener.onButtonInteraction(event);
 
         verifyNoInteractions(ytDlp);
         verify(event, never()).deferReply(anyBoolean());
-        verify(event, never()).reply(anyString());
+        verify(event, times(1)).reply(anyString());
+        verify(reply).setEphemeral(true);
+    }
+
+    @Test
+    @DisplayName("a download withdrawn by /stop, Play now or leaving voice says it was cancelled")
+    void downloadCancelled_saysCancelled() {
+        InteractionHook hook = stubDeferReply();
+        CompletableFuture<LibraryEntry> future = new CompletableFuture<>();
+        when(ytDlp.requestDownload(track, GUILD_ID, false)).thenReturn(future);
+
+        pressAsDj(true);
+        future.cancel(false); // as YtDlpDownloader.cancelGuild does
+
+        verify(hook).editOriginal(eq("Download cancelled."));
+        verify(hook, never()).editOriginal(argThat((String s) -> s.contains("CancellationException")));
+        verify(nowPlayingHandler, never()).refreshNowPlaying(anyLong());
+    }
+
+    @Test
+    @DisplayName("a cancellation wrapped in a CompletionException also says it was cancelled")
+    void downloadCancelledWrapped_saysCancelled() {
+        InteractionHook hook = stubDeferReply();
+        CompletableFuture<LibraryEntry> future = new CompletableFuture<>();
+        when(ytDlp.requestDownload(track, GUILD_ID, false)).thenReturn(future);
+
+        pressAsDj(true);
+        future.completeExceptionally(new java.util.concurrent.CompletionException(
+                new java.util.concurrent.CancellationException()));
+
+        verify(hook).editOriginal(eq("Download cancelled."));
     }
 
     @Test

@@ -16,6 +16,7 @@
 package com.jagrosh.jmusicbot.listener;
 
 import java.util.Optional;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 
@@ -23,6 +24,7 @@ import com.jagrosh.jmusicbot.Bot;
 import com.jagrosh.jmusicbot.audio.AudioHandler;
 import com.jagrosh.jmusicbot.commands.v1.DJCommand;
 import com.jagrosh.jmusicbot.listener.interaction.ComponentIdParsers;
+import com.jagrosh.jmusicbot.listener.interaction.InteractionGuards;
 import com.jagrosh.jmusicbot.listener.interaction.OutputAdapters;
 import com.jagrosh.jmusicbot.service.MusicService;
 import com.jagrosh.jmusicbot.utils.FormatUtil;
@@ -169,7 +171,7 @@ public class PlaybackControlsListener extends ListenerAdapter {
      * every Discord call is {@code .queue()}d, never awaited.
      */
     private void handleDownloadButton(ButtonInteractionEvent event) {
-        if (event.getGuild() == null || event.getMember() == null) {
+        if (!InteractionGuards.requireGuildAndMember(event)) {
             return;
         }
         if (!DJCommand.checkDJPermission(bot, event.getGuild(), event.getMember())) {
@@ -208,14 +210,22 @@ public class PlaybackControlsListener extends ListenerAdapter {
                 LOGGER.warn("Couldn't refresh now-playing after a yt-dlp download in guild {}: {}", guildId,
                         ex.toString());
             }
+        } else if (unwrap(error) instanceof CancellationException) {
+            // Withdrawn by /stop, Play now or leaving voice (YtDlpDownloader.cancelGuild).
+            hook.editOriginal("Download cancelled.").queue(null, err -> { });
         } else {
             hook.editOriginal("❌ yt-dlp failed: " + failureReason(error)).queue(null, err -> { });
         }
     }
 
+    /** The failure itself, unwrapping a {@link CompletionException} if present. */
+    private static Throwable unwrap(Throwable error) {
+        return error instanceof CompletionException && error.getCause() != null ? error.getCause() : error;
+    }
+
     /** The yt-dlp failure's own message, unwrapping a {@link CompletionException} if present. */
     private static String failureReason(Throwable error) {
-        Throwable cause = error instanceof CompletionException && error.getCause() != null ? error.getCause() : error;
+        Throwable cause = unwrap(error);
         String reason = cause.getMessage() != null ? cause.getMessage() : cause.toString();
         return FormatUtil.filter(reason.strip());
     }

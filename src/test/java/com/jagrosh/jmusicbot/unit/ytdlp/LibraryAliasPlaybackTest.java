@@ -264,7 +264,7 @@ class LibraryAliasPlaybackTest {
         reloaded.load();
         LibraryEntry filled = reloaded.find(fileKey).orElseThrow();
         assertEquals("Axel F - Crazy Frog", filled.title());
-        assertEquals("Lyrics Hub", filled.author());
+        assertEquals("", filled.author()); // an imported entry never takes the uploader as its artist
         assertEquals(170_000L, filled.lengthMs()); // its own length is kept
         assertEquals("https://img/req.jpg", filled.artworkUrl());
         assertEquals(List.of("Axel F", "Crazy Frog"), filled.nameParts());
@@ -304,7 +304,7 @@ class LibraryAliasPlaybackTest {
 
         LibraryEntry filled = library.find(fileKey).orElseThrow();
         assertEquals("Axel F - Crazy Frog", filled.title());
-        assertEquals("Crazy Frog", filled.author());
+        assertEquals("", filled.author(), "an imported (file:) entry's author is never filled in");
         assertEquals(170_000L, filled.lengthMs());
         assertEquals("https://img/a.jpg", filled.artworkUrl());
         assertEquals(List.of("Axel F", "Crazy Frog"), filled.nameParts());
@@ -360,5 +360,23 @@ class LibraryAliasPlaybackTest {
         library.alias(REQ_ID, fileKey);
 
         assertNull(loadLink(enabled(), YT + REQ_ID));
+    }
+
+    @Test
+    @DisplayName("a link aliased to an imported entry with its length and artwork loads it directly, with no author")
+    void link_aliasedToImportedEntryWithDetails_loadsLibraryCopy() throws IOException {
+        Path imported = libraryFolder.resolve("Axel F - Crazy Frog.mp3");
+        Files.writeString(imported, "x");
+        String fileKey = "file:Axel F - Crazy Frog.mp3";
+        writeIndexWithImportedEntry(fileKey, imported);
+        library.alias(REQ_ID, fileKey);
+        library.fillMissing(fileKey, new AudioTrackInfo("Axel F (Lyrics)", "Lyrics Hub", 169_000L, REQ_ID, false,
+                YT + REQ_ID, "https://img/req.jpg", null));
+
+        LibraryAudioTrack track = assertInstanceOf(LibraryAudioTrack.class, loadLink(enabled(), YT + REQ_ID));
+
+        assertEquals(fileKey, track.getKey());
+        assertEquals(REQ_ID, track.getLinkedFrom());
+        assertEquals("", track.getInfo().author);
     }
 }

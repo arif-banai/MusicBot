@@ -18,6 +18,7 @@ package com.jagrosh.jmusicbot.ytdlp;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalDouble;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -71,6 +72,11 @@ public final class MatchSuggestions {
     private final ScheduledExecutorService scheduler;
     /** The open suggestion per guild. Compared by identity. */
     private final ConcurrentHashMap<Long, Suggestion> open = new ConcurrentHashMap<>();
+    /**
+     * Per guild, the (requested key, library key) pairs offered this run. A pair is offered at most
+     * once per run, whatever came of it, so repeat mode doesn't post the same suggestion every loop.
+     */
+    private final ConcurrentHashMap<Long, Set<List<String>>> offered = new ConcurrentHashMap<>();
 
     /** One posted suggestion: the requested track now playing and the library song offered for it. */
     private static final class Suggestion {
@@ -168,6 +174,10 @@ public final class MatchSuggestions {
         }
 
         LibraryEntry entry = match.get();
+        List<String> pair = List.of(key, entry.key());
+        if (offered.getOrDefault(guildId, Set.of()).contains(pair)) {
+            return; // already offered this run (e.g. the previous loop of a repeated song)
+        }
         long requesterId = rm.getOwner();
         Suggestion suggestion = new Suggestion(guildId, track, key, entry, requesterId, channel.getIdLong(),
                 text(entry));
@@ -177,6 +187,10 @@ public final class MatchSuggestions {
         }
         if (handler.getPlayer().getPlayingTrack() != track) {
             // It ended during the scan, before its end could find this suggestion.
+            open.remove(guildId, suggestion);
+            return;
+        }
+        if (!offered.computeIfAbsent(guildId, id -> ConcurrentHashMap.newKeySet()).add(pair)) {
             open.remove(guildId, suggestion);
             return;
         }

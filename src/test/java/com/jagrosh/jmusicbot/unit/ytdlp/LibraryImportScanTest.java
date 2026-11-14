@@ -295,6 +295,102 @@ class LibraryImportScanTest {
     }
 
     @Test
+    @DisplayName("playlists, cue sheets, archives and PDFs beside the songs are never probed")
+    void nonAudioExtensions_neverProbed() throws IOException {
+        for (String name : List.of("booklet.pdf", "scans.zip", "album.m3u", "album.m3u8", "album.cue",
+                "notes.txt", "cover.jpg", "cover.png", "cover.webp", "album.nfo", "data.json")) {
+            audio(name);
+        }
+        audio("Song.mp3");
+
+        YtDlpLibrary library = loadLibrary();
+
+        assertEquals(List.of("Song.mp3"), prober.calls);
+        assertEquals(1, library.entries().size());
+    }
+
+    @Test
+    @DisplayName("a probe that throws a linkage or stack-overflow error skips that file and the scan goes on")
+    void probeError_skipsFile() throws IOException {
+        audio("A.mp3");
+        audio("Linkage.flac");
+        prober.errorFor("Linkage.flac", new NoClassDefFoundError("some/Codec"));
+        audio("Overflow.ogg");
+        prober.errorFor("Overflow.ogg", new StackOverflowError());
+        audio("Z.mp3");
+
+        YtDlpLibrary library = loadLibrary();
+
+        assertEquals(List.of("A.mp3", "Z.mp3"),
+                library.entries().stream().map(e -> e.file().getFileName().toString()).toList());
+    }
+
+    @Test
+    @DisplayName("a load that fails after an index existed blocks saving, so the index isn't overwritten")
+    void failedLoad_blocksSaves() throws IOException {
+        audio("Song.mp3");
+        prober.result("Song.mp3", new ProbeResult("Song", "Band", 100_000L));
+        loadLibrary(); // writes library.json
+        Path index = libraryFolder.resolve("library.json");
+        byte[] before = Files.readAllBytes(index);
+        Path boom = audio("Boom.mp3");
+        prober.errorFor("Boom.mp3", new OutOfMemoryError("simulated"));
+
+        YtDlpLibrary library = new YtDlpLibrary(libraryFolder, playlistFile, prober);
+        assertThrows(OutOfMemoryError.class, library::load);
+
+        assertThrows(IOException.class, () -> library.alias("k85mRPqvMbE", fileKey("Song.mp3")));
+        assertThrows(IOException.class, () -> library.record("abcdefghijk", boom,
+                new AudioTrackInfo("t", "a", 1L, "abcdefghijk", false, "u")));
+        assertArrayEquals(before, Files.readAllBytes(index));
+    }
+
+    @Test
+    @DisplayName("a failed load with no index yet doesn't block saving")
+    void failedLoad_noIndex_savesAllowed() throws IOException {
+        Path boom = audio("Boom.mp3");
+        prober.errorFor("Boom.mp3", new OutOfMemoryError("simulated"));
+        YtDlpLibrary library = new YtDlpLibrary(libraryFolder, playlistFile, prober);
+        assertThrows(OutOfMemoryError.class, library::load);
+
+        library.record("abcdefghijk", boom, new AudioTrackInfo("t", "a", 1L, "abcdefghijk", false, "u"));
+
+        assertTrue(Files.exists(libraryFolder.resolve("library.json")));
+    }
+
+    @Test
+    @DisplayName("the load summary counts the songs whose length is unknown")
+    void loadSummary_countsUnknownLength() throws IOException {
+        audio("Song [abcdefghijk].webm"); // adopted from its [id]: no length yet
+        audio("Known.mp3");
+        prober.result("Known.mp3", new ProbeResult("Known", "Band", 100_000L));
+        audio("Unknown.mp3");
+        prober.result("Unknown.mp3", new ProbeResult("Unknown", "Band", 0L));
+        ch.qos.logback.classic.Logger logger =
+                (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(YtDlpLibrary.class);
+        ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> appender =
+                new ch.qos.logback.core.read.ListAppender<>();
+        appender.start();
+        ch.qos.logback.classic.Level previous = logger.getLevel();
+        logger.setLevel(ch.qos.logback.classic.Level.INFO);
+        logger.addAppender(appender);
+        try {
+            loadLibrary();
+        } finally {
+            logger.detachAppender(appender);
+            logger.setLevel(previous);
+        }
+
+        List<String> summaries = appender.list.stream()
+                .filter(e -> e.getLevel() == ch.qos.logback.classic.Level.INFO)
+                .map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage)
+                .filter(m -> m.startsWith("Library: "))
+                .toList();
+        assertEquals(1, summaries.size(), summaries::toString);
+        assertTrue(summaries.get(0).contains("2 with unknown length"), summaries.get(0));
+    }
+
+    @Test
     @DisplayName("the second start doesn't probe files the first start indexed")
     void secondStart_doesNotReprobe() throws IOException {
         audio("Crazy Frog - Axel F.mp3");
@@ -406,6 +502,7 @@ class LibraryImportScanTest {
         final List<String> calls = new CopyOnWriteArrayList<>();
         private final Map<String, Optional<ProbeResult>> results = new ConcurrentHashMap<>();
         private final Set<String> throwing = ConcurrentHashMap.newKeySet();
+        private final Map<String, Error> errors = new ConcurrentHashMap<>();
 
         void result(String fileName, ProbeResult result) {
             results.put(fileName, Optional.of(result));
@@ -419,12 +516,20 @@ class LibraryImportScanTest {
             throwing.add(fileName);
         }
 
+        void errorFor(String fileName, Error error) {
+            errors.put(fileName, error);
+        }
+
         @Override
         public Optional<ProbeResult> probe(Path file) {
             String name = file.getFileName().toString();
             calls.add(name);
             if (throwing.contains(name)) {
                 throw new IllegalStateException("probe failed");
+            }
+            Error error = errors.get(name);
+            if (error != null) {
+                throw error;
             }
             return results.getOrDefault(name, Optional.of(new ProbeResult(null, null, 0L)));
         }

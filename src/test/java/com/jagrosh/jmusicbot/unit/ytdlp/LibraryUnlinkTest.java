@@ -32,6 +32,7 @@ import com.jagrosh.jmusicbot.commands.v1.dj.LibraryCmd;
 import com.jagrosh.jmusicbot.commands.v2.dj.LibrarySlashCmd;
 import com.jagrosh.jmusicbot.commands.v2.dj.LibraryUnlinkSlashCmd;
 import com.jagrosh.jmusicbot.ytdlp.LibraryAudioTrack;
+import com.jagrosh.jmusicbot.ytdlp.LibrarySourceManager;
 import com.jagrosh.jmusicbot.ytdlp.ProcessRunner;
 import com.jagrosh.jmusicbot.ytdlp.YtDlpDownloader;
 import com.jagrosh.jmusicbot.ytdlp.YtDlpLibrary;
@@ -39,7 +40,10 @@ import com.jagrosh.jmusicbot.ytdlp.YtDlpService;
 import com.jagrosh.jmusicbot.ytdlp.YtDlpSettings;
 import com.jagrosh.jmusicbot.ytdlp.YtDlpSettings.Mode;
 import com.sedmelluq.discord.lavaplayer.player.AudioPlayer;
+import com.sedmelluq.discord.lavaplayer.player.AudioPlayerManager;
 import com.sedmelluq.discord.lavaplayer.source.AudioSourceManager;
+import com.sedmelluq.discord.lavaplayer.track.AudioItem;
+import com.sedmelluq.discord.lavaplayer.track.AudioReference;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrackInfo;
 import net.dv8tion.jda.api.entities.Guild;
@@ -55,6 +59,8 @@ import org.mockito.MockedStatic;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -161,6 +167,37 @@ class LibraryUnlinkTest {
         assertTrue(service.unlink(null).isEmpty());
         AudioTrack exact = service.prepareForPlayback(trackFor(LIB_ID), 77L);
         assertTrue(service.unlink(exact).isEmpty());
+    }
+
+    @Test
+    @DisplayName("a library copy loaded straight from a link shows the library song's title, not the URL")
+    void unlink_copyFromLink_namedByTitle() throws IOException {
+        library.alias(REQ_ID, LIB_ID);
+        AudioSourceManager youtube = mock(AudioSourceManager.class);
+        when(youtube.getSourceName()).thenReturn("youtube");
+        AudioPlayerManager manager = mock(AudioPlayerManager.class);
+        when(manager.getSourceManagers()).thenReturn(List.of(youtube));
+        AudioItem item = new LibrarySourceManager(() -> service).loadItem(manager, new AudioReference(YT + REQ_ID, null));
+        LibraryAudioTrack copy = assertInstanceOf(LibraryAudioTrack.class, item);
+
+        YtDlpService.Unlinked unlinked = service.unlink(copy).orElseThrow();
+
+        assertEquals("Crazy Frog - Axel F (Official Video)", unlinked.requested());
+        assertFalse(unlinked.requested().contains("youtube.com"));
+    }
+
+    @Test
+    @DisplayName("if saving fails, the link is kept in memory too")
+    void unlink_saveFails_keepsAlias() throws IOException {
+        library.alias(REQ_ID, LIB_ID);
+        // Make the atomic move onto library.json fail: replace it with a non-empty directory.
+        Path index = tempDir.resolve("lib").resolve("library.json");
+        Files.delete(index);
+        Files.createDirectories(index.resolve("blocker"));
+
+        assertThrows(IOException.class, () -> library.unalias(REQ_ID));
+
+        assertEquals(LIB_ID, library.aliasTarget(REQ_ID).orElseThrow());
     }
 
     private static AudioTrack trackFor(String videoId) {

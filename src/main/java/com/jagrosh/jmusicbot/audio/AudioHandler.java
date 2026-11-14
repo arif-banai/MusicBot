@@ -133,13 +133,11 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
     private record Handoff(AudioTrack track, HandoffKind kind, AudioTrack hold) {}
 
     /**
-     * Similar-song Switch: the requested track being replaced by its library copy, and that copy.
-     * Set just before the replacing {@code playTrack} and cleared right after; lavaplayer delivers
-     * the REPLACED end and the start inline, so only those two events see them. The REPLACED end
-     * then doesn't run the end-of-queue logic (which would disconnect on an empty queue), and the
-     * copy isn't added to history again.
+     * Similar-song Switch: the library copy replacing the requested track. Set just before the
+     * replacing {@code playTrack} and cleared right after; lavaplayer delivers the start inline, so
+     * only that event sees it, and the copy isn't added to history again. (The requested track's
+     * REPLACED end needs no flag: {@code continueAfterEnd} ignores every REPLACED end.)
      */
-    private final AtomicReference<AudioTrack> switchingFrom = new AtomicReference<>();
     private final AtomicReference<AudioTrack> switchingTo = new AtomicReference<>();
 
     protected AudioHandler(PlayerManager manager, Guild guild, AudioPlayer player)
@@ -427,7 +425,6 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
     {
         if (expected == null || replacement == null || audioPlayer.getPlayingTrack() != expected)
             return false;
-        switchingFrom.set(expected);
         switchingTo.set(replacement);
         try
         {
@@ -435,7 +432,6 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
         }
         finally
         {
-            switchingFrom.compareAndSet(expected, null);
             switchingTo.compareAndSet(replacement, null);
         }
         return true;
@@ -606,9 +602,6 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
             return;
         if (track instanceof LibraryAudioTrack libraryTrack && libraryTrack.isGated())
             endYtDlpPrompt();
-        // Similar-song Switch: the library copy is already starting in its place.
-        if (endReason == AudioTrackEndReason.REPLACED && track != null && switchingFrom.compareAndSet(track, null))
-            return;
 
         continueAfterEnd(player, track, endReason);
     }

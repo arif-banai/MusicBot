@@ -1456,6 +1456,8 @@ public class AudioHandlerTest extends TestBase {
         @DisplayName("Switch: the library copy replaces the stream through the player, with an empty queue, and the bot stays")
         void replaceWithLibraryCopy_emptyQueue_doesNotDisconnect()
         {
+            // Pins that the requested track's REPLACED end (delivered inline by playTrack below) runs
+            // no end-of-queue logic: continueAfterEnd ignores every REPLACED end, with no Switch flag.
             AudioTrack requested = startable("requested");
             LibraryAudioTrack copy = libraryTrack(null);
             when(audioPlayer.getPlayingTrack()).thenReturn(requested);

@@ -101,7 +101,7 @@ public final class YtDlpLibrary {
     /** Extensions that are never audio: cover art, text, subtitles and similar files kept beside songs. */
     private static final Set<String> NON_AUDIO_EXTENSIONS = Set.of("jpg", "jpeg", "png", "webp", "gif", "bmp",
             "txt", "json", "description", "vtt", "srt", "ass", "lrc", "nfo", "log", "ini", "db", "url", "tmp",
-            "corrupt");
+            "corrupt", "pdf", "zip", "rar", "7z", "m3u", "m3u8", "pls", "cue", "md", "htm", "html", "sfv", "md5");
 
     /** Probes a file for its tags and length. Abstracted so tests don't need real audio files. */
     @FunctionalInterface
@@ -149,8 +149,11 @@ public final class YtDlpLibrary {
     /** Requested key → library key. */
     private final Map<String, String> aliases = new LinkedHashMap<>();
     private final Set<Pair> rejections = new LinkedHashSet<>();
-    /** Set when an unreadable index couldn't be copied aside; saving would then destroy it. */
-    private boolean saveBlocked;
+    /**
+     * Why saving is blocked for this run, or null: an unreadable index couldn't be copied aside, or a
+     * load failed after an index existed. Saving would then destroy what the index holds.
+     */
+    private @Nullable String saveBlocked;
 
     public YtDlpLibrary(Path libraryFolder, Path playlistFile) {
         this(libraryFolder, playlistFile, localProber());
@@ -174,8 +177,33 @@ public final class YtDlpLibrary {
         if (!Files.isDirectory(libraryFolder)) {
             return;
         }
+        Path indexFile = libraryFolder.resolve(INDEX_FILE_NAME);
+        boolean indexExisted = Files.exists(indexFile);
+        boolean save;
+        boolean loaded = false;
+        try {
+            save = loadIndexAndScan(indexFile);
+            loaded = true;
+        } finally {
+            if (!loaded && indexExisted && saveBlocked == null) {
+                // What the index holds isn't in memory, so the next save would write only new data.
+                saveBlocked = "loading the library failed earlier this run";
+                LOGGER.warn("Loading the library in {} failed; {} won't be saved this run", libraryFolder,
+                        INDEX_FILE_NAME);
+            }
+        }
+        if (save) {
+            saveIndex();
+        }
+    }
 
-        ParsedIndex parsed = readIndex(libraryFolder.resolve(INDEX_FILE_NAME));
+    /**
+     * The body of {@link #load()} up to and including putting the result in memory. Returns
+     * whether the index should be saved: the scan imported a file from a sidecar or a probe, or
+     * dropped an alias or rejection.
+     */
+    private boolean loadIndexAndScan(Path indexFile) throws IOException {
+        ParsedIndex parsed = readIndex(indexFile);
         Map<String, LibraryEntry> loaded = new LinkedHashMap<>();
         for (LibraryEntry entry : parsed.entries.values()) {
             if (Files.exists(entry.file())) {
@@ -225,11 +253,11 @@ public final class YtDlpLibrary {
         rejections.clear();
         rejections.addAll(keptRejections);
 
-        LOGGER.info("Library: {} songs ({} already indexed; {} from sidecars, {} from YouTube IDs, {} from tags/filenames)",
-                entries.size(), fromIndex, counts.sidecars, counts.youtubeIds, counts.probed);
-        if (counts.sidecars + counts.probed > 0 || droppedLinks > 0) {
-            saveIndex();
-        }
+        long unknownLength = entries.values().stream().filter(e -> e.lengthMs() <= 0).count();
+        LOGGER.info("Library: {} songs ({} already indexed; {} from sidecars, {} from YouTube IDs, {} from tags/filenames;"
+                        + " {} with unknown length)",
+                entries.size(), fromIndex, counts.sidecars, counts.youtubeIds, counts.probed, unknownLength);
+        return counts.sidecars + counts.probed > 0 || droppedLinks > 0;
     }
 
     /** Returns the entry for the given key, if indexed and its file still exists. Never follows aliases. */
@@ -269,7 +297,12 @@ public final class YtDlpLibrary {
     public synchronized Optional<String> unalias(String fromKey) throws IOException {
         String removed = aliases.remove(fromKey);
         if (removed != null) {
-            saveIndex();
+            try {
+                saveIndex();
+            } catch (IOException | RuntimeException ex) {
+                aliases.put(fromKey, removed); // not saved, so still linked
+                throw ex;
+            }
         }
         return Optional.ofNullable(removed);
     }
@@ -291,15 +324,18 @@ public final class YtDlpLibrary {
 
     /**
      * Fills in the author, length and artwork of the entry for {@code key} from a real track,
-     * where the entry has none, and saves. The title, key, file, source, name parts and the
-     * adopted flag are kept. Returns the entry as it now is, or empty if {@code key} isn't indexed.
+     * where the entry has none, and saves. An imported ({@code file:}) entry never takes an author:
+     * the track's uploader is often not the artist (a lyrics channel), and an artist-less entry
+     * stays matchable by title. The title, key, file, source, name parts and the adopted flag are
+     * kept. Returns the entry as it now is, or empty if {@code key} isn't indexed.
      */
     public synchronized Optional<LibraryEntry> fillMissing(String key, AudioTrackInfo info) throws IOException {
         LibraryEntry current = key == null ? null : entries.get(key);
         if (current == null || info == null) {
             return Optional.ofNullable(current);
         }
-        String author = current.author().isEmpty() && info.author != null ? info.author : current.author();
+        boolean fillAuthor = current.author().isEmpty() && info.author != null && !LibraryKeys.isFileKey(key);
+        String author = fillAuthor ? info.author : current.author();
         long lengthMs = current.lengthMs() <= 0 && !info.isStream && info.length > 0 ? info.length : current.lengthMs();
         String artwork = current.artworkUrl() == null || current.artworkUrl().isBlank() ? info.artworkUrl
                 : current.artworkUrl();
@@ -491,7 +527,9 @@ public final class YtDlpLibrary {
         ProbeResult probe;
         try {
             probe = prober.probe(file).orElse(null);
-        } catch (RuntimeException ex) {
+        } catch (Exception | LinkageError | StackOverflowError | AssertionError ex) {
+            // A bad file, or a decoder that can't load, mustn't stop the scan. Other errors (out of
+            // memory and the like) mean the JVM itself is failing, so they still propagate.
             LOGGER.debug("Skipping library file {} that couldn't be probed: {}", file, ex.toString());
             return Optional.empty();
         }
@@ -672,15 +710,15 @@ public final class YtDlpLibrary {
             Files.copy(indexFile, indexFile.resolveSibling(CORRUPT_COPY_NAME), StandardCopyOption.REPLACE_EXISTING);
             LOGGER.warn("Kept a copy of the unreadable {} as {}", indexFile.getFileName(), CORRUPT_COPY_NAME);
         } catch (IOException ex) {
-            saveBlocked = true;
+            saveBlocked = "the unreadable original couldn't be copied aside";
             LOGGER.error("Couldn't copy the unreadable {} aside ({}); the library index won't be saved this run",
                     indexFile, ex.toString());
         }
     }
 
     private void saveIndex() throws IOException {
-        if (saveBlocked) {
-            throw new IOException("not saving " + INDEX_FILE_NAME + ": the unreadable original couldn't be copied aside");
+        if (saveBlocked != null) {
+            throw new IOException("not saving " + INDEX_FILE_NAME + ": " + saveBlocked);
         }
         Files.createDirectories(libraryFolder);
         ObjectNode root = MAPPER.createObjectNode();

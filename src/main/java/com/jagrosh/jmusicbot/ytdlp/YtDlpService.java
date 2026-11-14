@@ -232,7 +232,7 @@ public final class YtDlpService {
         if (playing instanceof LibraryAudioTrack libraryTrack) {
             fromKey = libraryTrack.getLinkedFrom();
             String title = libraryTrack.getLinkedFromTitle();
-            requested = title != null && !title.isBlank() ? title : playing.getInfo().uri;
+            requested = title != null && !title.isBlank() ? title : null; // null: named after the library song
         } else {
             fromKey = LibraryKeys.of(playing).orElse(null);
             requested = playing.getInfo().title;
@@ -246,7 +246,8 @@ public final class YtDlpService {
         }
         String librarySong = library.find(target.get()).map(LibraryEntry::title).orElse(target.get());
         LOGGER.info("Unlinked {} from library song {}", fromKey, target.get());
-        return Optional.of(new Unlinked(requested == null ? fromKey : requested, librarySong));
+        // A copy loaded straight from a link (LibrarySourceManager) never saw the requested title.
+        return Optional.of(new Unlinked(requested == null ? librarySong : requested, librarySong));
     }
 
     /** What {@link #unlink} removed: the requested song's name and the library song's title. */
@@ -425,8 +426,9 @@ public final class YtDlpService {
     /**
      * For {@link LibrarySourceManager}: the library copy for a YouTube link whose video is linked
      * to a library song, built without loading the video. Empty if yt-dlp is off, the video isn't
-     * linked, or the linked entry has no author or length yet (then the link goes through YouTube
-     * once, so {@link #prepareForPlayback} can fill those in from the real track).
+     * linked, or the linked entry is still missing details (then the link goes through YouTube
+     * once, so {@link #prepareForPlayback} can fill those in from the real track). An imported
+     * ({@code file:}) entry never gets an author, so for it only the length and artwork count.
      */
     Optional<LibraryAudioTrack> linkedLink(String videoId, @Nullable AudioSourceManager youtubeSource) {
         if (!enabled) {
@@ -437,7 +439,9 @@ public final class YtDlpService {
             return Optional.empty();
         }
         LibraryEntry target = resolved.get();
-        if (target.author().isEmpty() || target.lengthMs() <= 0) {
+        boolean ready = LibraryKeys.isFileKey(target.key()) ? !target.missingDetails()
+                : !target.author().isEmpty() && target.lengthMs() > 0;
+        if (!ready) {
             return Optional.empty();
         }
         String url = LibraryKeys.youtubeUrl(videoId);

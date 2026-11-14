@@ -70,9 +70,13 @@ public record LibraryEntry(String key, Path file, String title, String author, l
                 (author == null || author.isEmpty()) && lengthMs <= 0);
     }
 
-    /** Whether any of author, length or artwork is missing (to be filled in from a real track). */
+    /**
+     * Whether any of author, length or artwork is missing (to be filled in from a real track). An
+     * imported ({@code file:}) entry's author doesn't count: it is never filled in.
+     */
     public boolean missingDetails() {
-        return author.isEmpty() || lengthMs <= 0 || artworkUrl == null || artworkUrl.isBlank();
+        return (author.isEmpty() && !LibraryKeys.isFileKey(key)) || lengthMs <= 0
+                || artworkUrl == null || artworkUrl.isBlank();
     }
 
     /**

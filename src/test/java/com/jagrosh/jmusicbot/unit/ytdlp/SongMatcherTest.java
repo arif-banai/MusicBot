@@ -162,9 +162,71 @@ class SongMatcherTest {
     @DisplayName("weighted score is 0.7 x title Jaccard + 0.3 x artist Jaccard")
     void weightedScore() {
         Song a = song("Fix You", "Coldplay");
-        Song b = song("Fix You Live", "Coldplay");
+        Song b = song("Fix You Again", "Coldplay");
 
         assertEquals(0.7 * (2.0 / 3.0) + 0.3, SongMatcher.score(a, b, TOLERANCE_MS), 1e-9);
+    }
+
+    // ---- version words ----
+
+    /** Eight words, so one or two extra words alone would still pass the 0.85 bar. */
+    private static final String LONG = "Somewhere Over The Rainbow What A Wonderful World";
+
+    static Stream<String> versionSuffixes() {
+        return Stream.of("(Instrumental)", "(Acoustic)", "(Live)", "(Karaoke)", "(Karaoke Version)",
+                "(A Cappella)", "(Acapella)", "(Remix)", "(Radio Edit)", "(Cover)", "(Slowed)", "(Sped Up)",
+                "(Nightcore)", "(Slowed + Reverb)", "(8D Audio)", "[8D]", "(Demo)", "- Live", "Live");
+    }
+
+    @ParameterizedTest(name = "{0} vs the original")
+    @MethodSource("versionSuffixes")
+    @DisplayName("a version (instrumental, live, remix, ...) never matches the original")
+    void versionWord_onOneSideOnly_scoresZero(String suffix) {
+        Song original = song("Israel Kamakawiwo'ole - " + LONG, "Mountain Apple Company");
+        Song version = song("Israel Kamakawiwo'ole - " + LONG + " " + suffix, "Mountain Apple Company");
+
+        assertEquals(0.0, SongMatcher.score(original, version, TOLERANCE_MS), suffix);
+        assertEquals(0.0, SongMatcher.score(version, original, TOLERANCE_MS), suffix + " (reversed)");
+    }
+
+    @Test
+    @DisplayName("two different versions never match; the same version on both sides still does")
+    void versionWords_mustAgree() {
+        String base = "Israel Kamakawiwo'ole - " + LONG;
+        String artist = "Mountain Apple Company";
+
+        assertFalse(matches(song(base + " (Live)", artist), song(base + " (Acoustic)", artist)));
+        assertTrue(matches(song(base + " (Live)", artist), song(base + " (Live Version) [Official Video]", artist)));
+        assertTrue(matches(song(base + " (Acoustic)", artist),
+                song(LONG + " (Acoustic)", "Israel Kamakawiwo'ole - Topic")));
+    }
+
+    @Test
+    @DisplayName("a version word after a featured artist still counts")
+    void versionWord_afterFeaturing() {
+        assertFalse(matches(song("Mark Ronson - Uptown Funk ft. Bruno Mars (Live)", "Mark Ronson"),
+                song("Uptown Funk", "Mark Ronson - Topic")));
+    }
+
+    @Test
+    @DisplayName("upload noise (Official Video, Lyrics) is not a version: those uploads still match")
+    void noise_isNotAVersion() {
+        String base = "Israel Kamakawiwo'ole - " + LONG;
+        assertTrue(matches(song(base + " (Official Video)", "IZ"), song(base + " (Lyrics)", "Lyrics Hub")));
+        assertTrue(matches(song(base + " [Official Music Video] [HD]", "IZ"), song(LONG, "Israel Kamakawiwo'ole - Topic")));
+    }
+
+    @Test
+    @DisplayName("an imported file named as a version doesn't match the original, by either reading of its name")
+    void versionWord_inImportedFile() {
+        LibraryEntry live = fileEntry("Crazy Frog - Axel F (Live)", List.of("Crazy Frog", "Axel F (Live)"), LEN);
+        LibraryEntry plain = fileEntry("Axel F (Live)", List.of(), LEN);
+
+        assertTrue(SongMatcher.matchScore(song("Axel F", "Crazy Frog - Topic"), live, TOLERANCE_MS, MIN_SCORE).isEmpty());
+        assertTrue(SongMatcher.matchScore(song("Axel F (Live)", "Crazy Frog - Topic"), live, TOLERANCE_MS, MIN_SCORE)
+                .isPresent());
+        assertTrue(SongMatcher.matchScore(song("Crazy Frog - Axel F (Live)", "x"), plain, TOLERANCE_MS, MIN_SCORE)
+                .isPresent());
     }
 
     // ---- library entries ----
