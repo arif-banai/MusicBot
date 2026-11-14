@@ -17,13 +17,22 @@ package com.jagrosh.jmusicbot.unit;
 
 import com.jagrosh.jmusicbot.listener.HistoryInteractionListener;
 import com.jagrosh.jmusicbot.service.MusicService;
+import com.jagrosh.jmusicbot.testutil.listener.InteractionAckTracker;
 import com.jagrosh.jmusicbot.testutil.listener.ListenerTestFixture;
+import net.dv8tion.jda.api.entities.MessageEmbed;
+import net.dv8tion.jda.api.entities.channel.unions.GuildMessageChannelUnion;
+import net.dv8tion.jda.api.entities.channel.unions.MessageChannelUnion;
 import net.dv8tion.jda.api.requests.restaction.interactions.MessageEditCallbackAction;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @DisplayName("HistoryInteractionListener Tests")
@@ -82,5 +91,72 @@ public class HistoryInteractionListenerTest {
         listener.onButtonInteraction(fixture.getButtonInteractionEvent());
 
         verify(fixture.getButtonInteractionEvent()).editMessage(argThat((String s) -> s.contains("disabled by config")));
+    }
+
+    // ==================== Acknowledgement: exactly once, later output via the hook ====================
+
+    private InteractionAckTracker stubHistoryAction(String action) {
+        fixture.withButtonId("history_" + action + "_1_2_" + fixture.getUser().getIdLong())
+                .withMemberInVoiceChannel();
+        MusicService.HistoryInfo info = new MusicService.HistoryInfo(new String[]{"one", "two", "three"}, 0L, 50);
+        when(fixture.getMusicService().getHistoryInfo(fixture.getGuild(), fixture.getJda())).thenReturn(info);
+        MessageChannelUnion channelUnion = mock(MessageChannelUnion.class);
+        when(channelUnion.asGuildMessageChannel()).thenReturn((GuildMessageChannelUnion) fixture.getTextChannel());
+        when(fixture.getButtonInteractionEvent().getChannel()).thenReturn(channelUnion);
+        return InteractionAckTracker.attach(fixture.getButtonInteractionEvent(), fixture.getReplyAction());
+    }
+
+    private void assertOneAckAndHookOutput(InteractionAckTracker acks, String content) {
+        assertEquals(List.of("deferEdit"), acks.acks());
+        verify(acks.hook()).sendMessage(content);
+        verify(acks.followup()).setEphemeral(true);
+        verify(acks.followup()).queue();
+        verify(acks.hook()).editOriginalEmbeds(any(MessageEmbed[].class));
+        verify(fixture.getButtonInteractionEvent(), never()).reply(anyString());
+    }
+
+    @Test
+    @DisplayName("history queue: the result reply and the embed refresh acknowledge once")
+    void onButtonInteraction_queue_acknowledgesOnce() {
+        InteractionAckTracker acks = stubHistoryAction("queue");
+        doAnswer(invocation -> {
+            MusicService.OutputAdapter output = invocation.getArgument(4);
+            output.replySuccess("Added two to the queue");
+            return null;
+        }).when(fixture.getMusicService()).queueFromHistory(any(), any(), eq(2), any(), any());
+
+        listener.onButtonInteraction(fixture.getButtonInteractionEvent());
+
+        assertOneAckAndHookOutput(acks, "Added two to the queue");
+    }
+
+    @Test
+    @DisplayName("history playnow: the result reply and the embed refresh acknowledge once")
+    void onButtonInteraction_playNow_acknowledgesOnce() {
+        InteractionAckTracker acks = stubHistoryAction("playnow");
+        doAnswer(invocation -> {
+            MusicService.OutputAdapter output = invocation.getArgument(4);
+            output.replySuccess("Now playing two");
+            return null;
+        }).when(fixture.getMusicService()).playFromHistoryNow(any(), any(), eq(2), any(), any());
+
+        listener.onButtonInteraction(fixture.getButtonInteractionEvent());
+
+        assertOneAckAndHookOutput(acks, "Now playing two");
+    }
+
+    @Test
+    @DisplayName("history queueall: the result reply and the embed refresh acknowledge once")
+    void onButtonInteraction_queueAll_acknowledgesOnce() {
+        InteractionAckTracker acks = stubHistoryAction("queueall");
+        doAnswer(invocation -> {
+            MusicService.OutputAdapter output = invocation.getArgument(3);
+            output.replySuccess("Queued 3 tracks from history");
+            return null;
+        }).when(fixture.getMusicService()).queueAllFromHistory(any(), any(), any(), any());
+
+        listener.onButtonInteraction(fixture.getButtonInteractionEvent());
+
+        assertOneAckAndHookOutput(acks, "Queued 3 tracks from history");
     }
 }
