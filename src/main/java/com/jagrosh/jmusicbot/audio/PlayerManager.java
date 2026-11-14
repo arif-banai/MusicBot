@@ -25,6 +25,7 @@ import org.slf4j.LoggerFactory;
 import com.jagrosh.jmusicbot.Bot;
 import com.jagrosh.jmusicbot.BotConfig;
 import com.jagrosh.jmusicbot.utils.ProxyUtil;
+import com.jagrosh.jmusicbot.ytdlp.LibrarySourceManager;
 
 /**
  *
@@ -56,6 +57,18 @@ public class PlayerManager extends DefaultAudioPlayerManager
                     config.getProxyHost(), config.getProxyPort());
         }
         
+        // Links to songs already in the yt-dlp library play from disk without ever asking
+        // YouTube: lavaplayer asks source managers in registration order and uses the first
+        // non-null result, so this must be registered before YOUTUBE below. It's cheap (an
+        // in-memory lookup) and safe for every load, so it's registered unconditionally, even
+        // with the yt-dlp feature off or no library folder at all (loadItem then just always
+        // misses). A supplier, not bot.getYtDlp() resolved here directly: by the time init()
+        // actually runs (after the GUI starts, well after the Bot constructor finishes) the
+        // YtDlpService is already set, but the supplier keeps this class decoupled from that
+        // ordering and lets it tolerate a Bot double whose getYtDlp() returns null, as in
+        // PlayerManagerTest.
+        registerSourceManager(new LibrarySourceManager(bot::getYtDlp));
+
         // Register transformative audio sources
         TransformativeAudioSourceManager.createTransforms(config.getTransforms())
                 .forEach(this::registerSourceManager);

@@ -257,9 +257,18 @@ public final class YtDlpService {
         if (entry.isEmpty()) {
             return track;
         }
-        LibraryEntry e = entry.get();
-        return copyState(track, new LibraryAudioTrack(e.toTrackInfo(), e.videoId(), completed(e), null,
-                track.getSourceManager()));
+        return copyState(track, libraryTrack(entry.get(), track.getSourceManager()));
+    }
+
+    /**
+     * Builds a {@link LibraryAudioTrack} straight from a library entry, with a completed
+     * future and the given display source manager (typically the YouTube source, so the
+     * queue, history and saved playlists record the YouTube URL). For a source manager
+     * (e.g. {@link LibrarySourceManager}) that builds a track directly from the index at
+     * {@code loadItem} time, rather than wrapping an existing {@link AudioTrack}.
+     */
+    public LibraryAudioTrack libraryTrack(LibraryEntry entry, @Nullable AudioSourceManager displaySource) {
+        return new LibraryAudioTrack(entry.toTrackInfo(), entry.videoId(), completed(entry), null, displaySource);
     }
 
     /**
@@ -333,8 +342,11 @@ public final class YtDlpService {
     /**
      * Whether an entry was adopted from a file in the library folder rather than recorded from
      * a YouTube track, so it only has a title guessed from the filename: no author, no length.
+     * Package-private so {@link LibrarySourceManager} can reuse the same check: it must not
+     * short-circuit an adopted entry's first link, so that link still goes through YouTube once
+     * and {@link #prepareForPlayback} gets a chance to fill the real metadata in.
      */
-    private static boolean isAdopted(LibraryEntry entry) {
+    static boolean isAdopted(LibraryEntry entry) {
         return (entry.author() == null || entry.author().isEmpty()) && entry.lengthMs() <= 0;
     }
 
