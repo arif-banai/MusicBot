@@ -21,6 +21,7 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 import com.jagrosh.jmusicbot.ytdlp.ProcessRunner.ProcessResult;
@@ -45,6 +46,7 @@ public final class SystemProcessRunner implements ProcessRunner {
     @Override
     public ProcessResult run(List<String> command, Duration timeout) throws IOException, InterruptedException {
         ProcessBuilder builder = new ProcessBuilder(command);
+        applyUtf8Environment(builder.environment());
         Process process = builder.start();
 
         StreamGobbler stdout = new StreamGobbler(process.getInputStream());
@@ -88,6 +90,21 @@ public final class SystemProcessRunner implements ProcessRunner {
     private static void killTree(Process process) {
         process.descendants().forEach(ProcessHandle::destroyForcibly);
         process.destroyForcibly();
+    }
+
+    /**
+     * Forces a Python child process (yt-dlp is a Python program) to emit UTF-8 on
+     * stdout/stderr regardless of the OS's default code page. Without this, a yt-dlp
+     * process launched on Windows writes its piped stdout in the console's ANSI code
+     * page, which can corrupt or drop non-ASCII characters in the path it prints via
+     * {@code --print after_move:filepath} before {@link StreamGobbler} ever decodes
+     * it as UTF-8 &mdash; silently breaking downloads of non-ASCII-titled videos.
+     * Extracted as its own method, taking a plain {@code Map} rather than a
+     * {@code ProcessBuilder}, so it can be unit tested without starting a process.
+     */
+    public static void applyUtf8Environment(Map<String, String> environment) {
+        environment.put("PYTHONUTF8", "1");
+        environment.put("PYTHONIOENCODING", "utf-8");
     }
 
     /** Reads a stream to completion on its own thread, collecting it as UTF-8 text. */
