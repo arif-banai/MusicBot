@@ -1439,6 +1439,24 @@ public class AudioHandlerTest extends TestBase {
         }
 
         @Test
+        @DisplayName("a queued track handed off to its library copy at play time closes its suggestion")
+        void handedOffTrack_closesItsSuggestion()
+        {
+            com.jagrosh.jmusicbot.ytdlp.MatchSuggestions suggestions = mock(com.jagrosh.jmusicbot.ytdlp.MatchSuggestions.class);
+            when(ytDlp.getMatchSuggestions()).thenReturn(suggestions);
+            AudioTrack original = track("orig");
+            AudioTrack copy = track("copy");
+            AudioTrack unchanged = track("unchanged");
+            when(ytDlp.prepareForPlayback(original, GUILD_ID)).thenReturn(copy);
+
+            audioHandler.playPrepared(original);
+            audioHandler.playPrepared(unchanged);
+
+            verify(suggestions).onTrackEnded(GUILD_ID, original);
+            verify(suggestions, never()).onTrackEnded(GUILD_ID, unchanged);
+        }
+
+        @Test
         @DisplayName("no suggestion service (feature off): track start and end work as before")
         void noMatchSuggestions_noop()
         {

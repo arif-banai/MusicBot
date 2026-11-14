@@ -426,6 +426,63 @@ class MatchSuggestionsTest {
         verify(channel, times(1)).sendMessage(any(CharSequence.class)); // still just the first post
     }
 
+    /** Runs one play-time consider for {@code request} and returns its single decision log line. */
+    private String decisionFor(AudioTrack request) {
+        MatchSuggestions suggestions = suggestions();
+        when(player.getPlayingTrack()).thenReturn(request);
+        List<String> lines = captureDecisionLogs(() -> {
+            suggestions.consider(GUILD, request);
+            runTasks();
+        });
+        assertEquals(1, lines.size(), lines::toString);
+        return lines.get(0);
+    }
+
+    @Test
+    @DisplayName("decide: a live library copy of the same song, at the same length, is reported as VERSION")
+    void decide_liveVersion_reasonVersion() throws IOException {
+        String liveId = "LLLLLLLLLLL";
+        recordCandidate(liveId, "One Two Three Four Five (Live)", "Alpha Band", 169_000L);
+
+        String line = decisionFor(customRequest(169_000L));
+
+        assertTrue(line.contains(liveId) && line.endsWith("VERSION"), line);
+        verify(channel, never()).sendMessage(any(CharSequence.class));
+    }
+
+    @Test
+    @DisplayName("decide: the same ISRC is SUGGESTED even when the titles differ")
+    void decide_sameIsrc_suggested() throws IOException {
+        String isrcId = "IIIIIIIIIII";
+        Path file = libraryFolder.resolve("Something Else [" + isrcId + "].webm");
+        Files.writeString(file, "x");
+        Files.writeString(libraryFolder.resolve("Something Else [" + isrcId + "].info.json"),
+                "{\"isrc\": \"GBAHT0500123\"}");
+        library.record(isrcId, file, new AudioTrackInfo("Something Else Entirely", "Another Uploader", 169_000L,
+                isrcId, false, YT + isrcId, "https://img/i.jpg", null));
+        AudioTrack request = customRequest(169_000L);
+        when(request.getInfo()).thenReturn(new AudioTrackInfo("Totally Different Words", "Nobody", 169_000L, REQ_ID,
+                false, YT + REQ_ID, "https://img/req.jpg", "GBAHT0500123"));
+
+        String line = decisionFor(request);
+
+        assertTrue(line.contains(isrcId) && line.endsWith("SUGGESTED"), line);
+    }
+
+    @Test
+    @DisplayName("decide: a generic title (\"Intro\") from an artist-less library entry is never suggested")
+    void decide_genericTitle_notSuggested() throws IOException {
+        recordCandidate("GGGGGGGGGGG", "Intro", "", 169_000L);
+        AudioTrack request = customRequest(169_000L);
+        when(request.getInfo()).thenReturn(new AudioTrackInfo("Intro", "Alpha Band", 169_000L, REQ_ID,
+                false, YT + REQ_ID, "https://img/req.jpg", null));
+
+        String line = decisionFor(request);
+
+        assertFalse(line.endsWith("SUGGESTED"), line);
+        verify(channel, never()).sendMessage(any(CharSequence.class));
+    }
+
     private void recordCandidate(String id, String title, String author, long lengthMs) throws IOException {
         Path file = libraryFolder.resolve(title + " [" + id + "].webm");
         Files.writeString(file, "x");

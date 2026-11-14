@@ -16,6 +16,8 @@
 package com.jagrosh.jmusicbot.ytdlp;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -218,6 +220,11 @@ public final class MatchSuggestions {
         if (info == null || info.isStream || LibraryKeys.of(track).isEmpty()) {
             return;
         }
+        if (service.mode() == YtDlpSettings.Mode.ALWAYS && YtDlpService.isYoutube(track)) {
+            // Always mode plays this from the library anyway (prepareForPlayback swaps it), so the
+            // suggestion could never be answered for the track it was posted for.
+            return;
+        }
         try {
             scheduler.execute(() -> {
                 try {
@@ -247,15 +254,18 @@ public final class MatchSuggestions {
     /**
      * Called when the queue is cleared (a full stop, or "play now"): every suggestion for a song
      * that was still waiting in the queue closes, since it will never start now. A suggestion for
-     * the currently playing track is left for {@link #onTrackEnded} to close once it actually ends.
+     * the currently playing track (including one posted while it was queued) is left for
+     * {@link #onTrackEnded} to close once it actually ends.
      */
     public void onQueueCleared(long guildId) {
         Map<Long, Suggestion> guildSuggestions = open.get(guildId);
         if (guildSuggestions == null) {
             return;
         }
+        AudioHandler handler = handler(guild(guildId));
+        AudioTrack current = handler == null ? null : handler.getPlayer().getPlayingTrack();
         for (Suggestion suggestion : List.copyOf(guildSuggestions.values())) {
-            if (suggestion.queued && guildSuggestions.remove(suggestion.id, suggestion)) {
+            if (suggestion.queued && current != suggestion.track && guildSuggestions.remove(suggestion.id, suggestion)) {
                 close(suggestion);
             }
         }
@@ -384,45 +394,55 @@ public final class MatchSuggestions {
         }
     }
 
+    /** A library entry that actually matches the requested track, with its score. */
+    private record Scored(LibraryEntry entry, double score) {
+    }
+
     /**
      * Decides whether the requested track should be offered a similar library song, and why not
-     * when it shouldn't: the library's best actual match for it, unless that pair was rejected,
-     * already offered this run, or its file is gone, or else the closest candidate found (by raw
-     * title/artist score, ignoring duration) with {@link SongMatcher#whyNot} explaining it, or
-     * {@link MatchDecision.Reason#NO_CANDIDATE} when no library entry shares a word with it.
+     * when it shouldn't: the library's best actual match for it whose file still exists, unless
+     * that pair was rejected or already offered this run, or else the closest candidate found (by
+     * title/artist similarity, ignoring duration and version words) with {@link SongMatcher#whyNot}
+     * explaining it, or {@link MatchDecision.Reason#NO_CANDIDATE} when no library entry shares a
+     * word with it. Files are checked only for matches, best first, so a scan does no disk IO for
+     * the rest of the library.
      */
     private MatchDecision decide(String requestedKey, AudioTrackInfo info, long guildId) {
         YtDlpLibrary library = service.library();
         SongMatcher.Song requested = SongMatcher.of(info);
         long floorMs = service.settings().durationToleranceSeconds() * 1000L;
         double minScore = service.settings().minScore();
+        List<LibraryEntry> entries = library.entries();
 
-        LibraryEntry bestEntry = null;
-        double bestScore = -1.0;
-        for (LibraryEntry entry : library.entries()) {
-            if (entry.key().equals(requestedKey) || library.isRejected(requestedKey, entry.key())
-                    || library.find(entry.key()).isEmpty()) {
+        List<Scored> matches = new ArrayList<>();
+        for (LibraryEntry entry : entries) {
+            if (entry.key().equals(requestedKey) || library.isRejected(requestedKey, entry.key())) {
                 continue;
             }
             OptionalDouble score = SongMatcher.matchScore(requested, entry, floorMs, minScore);
-            if (score.isPresent() && score.getAsDouble() > bestScore) {
-                bestEntry = entry;
-                bestScore = score.getAsDouble();
+            if (score.isPresent()) {
+                matches.add(new Scored(entry, score.getAsDouble()));
             }
         }
-        if (bestEntry != null) {
-            List<String> pair = List.of(requestedKey, bestEntry.key());
-            if (offered.getOrDefault(guildId, Set.of()).contains(pair)) {
-                return new MatchDecision(bestEntry.key(), bestScore, MatchDecision.Reason.ALREADY_OFFERED, null);
+        // Stable: among equal scores, library order still decides.
+        matches.sort(Comparator.comparingDouble(Scored::score).reversed());
+        for (Scored match : matches) {
+            if (library.find(match.entry().key()).isEmpty()) {
+                continue;
             }
-            return new MatchDecision(bestEntry.key(), bestScore, MatchDecision.Reason.SUGGESTED, bestEntry);
+            List<String> pair = List.of(requestedKey, match.entry().key());
+            if (offered.getOrDefault(guildId, Set.of()).contains(pair)) {
+                return new MatchDecision(match.entry().key(), match.score(), MatchDecision.Reason.ALREADY_OFFERED,
+                        null);
+            }
+            return new MatchDecision(match.entry().key(), match.score(), MatchDecision.Reason.SUGGESTED, match.entry());
         }
 
         // Nothing matched (or every match was excluded above): find the closest candidate to report.
         String closestKey = null;
         double closestRaw = 0.0;
         SongMatcher.Song closestSong = null;
-        for (LibraryEntry entry : library.entries()) {
+        for (LibraryEntry entry : entries) {
             if (entry.key().equals(requestedKey)) {
                 continue;
             }

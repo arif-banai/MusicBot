@@ -453,7 +453,14 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
             return track;
         try
         {
-            return ytDlp.prepareForPlayback(track, guildId);
+            AudioTrack prepared = ytDlp.prepareForPlayback(track, guildId);
+            if (prepared != track)
+            {
+                // The original never plays (its library copy does), so it never ends either: close
+                // any suggestion posted for it while it was queued.
+                endMatchSuggestion(track);
+            }
+            return prepared;
         }
         catch (RuntimeException ex)
         {

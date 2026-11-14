@@ -401,6 +401,41 @@ class QueuedSuggestionTest {
     }
 
     @Test
+    @DisplayName("always mode: a queued YouTube song is never suggested (it plays from the library anyway)")
+    void alwaysMode_queuedYoutube_notConsidered() {
+        YtDlpSettings settings = new YtDlpSettings("yt-dlp", Mode.ALWAYS, libraryFolder, "ytdlp-library", 0, 300,
+                List.of(), 120, true, true, 5, 0.85, true);
+        YtDlpService service = new YtDlpService(settings, library, mock(YtDlpDownloader.class),
+                mock(ProcessRunner.class), Runnable::run);
+        MatchSuggestions suggestions = new MatchSuggestions(bot, service, prompt, scheduler, new DirectExecutor());
+        QueuedTrack qb = queuedTrack(matchingTrack());
+        queue.add(qb);
+
+        suggestions.considerQueued(GUILD, qb);
+
+        assertTrue(tasks.isEmpty(), "nothing was scheduled");
+        verify(channel, never()).sendMessage(any(CharSequence.class));
+    }
+
+    @Test
+    @DisplayName("clearing the queue (play now) leaves a queue-time suggestion whose song is now playing")
+    void queueCleared_keepsSuggestionForPlayingTrack() {
+        MatchSuggestions suggestions = suggestions();
+        when(player.getPlayingTrack()).thenReturn(mock(AudioTrack.class));
+        AudioTrack b = matchingTrack();
+        QueuedTrack qb = queuedTrack(b);
+        queue.add(qb);
+        long id = suggestQueued(suggestions, qb);
+        when(player.getPlayingTrack()).thenReturn(b); // B started, then the rest of the queue was cleared
+
+        suggestions.onQueueCleared(GUILD);
+
+        verify(channel, never()).editMessageById(anyLong(), any(CharSequence.class));
+        suggestions.handlePress(pressEvent(REQUESTER, MESSAGE), switchIdFor(id));
+        verify(handler).replaceWithLibraryCopy(eq(b), any());
+    }
+
+    @Test
     @DisplayName("clearing the queue closes its open suggestions' buttons")
     void queueCleared_closesQueued() {
         MatchSuggestions suggestions = suggestions();

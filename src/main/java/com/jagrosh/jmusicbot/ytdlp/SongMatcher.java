@@ -213,7 +213,7 @@ public final class SongMatcher {
         if (!durationOk(a, b, toleranceMs)) {
             return 0.0;
         }
-        return scoreIgnoringDuration(a, b);
+        return scoreIgnoringDuration(a, b, true);
     }
 
     /** Whether {@code a} and {@code b}'s lengths are both known and within the widened tolerance. */
@@ -228,12 +228,13 @@ public final class SongMatcher {
     /**
      * {@link #score}'s title/artist/ISRC/version logic, with the duration gate already decided by
      * the caller (either applied, by {@link #score}, or skipped entirely, by {@link #rawScore}).
+     * {@code versionGate} false skips the version check too (for {@link #rawScore}).
      */
-    private static double scoreIgnoringDuration(Song a, Song b) {
+    private static double scoreIgnoringDuration(Song a, Song b, boolean versionGate) {
         if (a.isrc() != null && b.isrc() != null && !a.isrc().isBlank() && a.isrc().equalsIgnoreCase(b.isrc())) {
             return 1.0;
         }
-        if (!a.versions().equals(b.versions())) {
+        if (versionGate && !a.versions().equals(b.versions())) {
             return 0.0; // e.g. the live or instrumental version of the same song
         }
         double title = jaccard(a.title(), b.title());
@@ -284,13 +285,13 @@ public final class SongMatcher {
     }
 
     /**
-     * {@link #score}, but with the duration gate skipped (an unknown or wildly different length
-     * never zeroes it). The ISRC, version and generic-title gates still apply, so this is exactly
-     * "the highest score ignoring duration": used only to pick the closest candidate to report
-     * when nothing actually matches.
+     * {@link #score}, but with the duration and version gates skipped (an unknown or wildly
+     * different length, or a live version of the same song, never zeroes it). The ISRC and
+     * generic-title gates still apply. Used only to pick the closest candidate to report when
+     * nothing actually matches, so {@link #whyNot} can then name the duration or version.
      */
     static double rawScore(Song a, Song b) {
-        return scoreIgnoringDuration(a, b);
+        return scoreIgnoringDuration(a, b, false);
     }
 
     // ---- cleaning ----
