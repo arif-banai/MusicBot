@@ -1501,7 +1501,7 @@ public class AudioHandlerTest extends TestBase {
         }
 
         @Test
-        @DisplayName("a REPLACED end that isn't a switch still ends the queue as before")
+        @DisplayName("a REPLACED end that isn't a switch follows the normal REPLACED rule (another track took over: no pull, no disconnect)")
         void replacedEnd_notASwitch_unchanged()
         {
             AudioTrack requested = startable("requested");
@@ -1512,7 +1512,7 @@ public class AudioHandlerTest extends TestBase {
 
             audioHandler.onTrackEnd(audioPlayer, copy, AudioTrackEndReason.REPLACED);
 
-            verify(bot).closeAudioConnection(GUILD_ID);
+            verify(bot, never()).closeAudioConnection(GUILD_ID);
         }
     }
 }
