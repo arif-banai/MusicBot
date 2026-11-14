@@ -436,18 +436,25 @@ public final class YtDlpLibrary {
     /** As {@link #remove(String, boolean)}, logging {@code actorUserId} (the DJ who asked) if given. */
     public synchronized RemoveResult remove(String key, boolean deleteFile, @Nullable Long actorUserId)
             throws IOException {
+        String actorSuffix = actorUserId != null ? ", by user " + actorUserId : "";
         LibraryEntry entry = key == null ? null : entries.get(key);
         if (entry == null) {
+            LOGGER.info("Remove {}: not in the library{}", key, actorSuffix);
             return new RemoveResult(false, false, "not in the library");
         }
         boolean fileDeleted = false;
         if (deleteFile) {
+            if (!entry.file().toAbsolutePath().normalize().startsWith(libraryFolder.toAbsolutePath().normalize())) {
+                String problem = "That file is outside the library folder; not deleting it.";
+                LOGGER.info("Remove {}: {}{}", key, problem, actorSuffix);
+                return new RemoveResult(false, false, problem);
+            }
             try {
                 fileDeleter.delete(entry.file());
                 fileDeleted = true;
             } catch (IOException ex) {
                 String problem = ex.getMessage() != null ? ex.getMessage() : ex.toString();
-                LOGGER.info("Remove {}: the file couldn't be deleted ({}); nothing changed", key, problem);
+                LOGGER.info("Remove {}: the file couldn't be deleted ({}); nothing changed{}", key, problem, actorSuffix);
                 return new RemoveResult(false, false, problem);
             }
             deleteSidecarAndThumbnails(entry.file());
@@ -458,8 +465,7 @@ public final class YtDlpLibrary {
         rejections.removeIf(pair -> pair.to().equals(key));
         removeFromPlaylist(entry.file());
         saveIndex();
-        LOGGER.info("Removed library song {} (file deleted: {}{})", key, fileDeleted,
-                actorUserId != null ? ", by user " + actorUserId : "");
+        LOGGER.info("Removed library song {} (file deleted: {}{})", key, fileDeleted, actorSuffix);
         return new RemoveResult(true, fileDeleted, null);
     }
 
@@ -506,7 +512,17 @@ public final class YtDlpLibrary {
             kept.add(line);
         }
         if (changed) {
-            Files.write(playlistFile, kept, StandardCharsets.UTF_8);
+            // Atomic, as saveIndex() writes library.json: a temp file in the same directory,
+            // then one atomic move, so a crash or concurrent read never sees a half-written file.
+            Path parent = playlistFile.getParent();
+            Path tempFile = Files.createTempFile(parent, "playlist", ".txt.tmp");
+            try {
+                Files.write(tempFile, kept, StandardCharsets.UTF_8);
+                Files.move(tempFile, playlistFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (IOException ex) {
+                Files.deleteIfExists(tempFile);
+                throw ex;
+            }
         }
     }
 

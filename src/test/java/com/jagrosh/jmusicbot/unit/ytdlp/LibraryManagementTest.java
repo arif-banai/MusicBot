@@ -158,6 +158,38 @@ class LibraryManagementTest {
     }
 
     @Test
+    @DisplayName("remove(deleteFile=true) refuses to delete a file outside the library folder")
+    void remove_withFile_outsideLibraryFolder_refusesToDelete() throws IOException {
+        Path outside = Files.createFile(tempDir.resolve("outside.webm"));
+        YtDlpLibrary library = new YtDlpLibrary(libraryFolder, playlistFile, f -> java.util.Optional.empty());
+        library.record("outsideone1", outside, info("outsideone1", "Song", "Author"));
+
+        YtDlpLibrary.RemoveResult result = library.remove("outsideone1", true);
+
+        assertFalse(result.removed());
+        assertFalse(result.fileDeleted());
+        assertEquals("That file is outside the library folder; not deleting it.", result.problem());
+        assertTrue(Files.exists(outside));
+        assertTrue(library.find("outsideone1").isPresent());
+    }
+
+    @Test
+    @DisplayName("remove() rewrites the playlist file, keeping every other line")
+    void remove_rewritesPlaylist_keepsOtherLines() throws IOException {
+        Path fileA = Files.createFile(libraryFolder.resolve("A [keeplineaa1].webm"));
+        Path fileB = Files.createFile(libraryFolder.resolve("B [keeplinebb2].webm"));
+        YtDlpLibrary library = new YtDlpLibrary(libraryFolder, playlistFile, f -> java.util.Optional.empty());
+        library.record("keeplineaa1", fileA, info("keeplineaa1", "A", "Author"));
+        library.record("keeplinebb2", fileB, info("keeplinebb2", "B", "Author"));
+
+        library.remove("keeplineaa1", false);
+
+        List<String> lines = Files.readAllLines(playlistFile);
+        assertFalse(lines.contains(fileA.toAbsolutePath().toString()));
+        assertTrue(lines.contains(fileB.toAbsolutePath().toString()));
+    }
+
+    @Test
     @DisplayName("rescan() counts added, updated and missing entries, and saves")
     void rescan_countsAddedUpdatedMissing() throws IOException {
         Path fileA = Files.createFile(libraryFolder.resolve("A [rescanaaaa1].webm"));
