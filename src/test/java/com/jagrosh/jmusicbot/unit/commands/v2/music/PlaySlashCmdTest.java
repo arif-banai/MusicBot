@@ -132,6 +132,28 @@ public class PlaySlashCmdTest
     }
 
     @Test
+    void testOnAutoComplete_SchemeLessYoutubeLink_RepliesWithHttpsLinkAsChoice()
+    {
+        // Given
+        String input = "youtube.com/watch?v=IY1oU1G2DA0";
+        when(fixture.getFocusedOption().getValue()).thenReturn(input);
+        when(fixture.getAutoCompleteEvent().replyChoices(any(Command.Choice.class)))
+                .thenReturn(fixture.getAutoCompleteCallback());
+
+        // When
+        command.onAutoComplete(fixture.getAutoCompleteEvent());
+
+        // Then
+        ArgumentCaptor<Command.Choice> choiceCaptor = ArgumentCaptor.forClass(Command.Choice.class);
+        verify(fixture.getAutoCompleteEvent()).replyChoices(choiceCaptor.capture());
+        Command.Choice capturedChoice = choiceCaptor.getValue();
+        String expected = "https://youtube.com/watch?v=IY1oU1G2DA0";
+        assertEquals(expected, capturedChoice.getName());
+        assertEquals(expected, capturedChoice.getAsString());
+        verify(fixture.getPlayerManager(), never()).loadItemOrdered(any(), anyString(), any());
+    }
+
+    @Test
     void testOnAutoComplete_WindowsPath_RepliesWithPathAsChoice()
     {
         // Given

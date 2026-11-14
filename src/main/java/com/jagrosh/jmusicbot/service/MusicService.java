@@ -28,6 +28,7 @@ import com.jagrosh.jmusicbot.settings.QueueType;
 import com.jagrosh.jmusicbot.settings.RepeatMode;
 import com.jagrosh.jmusicbot.settings.Settings;
 import com.jagrosh.jmusicbot.utils.FormatUtil;
+import com.jagrosh.jmusicbot.utils.QueryNormalizer;
 import com.jagrosh.jmusicbot.utils.TimeUtil;
 import com.sedmelluq.discord.lavaplayer.player.AudioLoadResultHandler;
 import com.sedmelluq.discord.lavaplayer.track.AudioPlaylist;
@@ -265,6 +266,8 @@ public class MusicService
         if (args.startsWith("<") && args.endsWith(">"))
             args = args.substring(1, args.length() - 1);
 
+        args = QueryNormalizer.normalize(args);
+
         LOG.info("Loading track for playNext: guild={}, user={}, query=\"{}\"",
                 guild.getId(), member.getUser().getName(), args);
 
@@ -303,6 +306,8 @@ public class MusicService
             output.onShowHelp();
             return;
         }
+
+        args = QueryNormalizer.normalize(args);
 
         LOG.info("Loading track: guild={}, user={}, query=\"{}\"",
                 guild.getId(), member.getUser().getName(), args);

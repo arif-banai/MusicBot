@@ -6,6 +6,7 @@ import com.jagrosh.jmusicbot.commands.v2.MusicSlashCommand;
 import com.jagrosh.jmusicbot.commands.v2.SlashOutputAdapters.InteractionHookOutputAdapter;
 import com.jagrosh.jmusicbot.commands.v2.SlashOutputAdapters.SlashEventOutputAdapter;
 import com.jagrosh.jmusicbot.service.MusicService;
+import com.jagrosh.jmusicbot.utils.QueryNormalizer;
 import com.sedmelluq.discord.lavaplayer.player.AudioLoadResultHandler;
 import com.sedmelluq.discord.lavaplayer.tools.FriendlyException;
 import com.sedmelluq.discord.lavaplayer.track.AudioPlaylist;
@@ -64,9 +65,10 @@ public class PlaySlashCmd extends MusicSlashCommand
             return;
         }
 
-        if(isUrlOrPath(input))
+        String normalized = QueryNormalizer.normalize(input);
+        if(isUrlOrPath(normalized))
         {
-            event.replyChoices(new Command.Choice(input, input)).queue();
+            event.replyChoices(new Command.Choice(normalized, normalized)).queue();
             return;
         }
 

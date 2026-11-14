@@ -154,12 +154,28 @@ public class MusicServiceTest
             String query = "test song";
 
             // When
-            musicService.play(fixture.getGuild(), fixture.getMember(), 
+            musicService.play(fixture.getGuild(), fixture.getMember(),
                     "\"" + query + "\"", fixture.getTextChannel(), output);
 
             // Then
-            verify(fixture.getPlayerManager()).loadItemOrdered(eq(fixture.getGuild()), 
+            verify(fixture.getPlayerManager()).loadItemOrdered(eq(fixture.getGuild()),
                     eq(query), any());
+        }
+
+        @Test
+        @DisplayName("play() with scheme-less YouTube link loads it as a link, not a search")
+        void playWithSchemeLessYoutubeLink_loadsAsHttpsLink()
+        {
+            // Given
+            String query = "youtube.com/watch?v=IY1oU1G2DA0";
+
+            // When
+            musicService.play(fixture.getGuild(), fixture.getMember(),
+                    query, fixture.getTextChannel(), output);
+
+            // Then
+            verify(fixture.getPlayerManager()).loadItemOrdered(eq(fixture.getGuild()),
+                    eq("https://youtube.com/watch?v=IY1oU1G2DA0"), any());
         }
     }
 
