@@ -233,6 +233,23 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
     }
 
     /**
+     * Clears the active queues (preserving history) without stopping whatever is currently
+     * playing, for callers that are about to load replacement tracks and then explicitly
+     * replace the current track themselves (see {@link #getPlayer()}{@code .stopTrack()}, called
+     * once the queue is non-empty again). Unlike {@link #stopAndClearQueuePreserveHistory()},
+     * this never leaves the queue briefly empty while a track is ending, so it can't trigger the
+     * idle-queue disconnect in {@code continueAfterEnd}. The currently playing track is left
+     * alone, so its yt-dlp handoff/prompt state is untouched.
+     */
+    public void clearQueuePreserveHistoryKeepPlaying()
+    {
+        LOGGER.debug("Clearing queue for replacement (preserving history and current playback)");
+        queue.clear();
+        defaultQueue.clear();
+        cancelYtDlpDownloads();
+    }
+
+    /**
      * Starts a track on the player, after giving the yt-dlp library a chance to swap in its
      * library copy. Every path that hands a track to the player goes through here.
      */

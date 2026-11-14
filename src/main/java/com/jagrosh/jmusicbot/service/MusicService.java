@@ -1507,8 +1507,12 @@ public class MusicService
                 channel.getIdLong());
         QueuedTrack newQt = new QueuedTrack(track, rm);
         handler.setLastReason(member.getUser().getName() + " playing from history.");
+        // Captured before addTrackToFront: when nothing was playing, addTrackToFront starts this
+        // track immediately, and getPlayingTrack() would then (wrongly) read as "already
+        // playing", causing stopTrack() below to stop the track we just started.
+        boolean wasPlaying = handler.getPlayer().getPlayingTrack() != null;
         handler.addTrackToFront(newQt);
-        if (handler.getPlayer().getPlayingTrack() != null)
+        if (wasPlaying)
         {
             handler.getPlayer().stopTrack();
         }
@@ -1622,6 +1626,7 @@ public class MusicService
             output.replyError(mapPlaylistErrorToMessage(playlistResult.getError()));
             return;
         }
+        Playlist playlist = playlistResult.getValue();
 
         AudioHandler handler = getHandler(guild);
         if (handler == null)
@@ -1634,51 +1639,48 @@ public class MusicService
             return;
         }
 
-        handler.stopAndClearQueuePreserveHistory();
-        queuePlaylist(guild, member, playlistName, channel, new OutputAdapter()
-        {
-            @Override
-            public void replySuccess(String content)
+        AudioHandler finalHandler = handler;
+        // Whether something is already playing, captured before the queue is touched: the
+        // playlist is loaded into the (now empty) queue first, and only once it's non-empty do
+        // we stop the old track, so the queue is never empty while a track is ending and the
+        // idle-queue disconnect in AudioHandler#onTrackEnd never fires.
+        boolean wasPlaying = finalHandler.getPlayer().getPlayingTrack() != null;
+        finalHandler.clearQueuePreserveHistoryKeepPlaying();
+
+        playlist.loadTracks(bot.getPlayerManager(), at -> {
+            RequestMetadata metadata = new RequestMetadata(member.getUser(),
+                    new RequestMetadata.RequestInfo("playlist " + playlist.getName(), at.getInfo().uri),
+                    channel.getIdLong());
+            finalHandler.addTrack(new QueuedTrack(at, metadata));
+        }, () -> {
+            int loadedCount = playlist.getTracks().size();
+            int errorCount = playlist.getErrors().size();
+            if (loadedCount == 0)
             {
-                output.replySuccess("Now playing playlist `" + playlistName + "` (queue replaced). " + content);
+                output.replyWarning("No tracks were loaded from playlist `" + playlist.getName() + "`!");
+                return;
             }
 
-            @Override
-            public void replyError(String content)
+            StringBuilder msg = new StringBuilder("Queued **")
+                    .append(loadedCount)
+                    .append("** track(s) from playlist `")
+                    .append(playlist.getName())
+                    .append("`.");
+            if (errorCount > 0)
             {
-                output.replyError(content);
+                msg.append(" Failed to load ").append(errorCount).append(" item(s).");
             }
 
-            @Override
-            public void replyWarning(String content)
+            if (wasPlaying)
             {
-                output.replyWarning(content);
+                // The queue is non-empty now, so stopping the old track makes
+                // AudioHandler#continueAfterEnd pull the playlist's first track via
+                // playPrepared, instead of hitting the empty-queue disconnect path.
+                finalHandler.getPlayer().stopTrack();
             }
 
-            @Override
-            public void editMessage(String content)
-            {
-            }
-
-            @Override
-            public void editMessage(String content, Consumer<Message> onSuccess)
-            {
-            }
-
-            @Override
-            public void editNowPlaying(AudioHandler handler)
-            {
-            }
-
-            @Override
-            public void editNoMusic(AudioHandler handler)
-            {
-            }
-
-            @Override
-            public void onShowHelp()
-            {
-            }
+            output.replySuccess("Now playing playlist `" + playlist.getName() + "` (queue replaced). " + msg);
+            bot.getNowplayingHandler().requestReconcile(guild.getIdLong(), "playlist-loaded");
         });
     }
 
@@ -1958,6 +1960,12 @@ public class MusicService
         {
             private void loadSingle(AudioTrack track)
             {
+                // Captured before addTrackToFront: when nothing was playing, addTrackToFront
+                // starts this track immediately, and getPlayingTrack() would then (wrongly) read
+                // as "already playing", causing stopTrack() below to stop the track we just
+                // started.
+                AudioHandler handlerBefore = getHandler(guild);
+                boolean wasPlaying = handlerBefore != null && handlerBefore.getPlayer().getPlayingTrack() != null;
                 TrackAddResult result = addTrackToFront(guild, member, track, url, channel);
                 if (result == null)
                 {
@@ -1965,7 +1973,7 @@ public class MusicService
                     return;
                 }
                 AudioHandler handler = getHandler(guild);
-                if (handler != null && handler.getPlayer().getPlayingTrack() != null)
+                if (wasPlaying && handler != null)
                 {
                     handler.getPlayer().stopTrack();
                 }

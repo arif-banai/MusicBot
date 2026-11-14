@@ -212,6 +212,79 @@ public class AudioHandlerTest extends TestBase {
             assertTrue(audioHandler.getQueue().isEmpty());
             assertTrue(audioHandler.getPreviousTracks().isEmpty());
         }
+
+        @Test
+        @DisplayName("clearQueuePreserveHistoryKeepPlaying() clears the queue without stopping playback")
+        public void testClearQueuePreserveHistoryKeepPlayingDoesNotStop() {
+            AudioTrack playingTrack = mock(AudioTrack.class);
+            AudioTrackInfo playingInfo = new AudioTrackInfo("Playing", "Author", 1000, "playing-id", false, "uri");
+            when(playingTrack.getInfo()).thenReturn(playingInfo);
+            when(audioPlayer.getPlayingTrack()).thenReturn(playingTrack);
+
+            QueuedTrack queued = mock(QueuedTrack.class);
+            AudioTrack queuedTrack = mock(AudioTrack.class);
+            AudioTrackInfo queuedInfo = new AudioTrackInfo("Queued", "Author", 1000, "queued-id", false, "uri2");
+            when(queuedTrack.getInfo()).thenReturn(queuedInfo);
+            when(queued.getTrack()).thenReturn(queuedTrack);
+            audioHandler.addTrack(queued);
+
+            audioHandler.clearQueuePreserveHistoryKeepPlaying();
+
+            verify(audioPlayer, never()).stopTrack();
+            assertTrue(audioHandler.getQueue().isEmpty());
+        }
+    }
+
+    // ==================== Queue Replacement ("Play Now") Tests ====================
+
+    @Nested
+    @DisplayName("Queue Replacement While Playing")
+    class QueueReplacementTests
+    {
+        @Test
+        @DisplayName("replacing the queue while something plays never disconnects: the stop pulls the new first track")
+        public void testQueueReplacementWhilePlayingDoesNotDisconnect() {
+            when(bot.getNowplayingHandler()).thenReturn(mock(com.jagrosh.jmusicbot.audio.NowPlayingHandler.class));
+            AudioTrack oldTrack = mock(AudioTrack.class);
+            AudioTrackInfo oldInfo = new AudioTrackInfo("Old", "Author", 1000, "old-id", false, "old-uri");
+            when(oldTrack.getInfo()).thenReturn(oldInfo);
+            when(audioPlayer.getPlayingTrack()).thenReturn(oldTrack);
+
+            // Simulate MusicService.playPlaylistNow's fixed order: clear the queue without
+            // stopping playback, queue the replacement track(s), then stop the old track.
+            audioHandler.clearQueuePreserveHistoryKeepPlaying();
+
+            QueuedTrack newQueued = mock(QueuedTrack.class);
+            AudioTrack newTrack = mock(AudioTrack.class);
+            AudioTrackInfo newInfo = new AudioTrackInfo("New", "Author", 1000, "new-id", false, "new-uri");
+            when(newTrack.getInfo()).thenReturn(newInfo);
+            when(newQueued.getTrack()).thenReturn(newTrack);
+            audioHandler.addTrack(newQueued);
+            assertFalse(audioHandler.getQueue().isEmpty());
+
+            // The real player would call onTrackEnd for the old track once stopTrack() runs.
+            audioHandler.onTrackEnd(audioPlayer, oldTrack, AudioTrackEndReason.STOPPED);
+
+            verify(playerManager.getBot(), never()).closeAudioConnection(anyLong());
+            verify(audioPlayer).playTrack(newTrack);
+        }
+
+        @Test
+        @DisplayName("stopping before the replacement queue is loaded (the old bug) leaves the queue empty and disconnects")
+        public void testStopBeforeQueueLoad_demonstratesDisconnectBug() {
+            when(bot.getNowplayingHandler()).thenReturn(mock(com.jagrosh.jmusicbot.audio.NowPlayingHandler.class));
+            AudioTrack oldTrack = mock(AudioTrack.class);
+            AudioTrackInfo oldInfo = new AudioTrackInfo("Old", "Author", 1000, "old-id", false, "old-uri");
+            when(oldTrack.getInfo()).thenReturn(oldInfo);
+            when(audioPlayer.getPlayingTrack()).thenReturn(oldTrack);
+
+            // The pre-fix order: stop (and clear) before anything new is queued.
+            audioHandler.stopAndClearQueuePreserveHistory();
+            // The real player calls onTrackEnd for the stopped track; the queue is still empty.
+            audioHandler.onTrackEnd(audioPlayer, oldTrack, AudioTrackEndReason.STOPPED);
+
+            verify(playerManager.getBot()).closeAudioConnection(GUILD_ID);
+        }
     }
 
     // ==================== isMusicPlaying Tests ====================
