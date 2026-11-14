@@ -337,8 +337,6 @@ While a requested song plays, the bot may post "Looks like **X** by Y from your 
 
 Copy the files (any format the bot can play) into `libraryFolder` and restart the bot. It reads each new file's details from a yt-dlp `.info.json` file with the same name if there is one (`yt-dlp --write-info-json`), otherwise from a YouTube `[id]` at the end of the filename, otherwise from the file's tags and length, otherwise from the filename. Files are never moved, renamed or changed. Only new files are read, so later restarts stay fast.
 
-Downloading from YouTube may violate YouTube's Terms of Service. Use at your own risk.
-
 ## Development Workflow
 
 This project follows a **trunk-based development** workflow. The `master` branch is always releasable, and all work happens in short-lived branches:

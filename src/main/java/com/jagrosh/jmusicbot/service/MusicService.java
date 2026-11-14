@@ -1507,15 +1507,22 @@ public class MusicService
                 channel.getIdLong());
         QueuedTrack newQt = new QueuedTrack(track, rm);
         handler.setLastReason(member.getUser().getName() + " playing from history.");
-        // Captured before addTrackToFront: when nothing was playing, addTrackToFront starts this
-        // track immediately, and getPlayingTrack() would then (wrongly) read as "already
-        // playing", causing stopTrack() below to stop the track we just started.
-        boolean wasPlaying = handler.getPlayer().getPlayingTrack() != null;
-        handler.addTrackToFront(newQt);
-        if (wasPlaying)
+        // "Play now" is about to replace the current track outside of a full stop: cancel any
+        // open yt-dlp prompt/handoff for it first, the same way a full stop would. This can make
+        // a gated hold end on its own within milliseconds, so the "is something playing" check
+        // right below is made fresh, after cancelling, and acted on immediately — never captured
+        // earlier and acted on later (a stale check could otherwise race a stopTrack() against a
+        // track that's already gone, or against the new track itself).
+        handler.cancelCurrentTrackYtDlpPrompt();
+        if (handler.getPlayer().getPlayingTrack() != null)
         {
-            handler.getPlayer().stopTrack();
+            handler.playNowReplacingCurrent(newQt);
         }
+        else
+        {
+            handler.addTrackToFront(newQt);
+        }
+        handler.getPlayer().setPaused(false); // "Play now" means play, even if the player was paused
         String title = FormatUtil.getTrackTitle(track);
         output.replySuccess("Now playing **" + FormatUtil.filter(title) + "**");
     }
@@ -1640,48 +1647,74 @@ public class MusicService
         }
 
         AudioHandler finalHandler = handler;
-        // Whether something is already playing, captured before the queue is touched: the
-        // playlist is loaded into the (now empty) queue first, and only once it's non-empty do
-        // we stop the old track, so the queue is never empty while a track is ending and the
-        // idle-queue disconnect in AudioHandler#onTrackEnd never fires.
-        boolean wasPlaying = finalHandler.getPlayer().getPlayingTrack() != null;
-        finalHandler.clearQueuePreserveHistoryKeepPlaying();
+        // Captured before the queue is touched: the track (if any) "Play now" is replacing.
+        // AudioHandler decides what to do with this by identity, not a stale boolean, since the
+        // load happens over the network and this track can end on its own (skip, finish, repeat)
+        // before any replacement track is ready.
+        AudioTrack originalTrack = finalHandler.getPlayer().getPlayingTrack();
+        // The token ties every follow-up call to THIS replacement specifically, so a track that
+        // loads (or a loadTracks failure) after a second, newer "Play now" has already begun
+        // can't disarm or otherwise affect that newer one.
+        Object replacementToken = finalHandler.beginQueueReplacement();
 
-        playlist.loadTracks(bot.getPlayerManager(), at -> {
-            RequestMetadata metadata = new RequestMetadata(member.getUser(),
-                    new RequestMetadata.RequestInfo("playlist " + playlist.getName(), at.getInfo().uri),
-                    channel.getIdLong());
-            finalHandler.addTrack(new QueuedTrack(at, metadata));
-        }, () -> {
-            int loadedCount = playlist.getTracks().size();
-            int errorCount = playlist.getErrors().size();
-            if (loadedCount == 0)
-            {
-                output.replyWarning("No tracks were loaded from playlist `" + playlist.getName() + "`!");
-                return;
-            }
+        try
+        {
+            playlist.loadTracks(bot.getPlayerManager(), at -> {
+                try
+                {
+                    RequestMetadata metadata = new RequestMetadata(member.getUser(),
+                            new RequestMetadata.RequestInfo("playlist " + playlist.getName(), at.getInfo().uri),
+                            channel.getIdLong());
+                    finalHandler.addTrack(new QueuedTrack(at, metadata));
+                }
+                finally
+                {
+                    // Always attempted, even if addTrack above threw: only the first call
+                    // (chronologically) that still finds this token active does anything; later
+                    // calls for the rest of the playlist are harmless no-ops.
+                    finalHandler.replaceCurrentTrackIfStillPlaying(replacementToken, originalTrack);
+                }
+            }, () -> {
+                try
+                {
+                    int loadedCount = playlist.getTracks().size();
+                    int errorCount = playlist.getErrors().size();
+                    if (loadedCount == 0)
+                    {
+                        output.replyWarning("No tracks were loaded from playlist `" + playlist.getName() + "`!");
+                        return;
+                    }
 
-            StringBuilder msg = new StringBuilder("Queued **")
-                    .append(loadedCount)
-                    .append("** track(s) from playlist `")
-                    .append(playlist.getName())
-                    .append("`.");
-            if (errorCount > 0)
-            {
-                msg.append(" Failed to load ").append(errorCount).append(" item(s).");
-            }
+                    StringBuilder msg = new StringBuilder("Queued **")
+                            .append(loadedCount)
+                            .append("** track(s) from playlist `")
+                            .append(playlist.getName())
+                            .append("`.");
+                    if (errorCount > 0)
+                    {
+                        msg.append(" Failed to load ").append(errorCount).append(" item(s).");
+                    }
 
-            if (wasPlaying)
-            {
-                // The queue is non-empty now, so stopping the old track makes
-                // AudioHandler#continueAfterEnd pull the playlist's first track via
-                // playPrepared, instead of hitting the empty-queue disconnect path.
-                finalHandler.getPlayer().stopTrack();
-            }
-
-            output.replySuccess("Now playing playlist `" + playlist.getName() + "` (queue replaced). " + msg);
-            bot.getNowplayingHandler().requestReconcile(guild.getIdLong(), "playlist-loaded");
-        });
+                    output.replySuccess("Now playing playlist `" + playlist.getName() + "` (queue replaced). " + msg);
+                    bot.getNowplayingHandler().requestReconcile(guild.getIdLong(), "playlist-loaded");
+                }
+                finally
+                {
+                    // No-op if replaceCurrentTrackIfStillPlaying already resolved this token.
+                    // Otherwise (e.g. zero tracks loaded, or the block above threw), applies the
+                    // normal empty-queue behaviour if nothing is playing, now that the guard
+                    // that deferred it is being lifted.
+                    finalHandler.endQueueReplacement(replacementToken);
+                }
+            });
+        }
+        catch (RuntimeException ex)
+        {
+            LOG.warn("Playlist `{}` failed to load for \"Play now\": guild={}, error={}",
+                    playlistName, guild.getId(), ex.toString());
+            finalHandler.endQueueReplacement(replacementToken);
+            output.replyError("Failed to load playlist `" + playlistName + "`.");
+        }
     }
 
     /**
@@ -1960,23 +1993,42 @@ public class MusicService
         {
             private void loadSingle(AudioTrack track)
             {
-                // Captured before addTrackToFront: when nothing was playing, addTrackToFront
-                // starts this track immediately, and getPlayingTrack() would then (wrongly) read
-                // as "already playing", causing stopTrack() below to stop the track we just
-                // started.
-                AudioHandler handlerBefore = getHandler(guild);
-                boolean wasPlaying = handlerBefore != null && handlerBefore.getPlayer().getPlayingTrack() != null;
-                TrackAddResult result = addTrackToFront(guild, member, track, url, channel);
-                if (result == null)
+                if (isTooLong(track))
                 {
                     output.replyError(formatTooLongError(track));
                     return;
                 }
+
                 AudioHandler handler = getHandler(guild);
-                if (wasPlaying && handler != null)
+                if (handler == null)
                 {
-                    handler.getPlayer().stopTrack();
+                    output.replyError("There is no player in this server!");
+                    return;
                 }
+
+                handler.setLastReason(member.getUser().getName() + " added to the front of the queue.");
+                RequestMetadata requestMetadata = new RequestMetadata(member.getUser(),
+                        new RequestMetadata.RequestInfo(url, track.getInfo().uri),
+                        channel.getIdLong());
+                QueuedTrack queuedTrack = new QueuedTrack(track, requestMetadata);
+
+                // "Play now" is about to replace the current track outside of a full stop:
+                // cancel any open yt-dlp prompt/handoff for it first, the same way a full stop
+                // would. This can make a gated hold end on its own within milliseconds, so "is
+                // something playing" is checked fresh, right after cancelling, and acted on
+                // immediately — never captured earlier and acted on later (a stale check could
+                // otherwise race a stopTrack() against a track that's already gone, or against
+                // the new track itself).
+                handler.cancelCurrentTrackYtDlpPrompt();
+                if (handler.getPlayer().getPlayingTrack() != null)
+                {
+                    handler.playNowReplacingCurrent(queuedTrack);
+                }
+                else
+                {
+                    handler.addTrackToFront(queuedTrack);
+                }
+                handler.getPlayer().setPaused(false); // "Play now" means play, even if the player was paused
                 output.replySuccess("Now playing **" + FormatUtil.filter(FormatUtil.getTrackTitle(track)) + "**");
             }
 
