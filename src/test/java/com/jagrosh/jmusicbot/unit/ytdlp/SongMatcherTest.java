@@ -237,6 +237,28 @@ class SongMatcherTest {
     }
 
     @Test
+    @DisplayName("matchScore: the same ISRC on both sides matches at 1.0 despite different titles")
+    void isrc_matchesExactly() {
+        Song requested = SongMatcher.song("Ring Ding Ding", "Someone Else", LEN, "GBAHT0500123");
+        LibraryEntry entry = new LibraryEntry("file:Axel F.mp3", Path.of("Axel F.mp3"), "Axel F", "Crazy Frog", LEN,
+                null, null, null, List.of(), true, null, null, null, null, "GBAHT0500123");
+
+        assertEquals(1.0, SongMatcher.matchScore(requested, entry, TOLERANCE_MS, MIN_SCORE).getAsDouble(), 1e-9);
+    }
+
+    @Test
+    @DisplayName("interpretations(): an entry with sidecar artist+track puts \"artist track\" first")
+    void artistTrack_interpretationFirst() {
+        LibraryEntry entry = new LibraryEntry("abc123def45", Path.of("X.webm"),
+                "Crazy Frog - Axel F (Official Video)", "", LEN, null, null, null, List.of(), false,
+                "Crazy Frog", "Axel F", null, null, null);
+
+        List<Song> interpretations = SongMatcher.interpretations(entry);
+
+        assertEquals(Set.of("axel", "f"), interpretations.get(0).title());
+    }
+
+    @Test
     @DisplayName("filename pairs: \"Artist - Title\" and \"Title - Artist\" both match the same upload")
     void nameParts_scoredBothWays() {
         Song requested = song("Crazy Frog - Axel F (Official Video)", "Crazy Frog");

@@ -218,10 +218,22 @@ public final class YtDlpLibrary {
                 String uri = entry.uri().equals(entry.file().toString()) ? here.toString() : entry.uri();
                 loaded.put(entry.key(), new LibraryEntry(entry.key(), here, entry.title(), entry.author(),
                         entry.lengthMs(), entry.artworkUrl(), uri, entry.source(), entry.nameParts(),
-                        entry.adopted()));
+                        entry.adopted(), entry.artist(), entry.track(), entry.album(), entry.releaseYear(),
+                        entry.isrc()));
             }
         }
         int fromIndex = loaded.size();
+        int backfilled = 0;
+        for (String key : new ArrayList<>(loaded.keySet())) {
+            LibraryEntry entry = loaded.get(key);
+            if (entry.artist() == null && entry.track() == null && entry.isrc() == null) {
+                LibraryEntry updated = SidecarMetadata.read(entry.file()).map(entry::withMetadata).orElse(entry);
+                if (!updated.equals(entry)) {
+                    loaded.put(key, updated);
+                    backfilled++;
+                }
+            }
+        }
         Map<Path, LibraryEntry> byFile = new HashMap<>();
         for (LibraryEntry entry : loaded.values()) {
             byFile.put(entry.file(), entry);
@@ -257,7 +269,7 @@ public final class YtDlpLibrary {
         LOGGER.info("Library: {} songs ({} already indexed; {} from sidecars, {} from YouTube IDs, {} from tags/filenames;"
                         + " {} with unknown length)",
                 entries.size(), fromIndex, counts.sidecars, counts.youtubeIds, counts.probed, unknownLength);
-        return counts.sidecars + counts.probed > 0 || droppedLinks > 0;
+        return counts.sidecars + counts.probed > 0 || droppedLinks > 0 || backfilled > 0;
     }
 
     /** Returns the entry for the given key, if indexed and its file still exists. Never follows aliases. */
@@ -381,6 +393,7 @@ public final class YtDlpLibrary {
         Path absFile = normalize(file);
         LibraryEntry entry = new LibraryEntry(key, absFile, info.title, info.author, info.length,
                 info.artworkUrl, info.uri, null, List.of(), false);
+        entry = SidecarMetadata.read(absFile).map(entry::withMetadata).orElse(entry);
         LibraryEntry previous = entries.put(key, entry);
         if (previous != null && !previous.file().equals(absFile)) {
             // Re-recorded at a new path: the old path no longer belongs to this key.
@@ -518,8 +531,9 @@ public final class YtDlpLibrary {
         String author = firstText(json, "uploader", "channel", "artist", "creator");
         JsonNode duration = json.get("duration");
         long lengthMs = duration != null && duration.isNumber() ? Math.round(duration.asDouble() * 1000.0) : 0L;
-        return Optional.of(new LibraryEntry(key, file, title != null ? title : baseName(fileName), author, lengthMs,
-                firstText(json, "thumbnail"), uri, null, List.of(), false));
+        LibraryEntry entry = new LibraryEntry(key, file, title != null ? title : baseName(fileName), author, lengthMs,
+                firstText(json, "thumbnail"), uri, null, List.of(), false);
+        return Optional.of(entry.withMetadata(SidecarMetadata.parse(json)));
     }
 
     /** An entry from the file's tags and length, or its filename; empty if the file isn't playable audio. */
@@ -694,9 +708,12 @@ public final class YtDlpLibrary {
         boolean adopted = adoptedNode != null && adoptedNode.isBoolean()
                 ? adoptedNode.asBoolean()
                 : (author == null || author.isEmpty()) && lengthMs <= 0; // v1's rule
+        JsonNode releaseYearNode = json.get("releaseYear");
+        Integer releaseYear = releaseYearNode != null && releaseYearNode.isInt() ? releaseYearNode.asInt() : null;
         return Optional.of(new LibraryEntry(key, file, textOrNull(json, "title"), author, lengthMs,
                 textOrNull(json, "artworkUrl"), textOrNull(json, "uri"), textOrNull(json, "source"),
-                nameParts, adopted));
+                nameParts, adopted, textOrNull(json, "artist"), textOrNull(json, "track"),
+                textOrNull(json, "album"), releaseYear, textOrNull(json, "isrc")));
     }
 
     private static @Nullable String textOrNull(JsonNode json, String field) {
@@ -740,6 +757,21 @@ public final class YtDlpLibrary {
                 entry.nameParts().forEach(parts::add);
             }
             node.put("adopted", entry.adopted());
+            if (entry.artist() != null) {
+                node.put("artist", entry.artist());
+            }
+            if (entry.track() != null) {
+                node.put("track", entry.track());
+            }
+            if (entry.album() != null) {
+                node.put("album", entry.album());
+            }
+            if (entry.releaseYear() != null) {
+                node.put("releaseYear", entry.releaseYear());
+            }
+            if (entry.isrc() != null) {
+                node.put("isrc", entry.isrc());
+            }
         }
         ObjectNode aliasesNode = root.putObject("aliases");
         aliases.forEach(aliasesNode::put);

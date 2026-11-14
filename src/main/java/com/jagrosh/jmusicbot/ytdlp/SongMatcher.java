@@ -154,8 +154,9 @@ public final class SongMatcher {
     }
 
     /**
-     * Every way a library entry can be read:
+     * Every way a library entry can be read, each carrying the entry's ISRC (if known):
      * <ul>
+     *   <li>when the sidecar named both an artist and a track, "artist track" comes first;</li>
      *   <li>a filename pair {@code {P, Q}} gives both "P is the artist, Q the title" and the reverse;</li>
      *   <li>an entry known only from its filename or tags, with no artist, is artist-less, and its
      *       title isn't split (a name with several dashes stays one title);</li>
@@ -163,15 +164,21 @@ public final class SongMatcher {
      * </ul>
      */
     public static List<Song> interpretations(LibraryEntry entry) {
+        String isrc = entry.isrc();
+        List<Song> interpretations = new ArrayList<>();
+        if (entry.artist() != null && !entry.artist().isBlank() && entry.track() != null && !entry.track().isBlank()) {
+            interpretations.add(build(clean(entry.track()), cleanAuthor(entry.artist()), entry.lengthMs(), isrc));
+        }
         List<String> parts = entry.nameParts();
         if (parts.size() == 2) {
-            return List.of(build(clean(parts.get(1)), cleanAuthor(parts.get(0)), entry.lengthMs(), null),
-                    build(clean(parts.get(0)), cleanAuthor(parts.get(1)), entry.lengthMs(), null));
+            interpretations.add(build(clean(parts.get(1)), cleanAuthor(parts.get(0)), entry.lengthMs(), isrc));
+            interpretations.add(build(clean(parts.get(0)), cleanAuthor(parts.get(1)), entry.lengthMs(), isrc));
+        } else if (LibraryKeys.isFileKey(entry.key()) && entry.author().isBlank()) {
+            interpretations.add(build(stripBrackets(fold(entry.title())), "", entry.lengthMs(), isrc));
+        } else {
+            interpretations.add(song(entry.title(), entry.author(), entry.lengthMs(), isrc));
         }
-        if (LibraryKeys.isFileKey(entry.key()) && entry.author().isBlank()) {
-            return List.of(build(stripBrackets(fold(entry.title())), "", entry.lengthMs(), null));
-        }
-        return List.of(song(entry.title(), entry.author(), entry.lengthMs(), null));
+        return List.copyOf(interpretations);
     }
 
     /**

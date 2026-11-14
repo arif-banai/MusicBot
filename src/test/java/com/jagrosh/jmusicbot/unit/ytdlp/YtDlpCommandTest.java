@@ -45,9 +45,22 @@ class YtDlpCommandTest {
         List<String> command = YtDlpCommand.download(settings, YT_URL, YtDlpCommand.outputTemplate("abc00000000"));
 
         assertEquals(List.of("yt-dlp", "--encoding", "utf-8", "-f", "bestaudio", "--no-playlist", "--no-progress",
-                "--no-warnings", "-o", Path.of("/lib").resolve("%(title)s [%(id)s].%(ext)s").toString(),
+                "--no-warnings", "--write-info-json", "-o", Path.of("/lib").resolve("%(title)s [%(id)s].%(ext)s").toString(),
                 "--print", "after_move:filepath",
                 YT_URL), command);
+    }
+
+    @Test
+    @DisplayName("download() writes a sidecar .info.json before specifying the output template")
+    void download_writesInfoJson() {
+        YtDlpSettings settings = settings(Path.of("/lib"), List.of());
+
+        List<String> command = YtDlpCommand.download(settings, YT_URL, YtDlpCommand.outputTemplate("abc00000000"));
+
+        int infoJsonIndex = command.indexOf("--write-info-json");
+        int outputFlagIndex = command.indexOf("-o");
+        assertTrue(infoJsonIndex >= 0, command.toString());
+        assertTrue(infoJsonIndex < outputFlagIndex, command.toString());
     }
 
     @Test

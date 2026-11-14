@@ -57,7 +57,9 @@ public final class YtDlpCommand {
     /**
      * Builds the command line to download {@code url} into {@code settings}' library folder:
      * {@code <path> --encoding utf-8 -f bestaudio --no-playlist --no-progress --no-warnings
-     * -o "<libraryFolder>/<outputTemplate>" --print after_move:filepath <extraArgs...> <url>}.
+     * --write-info-json -o "<libraryFolder>/<outputTemplate>" --print after_move:filepath
+     * <extraArgs...> <url>}. The sidecar lands next to the downloaded file under the same base
+     * name; yt-dlp strips it of internal/private fields by default (its own {@code --clean-info-json}).
      *
      * <p>{@code --encoding utf-8} forces yt-dlp's own stdout/stderr encoding. Some
      * distributions (e.g. the winget/PyInstaller build on Windows) print in the
@@ -77,6 +79,7 @@ public final class YtDlpCommand {
         command.add("--no-playlist");
         command.add("--no-progress");
         command.add("--no-warnings");
+        command.add("--write-info-json");
         command.add("-o");
         command.add(settings.libraryFolder().resolve(outputTemplate).toString());
         command.add("--print");
