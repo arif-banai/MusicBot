@@ -165,8 +165,10 @@ public final class YtDlpLibrary {
     /**
      * Loads {@code library.json} (v1 or v2), drops entries whose file no longer exists (with the
      * aliases and rejections that point at them), and indexes any file in the library folder the
-     * index doesn't know yet. Saves the index if the scan imported or dropped anything. Does
-     * nothing, and writes nothing, if the library folder doesn't exist.
+     * index doesn't know yet. An indexed file that moved with the library folder is found again by
+     * name. Saves the index only if the scan imported a file from a sidecar or a probe, or dropped
+     * an alias or rejection; an entry dropped on its own is dropped in memory and persisted by the
+     * next save, as in v1. Does nothing, and writes nothing, if the library folder doesn't exist.
      */
     public synchronized void load() throws IOException {
         if (!Files.isDirectory(libraryFolder)) {
@@ -175,12 +177,20 @@ public final class YtDlpLibrary {
 
         ParsedIndex parsed = readIndex(libraryFolder.resolve(INDEX_FILE_NAME));
         Map<String, LibraryEntry> loaded = new LinkedHashMap<>();
-        int dropped = 0;
         for (LibraryEntry entry : parsed.entries.values()) {
             if (Files.exists(entry.file())) {
                 loaded.put(entry.key(), entry);
-            } else {
-                dropped++;
+                continue;
+            }
+            // The index stores absolute paths; if the library folder was moved, find the file by
+            // name in the folder as it is now, so its recorded details aren't lost.
+            Path here = entry.file().getFileName() == null ? null
+                    : normalize(libraryFolder.resolve(entry.file().getFileName().toString()));
+            if (here != null && Files.isRegularFile(here)) {
+                String uri = entry.uri().equals(entry.file().toString()) ? here.toString() : entry.uri();
+                loaded.put(entry.key(), new LibraryEntry(entry.key(), here, entry.title(), entry.author(),
+                        entry.lengthMs(), entry.artworkUrl(), uri, entry.source(), entry.nameParts(),
+                        entry.adopted()));
             }
         }
         int fromIndex = loaded.size();
@@ -217,7 +227,7 @@ public final class YtDlpLibrary {
 
         LOGGER.info("Library: {} songs ({} already indexed; {} from sidecars, {} from YouTube IDs, {} from tags/filenames)",
                 entries.size(), fromIndex, counts.sidecars, counts.youtubeIds, counts.probed);
-        if (counts.sidecars + counts.probed > 0 || dropped > 0 || droppedLinks > 0) {
+        if (counts.sidecars + counts.probed > 0 || droppedLinks > 0) {
             saveIndex();
         }
     }
@@ -402,7 +412,11 @@ public final class YtDlpLibrary {
         return counts;
     }
 
-    private static boolean isIgnoredFile(String fileName) {
+    /**
+     * Whether a file in the library folder is never a song: the index, yt-dlp sidecars and temp
+     * files, and files with a non-audio extension (cover art, text, subtitles).
+     */
+    static boolean isIgnoredFile(String fileName) {
         if (fileName.equals(INDEX_FILE_NAME) || fileName.endsWith(SIDECAR_SUFFIX) || isTempFileName(fileName)) {
             return true;
         }

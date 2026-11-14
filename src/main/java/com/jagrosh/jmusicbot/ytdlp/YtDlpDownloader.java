@@ -314,7 +314,7 @@ public final class YtDlpDownloader {
     /**
      * YouTube fallback: the one regular file in the library folder (non-recursive) whose name
      * matches {@code [videoId].<ext>} per {@link YtDlpLibrary#videoIdFromFileName}, ignoring
-     * yt-dlp's own in-progress temp names. Zero or several is treated as no usable fallback.
+     * yt-dlp's temp, sidecar and thumbnail files. Zero or several is treated as no usable fallback.
      */
     private Optional<Path> findByIdSuffix(String videoId) {
         return findLoneFile(fileName -> {
@@ -342,7 +342,10 @@ public final class YtDlpDownloader {
         });
     }
 
-    /** The one regular, non-temp file in the library folder whose name passes {@code matches}, if exactly one does. */
+    /**
+     * The one regular file in the library folder whose name passes {@code matches}, if exactly one
+     * does, skipping files that are never songs (see {@link YtDlpLibrary#isIgnoredFile}).
+     */
     private Optional<Path> findLoneFile(Predicate<String> matches) {
         Path folder = settings.libraryFolder();
         if (!Files.isDirectory(folder)) {
@@ -357,8 +360,8 @@ public final class YtDlpDownloader {
                     continue;
                 }
                 String fileName = path.getFileName().toString();
-                if (YtDlpLibrary.isTempFileName(fileName)) {
-                    continue;
+                if (YtDlpLibrary.isIgnoredFile(fileName)) {
+                    continue; // temp files, and sidecars/thumbnails yt-dlp may write beside the song
                 }
                 if (matches.test(fileName)) {
                     match = path;

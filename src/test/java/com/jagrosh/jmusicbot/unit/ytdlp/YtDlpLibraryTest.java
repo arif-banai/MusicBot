@@ -162,12 +162,46 @@ class YtDlpLibraryTest {
     void load_doesNotAdoptCatalogueNumberFiles() throws IOException {
         Path file = libraryFolder.resolve("Anck - Ingenue [UTR035].opus");
         Files.createFile(file);
-        YtDlpLibrary library = new YtDlpLibrary(libraryFolder, playlistFile);
+        // A playable file: v2 imports it under its filename, never under the catalogue number.
+        YtDlpLibrary library = new YtDlpLibrary(libraryFolder, playlistFile,
+                f -> Optional.of(new YtDlpLibrary.ProbeResult(null, null, 1000L)));
 
         library.load();
 
         assertTrue(library.find("UTR035").isEmpty());
-        assertTrue(library.findByFile(file).isEmpty());
+        assertEquals("file:Anck - Ingenue [UTR035].opus", library.findByFile(file).orElseThrow().key());
+    }
+
+    @Test
+    @DisplayName("load() doesn't rewrite the index just because an indexed file is missing")
+    void load_missingFileOnly_leavesIndexUntouched() throws IOException {
+        Path axel = Files.createFile(libraryFolder.resolve("Axel F [k85mRPqvMbE].webm"));
+        writeV1Index("k85mRPqvMbE", axel);
+        Files.delete(axel);
+        byte[] before = Files.readAllBytes(libraryFolder.resolve("library.json"));
+
+        YtDlpLibrary library = new YtDlpLibrary(libraryFolder, playlistFile, f -> Optional.empty());
+        library.load();
+
+        assertTrue(library.find("k85mRPqvMbE").isEmpty());
+        assertArrayEquals(before, Files.readAllBytes(libraryFolder.resolve("library.json")));
+    }
+
+    @Test
+    @DisplayName("an indexed file found under the same name in a moved library folder keeps its details")
+    void load_movedLibraryFolder_relocatesEntriesByFileName() throws IOException {
+        Path oldFolder = tempDir.resolve("old-place");
+        Files.createDirectories(oldFolder);
+        writeV1Index("k85mRPqvMbE", oldFolder.resolve("Crazy Frog - Axel F (Official Video) [k85mRPqvMbE].webm"));
+        Path moved = Files.createFile(libraryFolder.resolve("Crazy Frog - Axel F (Official Video) [k85mRPqvMbE].webm"));
+
+        YtDlpLibrary library = new YtDlpLibrary(libraryFolder, playlistFile, f -> Optional.empty());
+        library.load();
+
+        LibraryEntry entry = library.find("k85mRPqvMbE").orElseThrow();
+        assertEquals(moved.toAbsolutePath().normalize(), entry.file());
+        assertEquals("Crazy Frog", entry.author());
+        assertFalse(entry.adopted());
     }
 
     @Test

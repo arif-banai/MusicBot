@@ -482,6 +482,34 @@ class YtDlpDownloaderTest {
     }
 
     @Test
+    @DisplayName("the fallback ignores yt-dlp's sidecar and thumbnail files beside the song")
+    void mangledPath_fallbackIgnoresSidecarAndThumbnail() throws Exception {
+        String permalink = "https://soundcloud.com/x/y";
+        Path realFile = libraryFolder.resolve("Æ Song [soundcloud-222].mp3");
+        runner.scriptUrl(permalink, () -> {
+            Files.writeString(realFile, "audio");
+            Files.writeString(libraryFolder.resolve("Æ Song [soundcloud-222].info.json"), "{}");
+            Files.writeString(libraryFolder.resolve("Æ Song [soundcloud-222].jpg"), "image");
+            return new ProcessResult(0, libraryFolder.resolve("� Song [soundcloud-222].mp3") + "\n", "", false);
+        });
+        String videoId = "vid00000001";
+        Path ytFile = libraryFolder.resolve("X Æ [" + videoId + "].webm");
+        runner.script(videoId, new ProcessResult(0, libraryFolder.resolve("X � [" + videoId + "].webm") + "\n", "",
+                false));
+        Files.writeString(ytFile, "audio");
+        Files.writeString(libraryFolder.resolve("X Æ [" + videoId + "].webp"), "thumbnail");
+        downloader.start();
+
+        LibraryEntry sc = downloader.request("soundcloud:" + permalink, permalink, info("y"), 1L, false)
+                .get(WAIT_SECONDS, TimeUnit.SECONDS);
+        LibraryEntry yt = downloader.request(videoId, url(videoId), info(videoId), 1L, false)
+                .get(WAIT_SECONDS, TimeUnit.SECONDS);
+
+        assertEquals(realFile.toAbsolutePath().normalize(), sc.file());
+        assertEquals(ytFile.toAbsolutePath().normalize(), yt.file());
+    }
+
+    @Test
     @DisplayName("a non-YouTube mangled printed path with two new [source-...] files still fails")
     void nonYoutube_mangledPath_twoNewFiles_fails() throws Exception {
         String permalink = "https://soundcloud.com/x/y";
