@@ -80,6 +80,19 @@
             <name>Lavalink Repository</name>
             <url>https://maven.lavalink.dev/releases</url>
         </repository>
+        <!-- Snapshots: youtube-source ships fixes here well ahead of tagged releases,
+             and YouTube breakages routinely need them. See youtube-source.version. -->
+        <repository>
+            <id>lavalinkSnapshots</id>
+            <name>Lavalink Snapshot Repository</name>
+            <url>https://maven.lavalink.dev/snapshots</url>
+            <releases>
+                <enabled>false</enabled>
+            </releases>
+            <snapshots>
+                <enabled>true</enabled>
+            </snapshots>
+        </repository>
         <repository>
             <id>chew</id>
             <name>m2-chew</name>
@@ -362,7 +375,7 @@
         <dependency>
             <groupId>com.squareup.okhttp3</groupId>
             <artifactId>mockwebserver</artifactId>
-            <version>5.3.2</version>
+            <version>${mockwebserver.version}</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
@@ -582,25 +595,39 @@
         <project.build.outputTimestamp>2026-07-14T05:29:10Z</project.build.outputTimestamp>
 
         <!-- Dependency versions -->
-        <jda.version>6.4.2</jda.version>
+        <!-- 6.7.0+ is required once Discord makes channel obfuscation mandatory (2026-11-16) -->
+        <jda.version>6.7.0</jda.version>
         <jda-chewtils.version>2.2.1</jda-chewtils.version>
-        <jdave.version>0.1.7</jdave.version>
+        <jdave.version>0.1.8</jdave.version>
         <udpqueue.version>0.2.12</udpqueue.version>
         <lavaplayer.version>2.2.7</lavaplayer.version>
-        <youtube-source.version>1.18.1</youtube-source.version>
-        <logback.version>1.5.25</logback.version>
-        <typesafe-config.version>1.4.3</typesafe-config.version>
-        <jsoup.version>1.22.1</jsoup.version>
-        <mockito.version>5.21.0</mockito.version>
+        <!-- Pinned to the youtube-source main-branch snapshot (e41dd95f, 2026-11-13). The latest
+             release, 1.18.2, predates every fix below:
+               b33460b3 - TV client uses a PS4 User-Agent; the Cobalt UA is rejected with
+                          "The page needs to be reloaded" (youtube-source#226, #240)
+               34ee4c5f - client version bump to 21.02.35
+               f45bbb7a - recover total length for formats that omit contentLength
+               2be8e542 - close the embed response before getTimestamp, avoiding remote-cipher
+                          connection starvation (youtube-source#245)
+               e41dd95f - visitor id is refreshed every 10 min instead of never (youtube-source#255)
+             Move back to a tagged release once one includes these. -->
+        <youtube-source.version>e41dd95f8bd134b51e75080fb28cc805fecb431a-SNAPSHOT</youtube-source.version>
+        <logback.version>1.6.6</logback.version>
+        <typesafe-config.version>1.4.10</typesafe-config.version>
+        <jsoup.version>1.24.1</jsoup.version>
+        <mockito.version>5.24.0</mockito.version>
         <hamcrest.version>3.0</hamcrest.version>
-        <flatlaf.version>3.7</flatlaf.version>
+        <flatlaf.version>3.8</flatlaf.version>
+        <!-- Track JDA's okhttp version -->
+        <mockwebserver.version>5.5.0</mockwebserver.version>
 
         <!-- BOM versions -->
-        <jackson-bom.version>2.20.1</jackson-bom.version>
+        <!-- Jackson and slf4j match what JDA 6.7.0 is built against -->
+        <jackson-bom.version>2.22.2</jackson-bom.version>
         <junit-bom.version>5.14.2</junit-bom.version>
 
         <!-- Managed dependency versions -->
-        <slf4j.version>2.0.17</slf4j.version>
+        <slf4j.version>2.0.19</slf4j.version>
         <kotlin-stdlib.version>2.2.21</kotlin-stdlib.version>
         <jetbrains-annotations.version>24.0.0</jetbrains-annotations.version>
         <org-json.version>20240303</org-json.version>

@@ -26,7 +26,7 @@ import net.dv8tion.jda.api.components.label.Label;
 import net.dv8tion.jda.api.components.textinput.TextInput;
 import net.dv8tion.jda.api.components.textinput.TextInputStyle;
 import net.dv8tion.jda.api.entities.MessageEmbed;
-import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
+import net.dv8tion.jda.api.entities.channel.middleman.GuildMessageChannel;
 import net.dv8tion.jda.api.events.interaction.ModalInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
@@ -142,7 +142,7 @@ public class HistoryInteractionListener extends ListenerAdapter {
                 return;
             }
             MusicService.OutputAdapter adapter = OutputAdapters.forHistoryReply(event);
-            TextChannel channel = event.getChannel().asTextChannel();
+            GuildMessageChannel channel = event.getChannel().asGuildMessageChannel();
             musicService.queueFromHistory(event.getGuild(), event.getMember(), selectedTrack, channel, adapter);
             MusicService.HistoryInfo newInfo = musicService.getHistoryInfo(event.getGuild(), event.getJDA());
             if (newInfo == null) {
@@ -165,7 +165,7 @@ public class HistoryInteractionListener extends ListenerAdapter {
                 return;
             }
             MusicService.OutputAdapter adapter = OutputAdapters.forHistoryReply(event);
-            TextChannel channel = event.getChannel().asTextChannel();
+            GuildMessageChannel channel = event.getChannel().asGuildMessageChannel();
             musicService.playFromHistoryNow(event.getGuild(), event.getMember(), selectedTrack, channel, adapter);
             MusicService.HistoryInfo newInfo = musicService.getHistoryInfo(event.getGuild(), event.getJDA());
             if (newInfo == null) {
@@ -183,7 +183,7 @@ public class HistoryInteractionListener extends ListenerAdapter {
                 return;
             }
             MusicService.OutputAdapter adapter = OutputAdapters.forHistoryReply(event);
-            TextChannel channel = event.getChannel().asTextChannel();
+            GuildMessageChannel channel = event.getChannel().asGuildMessageChannel();
             musicService.queueAllFromHistory(event.getGuild(), event.getMember(), channel, adapter);
             MusicService.HistoryInfo newInfo = musicService.getHistoryInfo(event.getGuild(), event.getJDA());
             if (newInfo == null) {

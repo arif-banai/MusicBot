@@ -35,8 +35,6 @@ import com.sedmelluq.discord.lavaplayer.source.twitch.TwitchStreamAudioSourceMan
 import com.sedmelluq.discord.lavaplayer.source.vimeo.VimeoAudioSourceManager;
 import dev.lavalink.youtube.YoutubeAudioSourceManager;
 import dev.lavalink.youtube.YoutubeSourceOptions;
-import dev.lavalink.youtube.clients.AndroidVrWithThumbnail;
-import dev.lavalink.youtube.clients.ClientOptions;
 import dev.lavalink.youtube.clients.MWebWithThumbnail;
 import dev.lavalink.youtube.clients.Tv;
 import dev.lavalink.youtube.clients.TvHtml5SimplyWithThumbnail;
@@ -232,7 +230,7 @@ public enum AudioSource
         final Logger logger = LoggerFactory.getLogger(AudioSource.class);
         
         boolean useOauth = config.useYouTubeOauth();
-        YoutubeSourceOptions options = buildYoutubeOptions(config);
+        YoutubeSourceOptions options = buildYoutubeOptions();
         Client[] clients = buildYoutubeClients(useOauth);
 
         YoutubeAudioSourceManager yt = new YoutubeAudioSourceManager(options, clients);
@@ -247,18 +245,22 @@ public enum AudioSource
     
     /**
      * Builds YouTube source options.
+     *
+     * <p>The remote cipher server is always enabled, independent of OAuth. youtube-source no
+     * longer maintains local signature extraction, so {@code LocalSignatureCipherManager}
+     * fails against current YouTube player scripts ("must find sig function") whether or not
+     * OAuth is in use. Deciphering has to be offloaded to a cipher server.
+     *
+     * @see <a href="https://github.com/lavalink-devs/youtube-source/issues/240">youtube-source#240</a>
      */
-    private static YoutubeSourceOptions buildYoutubeOptions(BotConfig config)
+    private static YoutubeSourceOptions buildYoutubeOptions()
     {
         YoutubeSourceOptions options = new YoutubeSourceOptions()
                 .setAllowSearch(true)
                 .setAllowDirectVideoIds(true)
                 .setAllowDirectPlaylistIds(true);
         
-        if (config.useYouTubeOauth())
-        {
-            options.setRemoteCipher("https://cipher.kikkia.dev/", null, "jmusicbot");
-        }
+        options.setRemoteCipher("https://cipher.kikkia.dev/", null, "jmusicbot");
         
         return options;
     }
@@ -268,13 +270,12 @@ public enum AudioSource
      * 
      * <p>When OAuth is enabled, we use a combination of clients:
      * <ul>
-     *   <li><b>AndroidVrWithThumbnail</b> - Metadata loading (non-embedded, non-OAuth)</li>
-     *   <li><b>MWebWithThumbnail</b> - Metadata loading (non-embedded, non-OAuth)</li>
-     *   <li><b>Web</b> - Metadata loading (non-embedded, non-OAuth)</li>
-     *   <li><b>Tv</b> - OAuth-compatible streaming-only client. Used as fallback for loading
-     *       audio stream formats during playback.</li>
-     *   <li><b>TvHtml5SimplyWithThumbnail</b> - *Not oAuth compatible* Used as fallback for loading
-     *       audio stream formats during playback.</li>
+     *   <li><b>AndroidVrClient</b> - ANDROID_VR with a newer client version (see that class).
+     *       Non-embedded playback fallback with Opus support.</li>
+     *   <li><b>MWebWithThumbnail</b> - Non-embedded playback fallback.</li>
+     *   <li><b>WebWithThumbnail</b> - Non-embedded playback fallback.</li>
+     *   <li><b>Tv</b> - OAuth-compatible playback client.</li>
+     *   <li><b>TvHtml5SimplyWithThumbnail</b> - Non-OAuth playback fallback.</li>
      * </ul>
      * 
      * <p>
@@ -283,25 +284,20 @@ public enum AudioSource
     {
         if (useOauth)
         {
-            // Clients configured for metadata loading only (no playback/streaming)
-            // This handles direct URLs without embedded player restrictions
-            ClientOptions metadataOnly = new ClientOptions();
-            metadataOnly.setPlayback(false);
-            
             return new Client[] {
-                new AndroidVrWithThumbnail(metadataOnly), // metadata loading (non-embedded, non-OAuth)
-                new MWebWithThumbnail(metadataOnly),      // metadata loading (non-embedded, non-OAuth)
-                new WebWithThumbnail(metadataOnly),       // metadata loading (non-embedded, non-OAuth)
-                new Tv(),
-                new TvHtml5SimplyWithThumbnail()
+                new AndroidVrClient(),              // audio-capable fallback for long-form playback
+                new MWebWithThumbnail(),            // audio-capable fallback for long-form playback
+                new WebWithThumbnail(),             // audio-capable fallback for long-form playback
+                new Tv(),                            // OAuth-compatible playback
+                new TvHtml5SimplyWithThumbnail()     // non-OAuth playback fallback
             };
         }
         // Clients are required even without OAuth to properly handle YouTube URLs
         return new Client[] {
-            new AndroidVrWithThumbnail(),
+            new AndroidVrClient(),
             new MWebWithThumbnail(),
             new WebWithThumbnail(),
-            new TvHtml5SimplyWithThumbnail() 
+            new TvHtml5SimplyWithThumbnail()
         };
     }
     
