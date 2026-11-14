@@ -25,6 +25,7 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -127,6 +128,16 @@ public final class YtDlpLibrary {
         void delete(Path file) throws IOException;
     }
 
+    /**
+     * Reads the metadata in a media file's yt-dlp {@code .info.json} sidecar. Abstracted so tests
+     * can count reads; public for the same reason {@link Prober} is.
+     */
+    @FunctionalInterface
+    public interface SidecarReader {
+        /** The sidecar's metadata, or empty if there's no readable sidecar beside {@code mediaFile}. */
+        Optional<SidecarMetadata> read(Path mediaFile);
+    }
+
     /** What {@link #remove} did. */
     public record RemoveResult(boolean removed, boolean fileDeleted, @Nullable String problem) {
     }
@@ -162,6 +173,7 @@ public final class YtDlpLibrary {
     private final Path playlistFile;
     private final Prober prober;
     private final FileDeleter fileDeleter;
+    private final SidecarReader sidecarReader;
     private final Map<String, LibraryEntry> entries = new LinkedHashMap<>();
     /**
      * The same entries keyed by normalized absolute file path, so {@link #findByFile} (run once per
@@ -173,10 +185,24 @@ public final class YtDlpLibrary {
     private final Map<String, String> aliases = new LinkedHashMap<>();
     private final Set<Pair> rejections = new LinkedHashSet<>();
     /**
+     * Keys whose sidecar has already been read into their entry (saved as an optional
+     * {@code "metadataChecked": true} on the entry), so a load or rescan doesn't parse the whole
+     * {@code .info.json} again for an entry it gave no artist, track or ISRC.
+     */
+    private final Set<String> metadataChecked = new HashSet<>();
+    /**
+     * Bumped by every change to the in-memory index outside a scan. A scan runs without this
+     * object's lock and swaps its result in only if this is unchanged, so it never wipes out a
+     * change made while it ran.
+     */
+    private long generation;
+    /** Serializes {@link #load()} and {@link #rescan()}; always taken before this object's lock. */
+    private final Object scanLock = new Object();
+    /**
      * Why saving is blocked for this run, or null: an unreadable index couldn't be copied aside, or a
      * load failed after an index existed. Saving would then destroy what the index holds.
      */
-    private @Nullable String saveBlocked;
+    private volatile @Nullable String saveBlocked;
 
     public YtDlpLibrary(Path libraryFolder, Path playlistFile) {
         this(libraryFolder, playlistFile, localProber());
@@ -188,50 +214,97 @@ public final class YtDlpLibrary {
 
     /** For tests: lets a delete failure be simulated without relying on real file-locking tricks. */
     public YtDlpLibrary(Path libraryFolder, Path playlistFile, Prober prober, FileDeleter fileDeleter) {
+        this(libraryFolder, playlistFile, prober, fileDeleter, SidecarMetadata::read);
+    }
+
+    /** For tests: also lets sidecar reads be counted. */
+    public YtDlpLibrary(Path libraryFolder, Path playlistFile, Prober prober, FileDeleter fileDeleter,
+                        SidecarReader sidecarReader) {
         this.libraryFolder = libraryFolder;
         this.playlistFile = playlistFile;
         this.prober = prober;
         this.fileDeleter = fileDeleter;
+        this.sidecarReader = sidecarReader;
     }
 
     /**
      * Loads {@code library.json} (v1 or v2), drops entries whose file no longer exists (with the
      * aliases and rejections that point at them), and indexes any file in the library folder the
      * index doesn't know yet. An indexed file that moved with the library folder is found again by
-     * name. Saves the index only if the scan imported a file from a sidecar or a probe, or dropped
-     * an alias or rejection; an entry dropped on its own is dropped in memory and persisted by the
-     * next save, as in v1. Does nothing, and writes nothing, if the library folder doesn't exist.
+     * name. Saves the index only if the scan imported a file from a sidecar or a probe, read a
+     * sidecar into an entry, or dropped an alias or rejection; an entry dropped on its own is
+     * dropped in memory and persisted by the next save, as in v1. Does nothing, and writes nothing,
+     * if the library folder doesn't exist. The folder walk, probes and sidecar reads run without
+     * this object's lock (see {@link #scanAndSwap}).
      */
-    public synchronized void load() throws IOException {
-        if (!Files.isDirectory(libraryFolder)) {
-            return;
-        }
-        Path indexFile = libraryFolder.resolve(INDEX_FILE_NAME);
-        boolean indexExisted = Files.exists(indexFile);
-        boolean save;
-        boolean loaded = false;
-        try {
-            save = loadIndexAndScan(indexFile);
-            loaded = true;
-        } finally {
-            if (!loaded && indexExisted && saveBlocked == null) {
-                // What the index holds isn't in memory, so the next save would write only new data.
-                saveBlocked = "loading the library failed earlier this run";
-                LOGGER.warn("Loading the library in {} failed; {} won't be saved this run", libraryFolder,
-                        INDEX_FILE_NAME);
+    public void load() throws IOException {
+        synchronized (scanLock) {
+            if (!Files.isDirectory(libraryFolder)) {
+                return;
             }
-        }
-        if (save) {
-            saveIndex();
+            Path indexFile = libraryFolder.resolve(INDEX_FILE_NAME);
+            boolean indexExisted = Files.exists(indexFile);
+            boolean loaded = false;
+            try {
+                scanAndSwap(indexFile, false);
+                loaded = true;
+            } finally {
+                if (!loaded && indexExisted && saveBlocked == null) {
+                    // What the index holds isn't in memory, so the next save would write only new data.
+                    saveBlocked = "loading the library failed earlier this run";
+                    LOGGER.warn("Loading the library in {} failed; {} won't be saved this run", libraryFolder,
+                            INDEX_FILE_NAME);
+                }
+            }
         }
     }
 
+    /** At most this many scans per load or rescan; the last runs under the lock, so it always lands. */
+    private static final int MAX_SCAN_ATTEMPTS = 3;
+
     /**
-     * The body of {@link #load()} up to and including putting the result in memory. Returns
-     * whether the index should be saved: the scan imported a file from a sidecar or a probe, or
-     * dropped an alias or rejection.
+     * Scans (reads the index, walks the folder, probes new files, reads sidecars) without this
+     * object's lock, then takes it only to swap the result in, and saves when needed. If the
+     * in-memory index changed while the scan ran (a download recorded, a link saved), the scan is
+     * thrown away and run again from the index as now saved; the last attempt holds the lock
+     * throughout. The caller holds {@link #scanLock}.
+     *
+     * @param rescan whether to also save when the swap changed the in-memory entries (a rescan
+     *               does; a load saves only for the reasons {@link #load()} lists)
      */
-    private boolean loadIndexAndScan(Path indexFile) throws IOException {
+    private ScanSummary scanAndSwap(Path indexFile, boolean rescan) throws IOException {
+        for (int attempt = 1; ; attempt++) {
+            if (attempt == MAX_SCAN_ATTEMPTS) {
+                synchronized (this) {
+                    return swap(scan(indexFile), rescan);
+                }
+            }
+            long startGeneration;
+            synchronized (this) {
+                startGeneration = generation;
+            }
+            ScanResult result = scan(indexFile);
+            synchronized (this) {
+                if (generation == startGeneration) {
+                    return swap(result, rescan);
+                }
+            }
+            LOGGER.debug("The library changed during a scan; scanning again");
+        }
+    }
+
+    /** What one {@link #scan} found, ready to swap into memory. */
+    private record ScanResult(Map<String, LibraryEntry> entries, Map<Path, LibraryEntry> byFile,
+                              Map<String, String> aliases, Set<Pair> rejections, Set<String> checked,
+                              boolean save, ScanCounts counts, int fromIndex, @Nullable String blocked) {
+    }
+
+    /**
+     * Builds the index from {@code library.json} and the folder, touching nothing in memory. The
+     * result's {@code save} says whether the index should be saved: the scan imported a file from
+     * a sidecar or a probe, read a sidecar into an entry, or dropped an alias or rejection.
+     */
+    private ScanResult scan(Path indexFile) throws IOException {
         ParsedIndex parsed = readIndex(indexFile);
         Map<String, LibraryEntry> loaded = new LinkedHashMap<>();
         for (LibraryEntry entry : parsed.entries.values()) {
@@ -252,23 +325,29 @@ public final class YtDlpLibrary {
             }
         }
         int fromIndex = loaded.size();
+        Set<String> checked = new HashSet<>(parsed.checked);
+        checked.retainAll(loaded.keySet());
         int backfilled = 0;
         for (String key : new ArrayList<>(loaded.keySet())) {
             LibraryEntry entry = loaded.get(key);
-            if (entry.artist() == null && entry.track() == null && entry.isrc() == null) {
-                LibraryEntry updated = SidecarMetadata.read(entry.file()).map(entry::withMetadata).orElse(entry);
-                if (!updated.equals(entry)) {
-                    loaded.put(key, updated);
-                    backfilled++;
-                }
+            if (checked.contains(key) || entry.artist() != null || entry.track() != null || entry.isrc() != null) {
+                continue;
             }
+            Optional<SidecarMetadata> metadata = sidecarReader.read(entry.file());
+            if (metadata.isEmpty()) {
+                continue; // no sidecar (yet): looking again next time is one cheap file check
+            }
+            // Read once: a sidecar that names no artist, track or ISRC isn't parsed again on every scan.
+            checked.add(key);
+            backfilled++;
+            loaded.put(key, entry.withMetadata(metadata.get()));
         }
         Map<Path, LibraryEntry> byFile = new HashMap<>();
         for (LibraryEntry entry : loaded.values()) {
             byFile.put(entry.file(), entry);
         }
 
-        ScanCounts counts = scanFolder(loaded, byFile);
+        ScanCounts counts = scanFolder(loaded, byFile, checked);
 
         Map<String, String> keptAliases = new LinkedHashMap<>();
         parsed.aliases.forEach((from, to) -> {
@@ -284,21 +363,56 @@ public final class YtDlpLibrary {
         }
         int droppedLinks = parsed.aliases.size() - keptAliases.size()
                 + parsed.rejections.size() - keptRejections.size();
+        boolean save = counts.sidecars + counts.probed > 0 || droppedLinks > 0 || backfilled > 0;
+        return new ScanResult(loaded, byFile, keptAliases, keptRejections, checked, save, counts, fromIndex,
+                parsed.blocked);
+    }
+
+    /**
+     * Puts a scan's result in memory, counting how the entries changed, and saves if the scan says
+     * so (or, for a rescan, if anything changed). Caller holds this object's lock.
+     */
+    private ScanSummary swap(ScanResult result, boolean rescan) throws IOException {
+        if (result.blocked() != null && saveBlocked == null) {
+            saveBlocked = result.blocked();
+        }
+        int added = 0;
+        int updated = 0;
+        for (Map.Entry<String, LibraryEntry> e : result.entries().entrySet()) {
+            LibraryEntry previous = entries.get(e.getKey());
+            if (previous == null) {
+                added++;
+            } else if (!previous.equals(e.getValue())) {
+                updated++;
+            }
+        }
+        int missing = 0;
+        for (String key : entries.keySet()) {
+            if (!result.entries().containsKey(key)) {
+                missing++;
+            }
+        }
 
         entries.clear();
-        entries.putAll(loaded);
+        entries.putAll(result.entries());
         entriesByFile.clear();
-        entriesByFile.putAll(byFile);
+        entriesByFile.putAll(result.byFile());
         aliases.clear();
-        aliases.putAll(keptAliases);
+        aliases.putAll(result.aliases());
         rejections.clear();
-        rejections.addAll(keptRejections);
+        rejections.addAll(result.rejections());
+        metadataChecked.clear();
+        metadataChecked.addAll(result.checked());
 
+        ScanCounts counts = result.counts();
         long unknownLength = entries.values().stream().filter(e -> e.lengthMs() <= 0).count();
         LOGGER.info("Library: {} songs ({} already indexed; {} from sidecars, {} from YouTube IDs, {} from tags/filenames;"
                         + " {} with unknown length)",
-                entries.size(), fromIndex, counts.sidecars, counts.youtubeIds, counts.probed, unknownLength);
-        return counts.sidecars + counts.probed > 0 || droppedLinks > 0 || backfilled > 0;
+                entries.size(), result.fromIndex(), counts.sidecars, counts.youtubeIds, counts.probed, unknownLength);
+        if (result.save() || (rescan && (added > 0 || updated > 0 || missing > 0))) {
+            saveIndex();
+        }
+        return new ScanSummary(added, updated, missing);
     }
 
     /** Returns the entry for the given key, if indexed and its file still exists. Never follows aliases. */
@@ -331,6 +445,7 @@ public final class YtDlpLibrary {
             return;
         }
         aliases.put(fromKey, toKey);
+        generation++;
         saveIndex();
     }
 
@@ -338,6 +453,7 @@ public final class YtDlpLibrary {
     public synchronized Optional<String> unalias(String fromKey) throws IOException {
         String removed = aliases.remove(fromKey);
         if (removed != null) {
+            generation++;
             try {
                 saveIndex();
             } catch (IOException | RuntimeException ex) {
@@ -354,6 +470,7 @@ public final class YtDlpLibrary {
             return;
         }
         if (rejections.add(new Pair(fromKey, toKey))) {
+            generation++;
             saveIndex();
         }
     }
@@ -461,6 +578,8 @@ public final class YtDlpLibrary {
         }
         entries.remove(key);
         entriesByFile.remove(entry.file(), entry);
+        metadataChecked.remove(key);
+        generation++;
         aliases.entrySet().removeIf(e -> e.getValue().equals(key));
         rejections.removeIf(pair -> pair.to().equals(key));
         removeFromPlaylist(entry.file());
@@ -530,49 +649,41 @@ public final class YtDlpLibrary {
      * Re-runs the import scan from the saved index (as {@link #load()} does), counting how the
      * in-memory map changed: entries added, entries whose details changed, and entries that are now
      * missing (their file is gone). Saves if anything did. Does nothing if the library folder
-     * doesn't exist, as {@link #load()} does.
+     * doesn't exist, as {@link #load()} does. Refused (an {@link IOException}) when the index
+     * couldn't be read at startup: the result could never be saved. The slow part runs without
+     * this object's lock (see {@link #scanAndSwap}), so lookups from the player don't wait on it.
      */
-    public synchronized ScanSummary rescan() throws IOException {
-        if (!Files.isDirectory(libraryFolder)) {
-            return new ScanSummary(0, 0, 0);
+    public ScanSummary rescan() throws IOException {
+        if (saveBlocked != null) {
+            throw new IOException(RESCAN_BLOCKED);
         }
-        Map<String, LibraryEntry> before = new HashMap<>(entries);
-        boolean save = loadIndexAndScan(libraryFolder.resolve(INDEX_FILE_NAME));
-
-        int added = 0;
-        int updated = 0;
-        for (Map.Entry<String, LibraryEntry> e : entries.entrySet()) {
-            LibraryEntry previous = before.get(e.getKey());
-            if (previous == null) {
-                added++;
-            } else if (!previous.equals(e.getValue())) {
-                updated++;
+        synchronized (scanLock) {
+            if (!Files.isDirectory(libraryFolder)) {
+                return new ScanSummary(0, 0, 0);
             }
+            return scanAndSwap(libraryFolder.resolve(INDEX_FILE_NAME), true);
         }
-        int missing = 0;
-        for (String key : before.keySet()) {
-            if (!entries.containsKey(key)) {
-                missing++;
-            }
-        }
-
-        if (save || added > 0 || updated > 0 || missing > 0) {
-            saveIndex();
-        }
-        return new ScanSummary(added, updated, missing);
     }
 
-    /** The song count, total size on disk of their files, and the library folder. */
-    public synchronized LibraryStats stats() {
+    /** Why {@link #rescan} is refused once saving is blocked for this run. */
+    public static final String RESCAN_BLOCKED =
+            "The library index couldn't be read at startup; fix or remove library.json and restart.";
+
+    /**
+     * The song count, total size on disk of their files, and the library folder. Sizes the files
+     * without this object's lock.
+     */
+    public LibraryStats stats() {
+        List<LibraryEntry> snapshot = entries();
         long totalBytes = 0L;
-        for (LibraryEntry entry : entries.values()) {
+        for (LibraryEntry entry : snapshot) {
             try {
                 totalBytes += Files.size(entry.file());
             } catch (IOException ex) {
                 // File missing or unreadable; doesn't count toward the total.
             }
         }
-        return new LibraryStats(entries.size(), totalBytes, libraryFolder);
+        return new LibraryStats(snapshot.size(), totalBytes, libraryFolder);
     }
 
     /**
@@ -600,6 +711,7 @@ public final class YtDlpLibrary {
         }
         entries.put(key, filled);
         entriesByFile.put(normalize(filled.file()), filled);
+        generation++;
         saveIndex();
         return Optional.of(filled);
     }
@@ -635,7 +747,14 @@ public final class YtDlpLibrary {
         Path absFile = normalize(file);
         LibraryEntry entry = new LibraryEntry(key, absFile, info.title, info.author, info.length,
                 info.artworkUrl, info.uri, null, List.of(), false);
-        entry = SidecarMetadata.read(absFile).map(entry::withMetadata).orElse(entry);
+        Optional<SidecarMetadata> sidecar = sidecarReader.read(absFile);
+        entry = sidecar.map(entry::withMetadata).orElse(entry);
+        if (sidecar.isPresent()) {
+            metadataChecked.add(key);
+        } else {
+            metadataChecked.remove(key);
+        }
+        generation++;
         LibraryEntry previous = entries.put(key, entry);
         if (previous != null && !previous.file().equals(absFile)) {
             // Re-recorded at a new path: the old path no longer belongs to this key.
@@ -681,9 +800,12 @@ public final class YtDlpLibrary {
         int probed;
     }
 
-    /** Indexes every file in the folder that {@code byFile} doesn't know yet, in filename order. */
-    private ScanCounts scanFolder(Map<String, LibraryEntry> loaded, Map<Path, LibraryEntry> byFile)
-            throws IOException {
+    /**
+     * Indexes every file in the folder that {@code byFile} doesn't know yet, in filename order.
+     * An entry imported from its sidecar is added to {@code checked}.
+     */
+    private ScanCounts scanFolder(Map<String, LibraryEntry> loaded, Map<Path, LibraryEntry> byFile,
+                                  Set<String> checked) throws IOException {
         List<Path> files = new ArrayList<>();
         try (DirectoryStream<Path> stream = Files.newDirectoryStream(libraryFolder)) {
             for (Path path : stream) {
@@ -705,6 +827,7 @@ public final class YtDlpLibrary {
             LibraryEntry entry = fromSidecar(abs, fileName, loaded).orElse(null);
             if (entry != null) {
                 counts.sidecars++;
+                checked.add(entry.key());
             } else {
                 Optional<String> videoId = videoIdFromFileName(fileName);
                 if (videoId.isPresent()) {
@@ -858,12 +981,19 @@ public final class YtDlpLibrary {
     private record Pair(String from, String to) {
     }
 
-    private record ParsedIndex(Map<String, LibraryEntry> entries, Map<String, String> aliases, Set<Pair> rejections) {
+    /**
+     * @param checked keys saved with {@code "metadataChecked": true}
+     * @param blocked why saving must be blocked for this run (the unreadable index couldn't be
+     *                copied aside), or null
+     */
+    private record ParsedIndex(Map<String, LibraryEntry> entries, Map<String, String> aliases, Set<Pair> rejections,
+                               Set<String> checked, @Nullable String blocked) {
     }
 
     /** Reads a v1 or v2 index, skipping anything malformed. A missing file is an empty index. */
     private ParsedIndex readIndex(Path indexFile) {
-        ParsedIndex empty = new ParsedIndex(new LinkedHashMap<>(), new LinkedHashMap<>(), new LinkedHashSet<>());
+        ParsedIndex empty = new ParsedIndex(new LinkedHashMap<>(), new LinkedHashMap<>(), new LinkedHashSet<>(),
+                new HashSet<>(), null);
         if (!Files.isRegularFile(indexFile)) {
             return empty;
         }
@@ -872,13 +1002,11 @@ public final class YtDlpLibrary {
             root = MAPPER.readTree(indexFile.toFile());
         } catch (IOException | RuntimeException ex) {
             LOGGER.warn("Failed to read {}: {}", indexFile, ex.toString());
-            preserveUnreadableIndex(indexFile);
-            return empty;
+            return unreadable(indexFile);
         }
         if (root == null || !root.isObject()) {
             LOGGER.warn("Ignoring {}: not a JSON object", indexFile);
-            preserveUnreadableIndex(indexFile);
-            return empty;
+            return unreadable(indexFile);
         }
 
         JsonNode entriesNode = root.get("entries");
@@ -894,6 +1022,9 @@ public final class YtDlpLibrary {
             Optional<LibraryEntry> entry = parseEntry(field.getKey(), field.getValue());
             if (entry.isPresent()) {
                 parsed.entries.put(field.getKey(), entry.get());
+                if (field.getValue().path("metadataChecked").asBoolean(false)) {
+                    parsed.checked.add(field.getKey());
+                }
             } else {
                 LOGGER.warn("Skipping malformed library entry '{}' in {}", field.getKey(), indexFile);
             }
@@ -963,16 +1094,22 @@ public final class YtDlpLibrary {
         return node != null && node.isTextual() ? node.asText() : null;
     }
 
-    /** Copies an index that couldn't be read aside, so the next save can't destroy it. */
-    private void preserveUnreadableIndex(Path indexFile) {
+    /**
+     * An empty index for one that couldn't be read, after copying it aside so the next save can't
+     * destroy it; if even the copy fails, the result says saving must be blocked.
+     */
+    private static ParsedIndex unreadable(Path indexFile) {
+        String blocked = null;
         try {
             Files.copy(indexFile, indexFile.resolveSibling(CORRUPT_COPY_NAME), StandardCopyOption.REPLACE_EXISTING);
             LOGGER.warn("Kept a copy of the unreadable {} as {}", indexFile.getFileName(), CORRUPT_COPY_NAME);
         } catch (IOException ex) {
-            saveBlocked = "the unreadable original couldn't be copied aside";
+            blocked = "the unreadable original couldn't be copied aside";
             LOGGER.error("Couldn't copy the unreadable {} aside ({}); the library index won't be saved this run",
                     indexFile, ex.toString());
         }
+        return new ParsedIndex(new LinkedHashMap<>(), new LinkedHashMap<>(), new LinkedHashSet<>(), new HashSet<>(),
+                blocked);
     }
 
     private void saveIndex() throws IOException {
@@ -1013,6 +1150,9 @@ public final class YtDlpLibrary {
             }
             if (entry.isrc() != null) {
                 node.put("isrc", entry.isrc());
+            }
+            if (metadataChecked.contains(entry.key())) {
+                node.put("metadataChecked", true);
             }
         }
         ObjectNode aliasesNode = root.putObject("aliases");

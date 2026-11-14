@@ -229,6 +229,121 @@ class LibraryManagementTest {
     }
 
     @Test
+    @DisplayName("a sidecar with no artist, track or ISRC is read once, then never again (marker saved in library.json)")
+    void backfill_readsEachSidecarOnce() throws IOException {
+        Path file = Files.createFile(libraryFolder.resolve("Old [backfill001].webm"));
+        Files.writeString(libraryFolder.resolve("Old [backfill001].info.json"), "{ \"title\": \"Old\" }");
+        // An index written before sidecar metadata was read: no artist/track/isrc, no marker.
+        Files.writeString(libraryFolder.resolve("library.json"), "{\"version\": 2, \"entries\": {\"backfill001\": "
+                + "{\"file\": " + com.fasterxml.jackson.databind.node.TextNode.valueOf(file.toString()) + ", "
+                + "\"title\": \"Old\", \"author\": \"Someone\", \"lengthMs\": 1000}}, \"aliases\": {}, \"rejections\": []}");
+        java.util.concurrent.atomic.AtomicInteger reads = new java.util.concurrent.atomic.AtomicInteger();
+        YtDlpLibrary.SidecarReader counting = f -> {
+            reads.incrementAndGet();
+            return com.jagrosh.jmusicbot.ytdlp.SidecarMetadata.read(f);
+        };
+
+        YtDlpLibrary first = new YtDlpLibrary(libraryFolder, playlistFile, f -> java.util.Optional.empty(),
+                Files::delete, counting);
+        first.load();
+        assertEquals(1, reads.get(), "the upgrade load reads the sidecar once");
+        assertTrue(Files.readString(libraryFolder.resolve("library.json")).contains("\"metadataChecked\" : true"));
+
+        first.rescan();
+        YtDlpLibrary second = new YtDlpLibrary(libraryFolder, playlistFile, f -> java.util.Optional.empty(),
+                Files::delete, counting);
+        second.load();
+
+        assertEquals(1, reads.get(), "neither a rescan nor the next startup reads it again");
+        assertTrue(second.find("backfill001").isPresent());
+    }
+
+    @Test
+    @DisplayName("rescan() probes without holding the library lock, and keeps a link saved while it ran")
+    void rescan_probesOutsideLock_keepsConcurrentChange() throws Exception {
+        Path fileA = Files.createFile(libraryFolder.resolve("A [concurrent1].webm"));
+        java.util.concurrent.atomic.AtomicBoolean firstProbe = new java.util.concurrent.atomic.AtomicBoolean(true);
+        java.util.concurrent.atomic.AtomicBoolean otherThreadDone = new java.util.concurrent.atomic.AtomicBoolean();
+        YtDlpLibrary[] holder = new YtDlpLibrary[1];
+        YtDlpLibrary.Prober prober = f -> {
+            if (firstProbe.compareAndSet(true, false)) {
+                // Another thread (the player, a panel) uses the library while the scan probes.
+                Thread other = new Thread(() -> {
+                    try {
+                        holder[0].find("concurrent1");
+                        holder[0].alias("requested01", "concurrent1");
+                        otherThreadDone.set(true);
+                    } catch (IOException ex) {
+                        throw new java.io.UncheckedIOException(ex);
+                    }
+                });
+                other.start();
+                try {
+                    other.join(2_000);
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+            return java.util.Optional.of(new YtDlpLibrary.ProbeResult("New", "Artist", 1000L));
+        };
+        YtDlpLibrary library = new YtDlpLibrary(libraryFolder, playlistFile, prober);
+        holder[0] = library;
+        library.record("concurrent1", fileA, info("concurrent1", "A", "Author"));
+        Files.writeString(libraryFolder.resolve("New Song.mp3"), "x"); // unindexed: rescan probes it
+
+        YtDlpLibrary.ScanSummary summary = library.rescan();
+
+        assertTrue(otherThreadDone.get(), "the other thread wasn't blocked by the scan");
+        assertEquals(1, summary.added());
+        assertEquals("concurrent1", library.aliasTarget("requested01").orElseThrow(),
+                "the link saved during the scan survives it");
+        assertTrue(library.find("file:New Song.mp3").isPresent());
+    }
+
+    @Test
+    @DisplayName("rescan() is refused with a clear problem when the index couldn't be read at startup")
+    void rescan_refusedWhenSaveBlocked() throws IOException {
+        Files.writeString(libraryFolder.resolve("library.json"), "{ not json");
+        YtDlpLibrary library = new YtDlpLibrary(libraryFolder, playlistFile, f -> java.util.Optional.empty(),
+                Files::delete, f -> java.util.Optional.empty());
+        // Make copying the unreadable index aside fail: a directory already sits at its target name.
+        Files.createDirectories(libraryFolder.resolve("library.json.corrupt").resolve("occupied"));
+        library.load();
+
+        IOException ex = assertThrows(IOException.class, library::rescan);
+
+        assertEquals("The library index couldn't be read at startup; fix or remove library.json and restart.",
+                ex.getMessage());
+    }
+
+    @Test
+    @DisplayName("the service runs rescan, remove and stats on the library executor, not the prompt/background one")
+    void service_runsPanelWorkOnLibraryExecutor() throws Exception {
+        Path file = Files.createFile(libraryFolder.resolve("Song [svcexec0001].webm"));
+        YtDlpLibrary library = new YtDlpLibrary(libraryFolder, playlistFile, f -> java.util.Optional.empty());
+        library.record("svcexec0001", file, info("svcexec0001", "Song", "Author"));
+        java.util.List<Runnable> background = new java.util.ArrayList<>();
+        java.util.List<Runnable> libraryWork = new java.util.ArrayList<>();
+        com.jagrosh.jmusicbot.ytdlp.YtDlpService service = new com.jagrosh.jmusicbot.ytdlp.YtDlpService(
+                com.jagrosh.jmusicbot.ytdlp.YtDlpSettings.disabled(), library,
+                org.mockito.Mockito.mock(com.jagrosh.jmusicbot.ytdlp.YtDlpDownloader.class),
+                org.mockito.Mockito.mock(com.jagrosh.jmusicbot.ytdlp.ProcessRunner.class),
+                background::add, libraryWork::add);
+
+        var rescan = service.rescanLibrary();
+        var stats = service.libraryStats();
+        var remove = service.removeFromLibrary("svcexec0001", false, 1L);
+        service.runLibraryWork(() -> { });
+
+        assertTrue(background.isEmpty(), "nothing went to the background (prompt) executor");
+        assertEquals(4, libraryWork.size());
+        libraryWork.forEach(Runnable::run);
+        assertEquals(0, rescan.get().added());
+        assertEquals(1, stats.get().songs());
+        assertTrue(remove.get().removed());
+    }
+
+    @Test
     @DisplayName("stats() reports the song count, total size on disk, and the library folder")
     void stats_reportsCountSizeAndFolder() throws IOException {
         Path fileA = Files.createFile(libraryFolder.resolve("A [statsaaaa01].webm"));

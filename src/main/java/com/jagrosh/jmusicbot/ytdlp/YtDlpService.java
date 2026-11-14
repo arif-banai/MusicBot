@@ -26,6 +26,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -75,6 +76,13 @@ public final class YtDlpService {
     private volatile @Nullable ExecutorService alignmentExecutor;
     /** Runs library index updates off the player and audio threads. */
     private final Executor background;
+    /**
+     * Runs the slow library work the panel asks for (rescan, remove, stats, and its views) off the
+     * JDA event thread, and off {@link #background}: in production that is the single prompt
+     * thread, whose timers and suggestion scans mustn't wait behind a rescan.
+     */
+    private final Executor libraryWork;
+    private volatile @Nullable ExecutorService ownedLibraryExecutor;
 
     public YtDlpService(YtDlpSettings s, YtDlpLibrary library, YtDlpDownloader downloader, ProcessRunner runner) {
         this(s, library, downloader, runner, ForkJoinPool.commonPool());
@@ -86,6 +94,16 @@ public final class YtDlpService {
      */
     public YtDlpService(YtDlpSettings s, YtDlpLibrary library, YtDlpDownloader downloader, ProcessRunner runner,
                         Executor background) {
+        this(s, library, downloader, runner, background, background);
+    }
+
+    /**
+     * @param libraryWork runs the library panel's slow work (rescan, remove, stats and its views),
+     *                    see {@link #runLibraryWork}
+     */
+    public YtDlpService(YtDlpSettings s, YtDlpLibrary library, YtDlpDownloader downloader, ProcessRunner runner,
+                        Executor background, Executor libraryWork) {
+        this.libraryWork = libraryWork;
         this.settings = s;
         this.library = library;
         this.downloader = downloader;
@@ -141,8 +159,18 @@ public final class YtDlpService {
                     t.setDaemon(true);
                     return t;
                 });
-        YtDlpService service = new YtDlpService(settings, library, downloader, runner, scheduler);
+        // Two threads, created on demand: a rescan (or a file delete) never holds up the panel's
+        // other views for long, and neither waits behind the prompt thread.
+        ThreadPoolExecutor libraryExecutor = new ThreadPoolExecutor(2, 2, 60L, TimeUnit.SECONDS,
+                new LinkedBlockingQueue<>(), r -> {
+                    Thread t = new Thread(r, "ytdlp-library");
+                    t.setDaemon(true);
+                    return t;
+                });
+        libraryExecutor.allowCoreThreadTimeOut(true);
+        YtDlpService service = new YtDlpService(settings, library, downloader, runner, scheduler, libraryExecutor);
         service.ownedScheduler = scheduler;
+        service.ownedLibraryExecutor = libraryExecutor;
         service.alignmentExecutor = alignmentExecutor;
         service.prompt = new YtDlpPrompt(bot, service, new PendingPrompts(), scheduler);
         service.matchSuggestions = new MatchSuggestions(bot, service, service.prompt, scheduler, alignmentExecutor);
@@ -200,6 +228,10 @@ public final class YtDlpService {
         if (align != null) {
             align.shutdownNow();
         }
+        ExecutorService libraryExecutor = ownedLibraryExecutor;
+        if (libraryExecutor != null) {
+            libraryExecutor.shutdownNow();
+        }
     }
 
     /** Whether the feature is on for this run: a path is configured and the version check didn't fail. */
@@ -249,20 +281,34 @@ public final class YtDlpService {
         return library.aliasesTo(key);
     }
 
-    /** Removes a library song on the background executor (deletes files; rewrites the index and playlist). */
+    /** Removes a library song on the library executor (deletes files; rewrites the index and playlist). */
     public CompletableFuture<YtDlpLibrary.RemoveResult> removeFromLibrary(String key, boolean deleteFile,
                                                                            long actorUserId) {
-        return supplyInBackground(() -> library.remove(key, deleteFile, actorUserId));
+        return supplyOn(libraryWork, () -> library.remove(key, deleteFile, actorUserId));
     }
 
-    /** Re-scans the library folder on the background executor, as the library panel's Rescan button does. */
+    /** Re-scans the library folder on the library executor, as the library panel's Rescan button does. */
     public CompletableFuture<YtDlpLibrary.ScanSummary> rescanLibrary() {
-        return supplyInBackground(library::rescan);
+        return supplyOn(libraryWork, library::rescan);
     }
 
-    /** The library's song count, total size and folder, on the background executor (sizes every file). */
+    /** The library's song count, total size and folder, on the library executor (sizes every file). */
     public CompletableFuture<YtDlpLibrary.LibraryStats> libraryStats() {
-        return supplyInBackground(library::stats);
+        return supplyOn(libraryWork, library::stats);
+    }
+
+    /**
+     * Runs {@code task} on the library executor, for the library panel: anything that touches the
+     * library (its lock, its files) after the interaction was acknowledged, so the JDA event
+     * thread never waits on it. If the executor refuses the task (shut down), runs it here.
+     */
+    public void runLibraryWork(Runnable task) {
+        try {
+            libraryWork.execute(task);
+        } catch (RuntimeException ex) { // e.g. the executor is shut down
+            LOGGER.debug("Running library work on the caller's thread: {}", ex.toString());
+            task.run();
+        }
     }
 
     /**
@@ -324,11 +370,11 @@ public final class YtDlpService {
         T get() throws IOException;
     }
 
-    /** Runs an IO-doing library call on the background executor, completing the returned future with its result. */
-    private <T> CompletableFuture<T> supplyInBackground(IoSupplier<T> task) {
+    /** Runs an IO-doing library call on {@code executor}, completing the returned future with its result. */
+    private static <T> CompletableFuture<T> supplyOn(Executor executor, IoSupplier<T> task) {
         CompletableFuture<T> future = new CompletableFuture<>();
         try {
-            background.execute(() -> {
+            executor.execute(() -> {
                 try {
                     future.complete(task.get());
                 } catch (IOException | RuntimeException ex) {
