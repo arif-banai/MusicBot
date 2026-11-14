@@ -15,12 +15,18 @@
  */
 package com.jagrosh.jmusicbot.unit.ytdlp;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Duration;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
+import com.jagrosh.jmusicbot.ytdlp.ProcessRunner.ProcessResult;
 import com.jagrosh.jmusicbot.ytdlp.SystemProcessRunner;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -68,5 +74,55 @@ class SystemProcessRunnerTest {
 
         assertEquals("/usr/bin", environment.get("PATH"));
         assertEquals(3, environment.size());
+    }
+
+    /** Starts a grandchild that inherits (and keeps open) its stdout, prints the grandchild's PID, and exits. */
+    private static final String PARENT = """
+            public class Parent {
+                public static void main(String[] args) throws Exception {
+                    Process grandchild = new ProcessBuilder(args[0], args[1]).inheritIO().start();
+                    System.out.println("grandchild=" + grandchild.pid());
+                    System.out.flush();
+                }
+            }
+            """;
+
+    /** Holds the inherited pipe for a while; ends on its own in case the test can't kill it. */
+    private static final String GRANDCHILD = """
+            public class Grandchild {
+                public static void main(String[] args) throws Exception {
+                    Thread.sleep(30_000);
+                }
+            }
+            """;
+
+    @Test
+    @DisplayName("run() returns after a normal exit even if a process it started still holds the output pipe")
+    void normalExit_grandchildHoldingPipe_returnsAfterGrace(@TempDir Path dir) throws Exception {
+        Path parent = Files.writeString(dir.resolve("Parent.java"), PARENT);
+        Path grandchild = Files.writeString(dir.resolve("Grandchild.java"), GRANDCHILD);
+        String java = ProcessHandle.current().info().command()
+                .orElse(Path.of(System.getProperty("java.home"), "bin", "java").toString());
+
+        long started = System.nanoTime();
+        ProcessResult result = new SystemProcessRunner(Duration.ofMillis(500))
+                .run(List.of(java, parent.toString(), java, grandchild.toString()), Duration.ofSeconds(60));
+        Duration took = Duration.ofNanos(System.nanoTime() - started);
+        try {
+            assertFalse(result.timedOut());
+            assertEquals(0, result.exitCode());
+            assertTrue(took.compareTo(Duration.ofSeconds(20)) < 0, "run() waited for the grandchild: " + took);
+        } finally {
+            killGrandchild(result.stdout());
+        }
+    }
+
+    private static void killGrandchild(String stdout) {
+        for (String line : stdout.lines().toList()) {
+            if (line.startsWith("grandchild=")) {
+                long pid = Long.parseLong(line.substring("grandchild=".length()).strip());
+                ProcessHandle.of(pid).ifPresent(ProcessHandle::destroyForcibly);
+            }
+        }
     }
 }

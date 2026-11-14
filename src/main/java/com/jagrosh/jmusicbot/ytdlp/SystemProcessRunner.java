@@ -40,8 +40,19 @@ public final class SystemProcessRunner implements ProcessRunner {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(SystemProcessRunner.class);
 
-    /** Bound on how long we wait for the killed process/threads to actually stop. */
-    private static final Duration SHUTDOWN_GRACE = Duration.ofSeconds(5);
+    /** Bound on how long we wait for a killed process to stop, and for the output readers to finish. */
+    private static final Duration DEFAULT_SHUTDOWN_GRACE = Duration.ofSeconds(5);
+
+    private final Duration shutdownGrace;
+
+    public SystemProcessRunner() {
+        this(DEFAULT_SHUTDOWN_GRACE);
+    }
+
+    /** @param shutdownGrace how long to wait for output readers (and a killed process) to finish */
+    public SystemProcessRunner(Duration shutdownGrace) {
+        this.shutdownGrace = shutdownGrace;
+    }
 
     @Override
     public ProcessResult run(List<String> command, Duration timeout) throws IOException, InterruptedException {
@@ -65,8 +76,8 @@ public final class SystemProcessRunner implements ProcessRunner {
             // Being interrupted (e.g. a shutdown, or Task 4 cancelling this job) must not
             // leak the child process; kill it, then let the caller see the interrupt.
             killTree(process);
-            stdoutThread.join(SHUTDOWN_GRACE.toMillis());
-            stderrThread.join(SHUTDOWN_GRACE.toMillis());
+            stdoutThread.join(shutdownGrace.toMillis());
+            stderrThread.join(shutdownGrace.toMillis());
             throw ex;
         }
 
@@ -76,14 +87,20 @@ public final class SystemProcessRunner implements ProcessRunner {
             // Bounded waits here: if a descendant outside the one-shot descendants()
             // snapshot survives and keeps a pipe open, we must still return rather than
             // hang forever and stall the single-download queue.
-            process.waitFor(SHUTDOWN_GRACE.toMillis(), TimeUnit.MILLISECONDS);
-            stdoutThread.join(SHUTDOWN_GRACE.toMillis());
-            stderrThread.join(SHUTDOWN_GRACE.toMillis());
+            process.waitFor(shutdownGrace.toMillis(), TimeUnit.MILLISECONDS);
+            stdoutThread.join(shutdownGrace.toMillis());
+            stderrThread.join(shutdownGrace.toMillis());
             return new ProcessResult(-1, stdout.text(), stderr.text(), true);
         }
 
-        stdoutThread.join();
-        stderrThread.join();
+        // Bounded here too: a process yt-dlp started can outlive it and keep the pipes open,
+        // and an unbounded join would then stall the single-download queue for as long.
+        stdoutThread.join(shutdownGrace.toMillis());
+        stderrThread.join(shutdownGrace.toMillis());
+        if (stdoutThread.isAlive() || stderrThread.isAlive()) {
+            LOGGER.warn("yt-dlp exited, but a process it started still holds its output open; "
+                    + "using the output read so far");
+        }
         return new ProcessResult(process.exitValue(), stdout.text(), stderr.text(), false);
     }
 
