@@ -86,6 +86,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.RETURNS_SELF;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
@@ -374,6 +375,42 @@ class YtDlpPromptTest {
                 argThat((CharSequence s) -> s.toString().contains("Skipped")));
         verify(channel, times(1)).editMessageById(anyLong(), any(CharSequence.class));
         verify(player, never()).stopTrack(); // AudioHandler does the stopping
+    }
+
+    @Test
+    void cancel_beforeHoldStarts_releasesHold() {
+        YtDlpPrompt prompt = prompt(Mode.PROMPT);
+        openPrompt(prompt);
+        LibraryAudioTrack hold = (LibraryAudioTrack) state.get(GUILD).orElseThrow().hold();
+
+        prompt.cancel(GUILD); // e.g. a stop between the blocked track's end and its hold starting
+
+        // a hold started later must end at once, not wait on a prompt whose timer is already gone
+        assertFalse(hold.isAwaitingGate());
+    }
+
+    @Test
+    void isCandidate_notForLiveStreams() {
+        YtDlpPrompt prompt = prompt(Mode.PROMPT);
+
+        assertTrue(prompt.isCandidate(youtube("abcdefghijk", false)));
+        assertFalse(prompt.isCandidate(youtube("abcdefghijk", true)));
+        assertFalse(prompt.shouldOffer(youtube("abcdefghijk", true), allClientsFailed()));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void sendFailsAtOnce_timeoutIsNotLeaked() {
+        when(guild.getChannelById(GuildMessageChannel.class, CHANNEL)).thenReturn(channel);
+        doAnswer(inv -> {
+            ((Consumer<Throwable>) inv.getArgument(1)).accept(new RuntimeException("Missing permission"));
+            return null;
+        }).when(createAction).queue(any(), any());
+
+        prompt(Mode.PROMPT).holdFor(guild, blockedYoutubeTrack());
+
+        assertTrue(state.get(GUILD).isEmpty());
+        verify(timeoutFuture).cancel(false);
     }
 
     @Test

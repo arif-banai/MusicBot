@@ -28,16 +28,21 @@ import com.sedmelluq.discord.lavaplayer.tools.FriendlyException;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrackEndReason;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrackInfo;
+import com.sedmelluq.discord.lavaplayer.track.InternalAudioTrack;
+import com.sedmelluq.discord.lavaplayer.track.playback.AudioFrameBuffer;
+import com.sedmelluq.discord.lavaplayer.track.playback.AudioTrackExecutor;
 import net.dv8tion.jda.api.entities.SelfMember;
 import net.dv8tion.jda.api.entities.GuildVoiceState;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -499,6 +504,28 @@ public class AudioHandlerTest extends TestBase {
             return track;
         }
 
+        /** A real-looking lavaplayer track whose frame buffer has, or hasn't, received audio. */
+        private AudioTrack trackWithFrames(String identifier, boolean receivedFrames)
+        {
+            InternalAudioTrack track = mock(InternalAudioTrack.class);
+            when(track.getInfo()).thenReturn(new AudioTrackInfo("Title " + identifier, "Author", 1000, identifier, false, "uri"));
+            when(track.getIdentifier()).thenReturn(identifier);
+            AudioTrackExecutor executor = mock(AudioTrackExecutor.class);
+            AudioFrameBuffer buffer = mock(AudioFrameBuffer.class);
+            when(track.getActiveExecutor()).thenReturn(executor);
+            when(executor.getAudioBuffer()).thenReturn(buffer);
+            when(buffer.hasReceivedFrames()).thenReturn(receivedFrames);
+            return track;
+        }
+
+        /** The one task scheduled on the prompt scheduler (the zero-audio FINISHED fallback). */
+        private Runnable scheduledFallback()
+        {
+            ArgumentCaptor<Runnable> task = ArgumentCaptor.forClass(Runnable.class);
+            verify(prompt).schedule(task.capture(), anyLong(), any(TimeUnit.class));
+            return task.getValue();
+        }
+
         private LibraryAudioTrack libraryTrack(CompletableFuture<Void> gate)
         {
             return new LibraryAudioTrack(new AudioTrackInfo("Lib", "Author", 1000, "abcdefghijk", false, "uri"),
@@ -574,10 +601,10 @@ public class AudioHandlerTest extends TestBase {
         }
 
         @Test
-        @DisplayName("exception first, end reported as FINISHED (lavaplayer race): the hold still plays")
-        void offeredPrompt_finishedRace_playsHold()
+        @DisplayName("exception first, then FINISHED (the track played some audio before failing): the hold plays")
+        void offeredPrompt_finishedAfterAudio_playsHold()
         {
-            AudioTrack blocked = track("blocked");
+            AudioTrack blocked = trackWithFrames("blocked", true);
             AudioTrack hold = track("hold");
             FriendlyException ex = blockedBy(blocked, Optional.of(hold), true);
             enqueue(track("next"));
@@ -647,10 +674,84 @@ public class AudioHandlerTest extends TestBase {
         }
 
         @Test
-        @DisplayName("end first as FINISHED (accepted residual race): the queue moves on and the late hold is withdrawn")
-        void finishedEndFirst_withdrawsLateHold()
+        @DisplayName("end first as FINISHED with no audio (lavaplayer still logging the failure): the queue waits and the hold plays")
+        void finishedEndFirst_zeroFrames_waitsAndPlaysHold()
         {
-            AudioTrack blocked = track("blocked");
+            AudioTrack blocked = trackWithFrames("blocked", false);
+            AudioTrack hold = track("hold");
+            FriendlyException ex = blockedBy(blocked, Optional.of(hold), true);
+            enqueue(track("next"));
+            enqueue(track("later"));
+
+            audioHandler.onTrackEnd(audioPlayer, blocked, AudioTrackEndReason.FINISHED);
+            verify(audioPlayer, never()).playTrack(any());
+            assertEquals(2, audioHandler.getQueue().size());
+            Runnable fallback = scheduledFallback();
+
+            audioHandler.onTrackException(audioPlayer, blocked, ex);
+            verify(audioPlayer).playTrack(hold);
+            verify(prompt, never()).onHoldEnded(anyLong());
+
+            fallback.run(); // the exception already settled it: nothing more happens
+            verify(audioPlayer, times(1)).playTrack(any());
+            assertEquals(2, audioHandler.getQueue().size());
+        }
+
+        @Test
+        @DisplayName("end first as FINISHED with no audio and no exception after it: the queue moves on once, after the fallback")
+        void finishedEndFirst_zeroFrames_noException_movesOnAfterFallback()
+        {
+            AudioTrack blocked = trackWithFrames("blocked", false);
+            AudioTrack next = track("next");
+            when(prompt.isCandidate(blocked)).thenReturn(true);
+            enqueue(next);
+
+            audioHandler.onTrackEnd(audioPlayer, blocked, AudioTrackEndReason.FINISHED);
+            verify(audioPlayer, never()).playTrack(any());
+            Runnable fallback = scheduledFallback();
+
+            fallback.run();
+            fallback.run();
+            verify(audioPlayer, times(1)).playTrack(next);
+            verify(audioPlayer, times(1)).playTrack(any());
+        }
+
+        @Test
+        @DisplayName("end first as FINISHED with no audio, and the fallback can't be scheduled: the queue moves on at once")
+        void finishedEndFirst_zeroFrames_schedulerDown_pullsImmediately()
+        {
+            AudioTrack blocked = trackWithFrames("blocked", false);
+            AudioTrack next = track("next");
+            when(prompt.isCandidate(blocked)).thenReturn(true);
+            doThrow(new java.util.concurrent.RejectedExecutionException("shut down"))
+                    .when(prompt).schedule(any(Runnable.class), anyLong(), any(TimeUnit.class));
+            enqueue(next);
+
+            audioHandler.onTrackEnd(audioPlayer, blocked, AudioTrackEndReason.FINISHED);
+
+            verify(audioPlayer, times(1)).playTrack(next);
+        }
+
+        @Test
+        @DisplayName("feature on: a normal song end (FINISHED, audio played) pulls the next song at once")
+        void candidate_finishedWithFrames_pullsImmediately()
+        {
+            AudioTrack song = trackWithFrames("song", true);
+            AudioTrack next = track("next");
+            when(prompt.isCandidate(song)).thenReturn(true);
+            enqueue(next);
+
+            audioHandler.onTrackEnd(audioPlayer, song, AudioTrackEndReason.FINISHED);
+
+            verify(audioPlayer, times(1)).playTrack(next);
+            verify(prompt, never()).schedule(any(Runnable.class), anyLong(), any(TimeUnit.class));
+        }
+
+        @Test
+        @DisplayName("end first as FINISHED after some audio: the queue moves on and the late hold is withdrawn")
+        void finishedWithFramesEndFirst_withdrawsLateHold()
+        {
+            AudioTrack blocked = trackWithFrames("blocked", true);
             AudioTrack hold = track("hold");
             AudioTrack next = track("next");
             AudioTrack later = track("later");
@@ -667,6 +768,98 @@ public class AudioHandlerTest extends TestBase {
             audioHandler.onTrackEnd(audioPlayer, next, AudioTrackEndReason.FINISHED);
             verify(audioPlayer, never()).playTrack(hold);
             verify(audioPlayer).playTrack(later);
+        }
+
+        @Test
+        @DisplayName("end first, a user's song starts in the gap: the late hold is withdrawn and nothing else is pulled")
+        void endFirst_userPlaysInGap_withdrawsHold()
+        {
+            AudioTrack blocked = track("blocked");
+            AudioTrack hold = track("hold");
+            AudioTrack user = track("user");
+            FriendlyException ex = blockedBy(blocked, Optional.of(hold), true);
+            enqueue(track("next"));
+
+            audioHandler.onTrackEnd(audioPlayer, blocked, AudioTrackEndReason.LOAD_FAILED);
+            audioHandler.playPrepared(user); // e.g. a play command finding the player idle
+            when(audioPlayer.getPlayingTrack()).thenReturn(user);
+            audioHandler.onTrackException(audioPlayer, blocked, ex);
+
+            verify(audioPlayer, never()).playTrack(hold);
+            verify(audioPlayer, times(1)).playTrack(any());
+            verify(prompt).onHoldEnded(GUILD_ID);
+            assertEquals(1, audioHandler.getQueue().size());
+        }
+
+        @Test
+        @DisplayName("end first, a user's song starts in the gap, no prompt: the queue isn't pulled over it")
+        void endFirst_userPlaysInGap_noPrompt_doesNotPull()
+        {
+            AudioTrack blocked = track("blocked");
+            AudioTrack user = track("user");
+            FriendlyException ex = blockedBy(blocked, Optional.empty(), true);
+            enqueue(track("next"));
+
+            audioHandler.onTrackEnd(audioPlayer, blocked, AudioTrackEndReason.LOAD_FAILED);
+            audioHandler.playPrepared(user);
+            when(audioPlayer.getPlayingTrack()).thenReturn(user);
+            audioHandler.onTrackException(audioPlayer, blocked, ex);
+
+            verify(audioPlayer, times(1)).playTrack(any());
+            verify(prompt, never()).onHoldEnded(anyLong());
+            assertEquals(1, audioHandler.getQueue().size());
+        }
+
+        @Test
+        @DisplayName("end first as FINISHED with no audio, a user's song starts before the fallback: the fallback pulls nothing")
+        void finishedEndFirst_userPlaysBeforeFallback_doesNotPull()
+        {
+            AudioTrack blocked = trackWithFrames("blocked", false);
+            AudioTrack user = track("user");
+            when(prompt.isCandidate(blocked)).thenReturn(true);
+            enqueue(track("next"));
+
+            audioHandler.onTrackEnd(audioPlayer, blocked, AudioTrackEndReason.FINISHED);
+            audioHandler.playPrepared(user);
+            when(audioPlayer.getPlayingTrack()).thenReturn(user);
+            scheduledFallback().run();
+
+            verify(audioPlayer, times(1)).playTrack(any());
+            assertEquals(1, audioHandler.getQueue().size());
+        }
+
+        @Test
+        @DisplayName("end first, then stop before the exception: the late hold is withdrawn and nothing plays")
+        void endFirst_stopInGap_withdrawsHoldAndPlaysNothing()
+        {
+            AudioTrack blocked = track("blocked");
+            AudioTrack hold = track("hold");
+            FriendlyException ex = blockedBy(blocked, Optional.of(hold), true);
+            enqueue(track("next"));
+
+            audioHandler.onTrackEnd(audioPlayer, blocked, AudioTrackEndReason.LOAD_FAILED);
+            audioHandler.stopAndClear();
+            audioHandler.onTrackException(audioPlayer, blocked, ex);
+
+            verify(audioPlayer, never()).playTrack(any());
+            verify(prompt).onHoldEnded(GUILD_ID);
+        }
+
+        @Test
+        @DisplayName("end first as FINISHED with no audio, then stop: neither the exception nor the fallback plays anything")
+        void finishedEndFirst_stopInGap_fallbackDoesNothing()
+        {
+            AudioTrack blocked = trackWithFrames("blocked", false);
+            when(prompt.isCandidate(blocked)).thenReturn(true);
+
+            audioHandler.onTrackEnd(audioPlayer, blocked, AudioTrackEndReason.FINISHED);
+            Runnable fallback = scheduledFallback();
+            audioHandler.stopAndClearQueuePreserveHistory();
+            enqueue(track("added after the stop"));
+            fallback.run();
+
+            verify(audioPlayer, never()).playTrack(any());
+            assertEquals(1, audioHandler.getQueue().size());
         }
 
         @Test

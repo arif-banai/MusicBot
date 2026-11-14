@@ -98,13 +98,24 @@ public final class YtDlpPrompt {
 
     /**
      * Whether a failure of this track could open a prompt: the feature is on in prompt mode and
-     * the track is a (not yet wrapped) YouTube track. False whenever the feature is off.
+     * the track is a (not yet wrapped) YouTube track that isn't a live stream (yt-dlp can't
+     * download one into the library). False whenever the feature is off.
      */
     public boolean isCandidate(AudioTrack track) {
         if (!service.isEnabled() || service.mode() != YtDlpSettings.Mode.PROMPT) {
             return false;
         }
-        return track != null && !(track instanceof LibraryAudioTrack) && YtDlpService.isYoutube(track);
+        return track != null && !(track instanceof LibraryAudioTrack) && YtDlpService.isYoutube(track)
+                && track.getInfo() != null && !track.getInfo().isStream;
+    }
+
+    /**
+     * Runs {@code task} once after {@code delay} on the prompt scheduler (a single daemon thread).
+     *
+     * @throws java.util.concurrent.RejectedExecutionException if the scheduler is shut down
+     */
+    public void schedule(Runnable task, long delay, TimeUnit unit) {
+        scheduler.schedule(task, delay, unit);
     }
 
     /**
@@ -120,6 +131,7 @@ public final class YtDlpPrompt {
         Pending claimed = claim(guildId, current.get().gate());
         if (claimed != null) {
             edit(guildId, claimed.channelId(), claimed.messageId(), "⏹ Cancelled **" + title(claimed.hold()) + "**");
+            claimed.gate().cancel(false); // a hold that hasn't started yet must not wait on it
         }
     }
 
@@ -163,11 +175,12 @@ public final class YtDlpPrompt {
                 Button.secondary(ComponentIdParsers.ytDlpButtonId("all", requesterId, videoId),
                         "Download all YouTube songs in queue")));
         try {
+            // Register the timeout first, so a send that fails at once cancels it through expire().
+            timeouts.put(gate, scheduler.schedule(() -> expire(guildId, gate, true),
+                    promptTimeoutSeconds(), TimeUnit.SECONDS));
             channel.sendMessage(text).setComponents(rows).queue(
                     message -> onPromptSent(guildId, gate, message, title),
                     error -> onPromptSendFailed(guildId, gate, error));
-            timeouts.put(gate, scheduler.schedule(() -> expire(guildId, gate, true),
-                    promptTimeoutSeconds(), TimeUnit.SECONDS));
         } catch (RuntimeException ex) {
             // e.g. missing permissions thrown before the request, or the scheduler is shut down
             LOGGER.warn("Couldn't post the yt-dlp prompt for {}: {}", videoId, ex.toString());

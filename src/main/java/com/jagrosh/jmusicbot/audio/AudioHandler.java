@@ -31,6 +31,7 @@ import com.sedmelluq.discord.lavaplayer.tools.FriendlyException;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrackEndReason;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrackInfo;
+import com.sedmelluq.discord.lavaplayer.track.InternalAudioTrack;
 import com.sedmelluq.discord.lavaplayer.track.playback.AudioFrame;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.audio.AudioSendHandler;
@@ -44,6 +45,7 @@ import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -57,6 +59,11 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
     public final static String STOP_EMOJI  = "\u23F9"; // ⏹
 
     private final static Logger LOGGER = LoggerFactory.getLogger(AudioHandler.class);
+    /**
+     * yt-dlp prompt mode: how long a prompt candidate's audio-less FINISHED end waits for an
+     * exception callback before the queue moves on anyway.
+     */
+    private static final long FINISHED_WITHOUT_AUDIO_FALLBACK_SECONDS = 5;
     private final List<AudioTrack> defaultQueue = new LinkedList<>();
     private final Set<String> votes = new HashSet<>();
     
@@ -72,8 +79,11 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
     private volatile String favoritedTrackUri = null;
     /**
      * yt-dlp prompt mode: where a prompt candidate's end and its exception callback meet.
-     * lavaplayer may deliver either first (it marks the track as ending before it reports the
-     * exception), so whichever side comes first leaves its part here and the second side acts.
+     * lavaplayer may deliver either first (it marks the track as ending, then logs the failure,
+     * and only then records and reports the exception), so whichever side comes first leaves its
+     * part here and the second side acts. An end that comes first is LOAD_FAILED, or FINISHED
+     * when it beat the exception being recorded; with no audio received, both mean the track
+     * may have failed, and the queue waits for the exception side.
      * Every change is a compareAndSet, so exactly one side plays the hold or pulls the queue.
      */
     private final AtomicReference<Handoff> handoff = new AtomicReference<>();
@@ -84,9 +94,12 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
         OFFERED,
         /** Exception first: no prompt; the end should move on as usual. */
         DECLINED,
-        /** LOAD_FAILED end first: the queue waits; the exception side plays the hold or pulls. */
+        /**
+         * LOAD_FAILED end first, or FINISHED with no audio: the queue waits; the exception side
+         * plays the hold or pulls (for FINISHED, a fallback moves on if no exception comes).
+         */
         AWAITING,
-        /** Any other end first: the queue already moved on; a late hold is withdrawn. */
+        /** Any other end first (or a stop): the queue already moved on; a late hold is withdrawn. */
         ENDED
     }
 
@@ -167,6 +180,7 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
         LOGGER.debug("Stopping and clearing queue");
         queue.clearAll();
         defaultQueue.clear();
+        resetYtDlpHandoff();
         cancelYtDlpPrompt();
         audioPlayer.stopTrack();
         cancelYtDlpDownloads();
@@ -182,6 +196,7 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
         LOGGER.debug("Stopping playback and clearing queue (preserving history)");
         queue.clear();
         defaultQueue.clear();
+        resetYtDlpHandoff();
         cancelYtDlpPrompt();
         audioPlayer.stopTrack();
         cancelYtDlpDownloads();
@@ -235,6 +250,21 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
         YtDlpService ytDlp = ytDlp();
         if (ytDlp != null)
             ytDlp.cancelGuild(guildId);
+    }
+
+    /**
+     * Stop/leave: forgets any handoff in progress. A queue still waiting on a blocked track's
+     * exception (AWAITING) becomes ENDED instead, so that late exception withdraws its prompt
+     * rather than playing a hold or pulling the next song after the stop; it also makes a pending
+     * FINISHED fallback do nothing. Runs before {@code stopTrack()}: the exception side runs under
+     * the player's track-switch lock, so it either already played the hold (which the stop then
+     * stops) or sees this.
+     */
+    private void resetYtDlpHandoff()
+    {
+        handoff.getAndUpdate(current -> current != null && current.kind() == HandoffKind.AWAITING
+                ? new Handoff(current.track(), HandoffKind.ENDED, null)
+                : null);
     }
 
     /** Stop/leave: claims an open prompt as "Cancelled" before the hold ends (and would say "Skipped"). */
@@ -367,8 +397,8 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
                     continue;
                 if (current.kind() == HandoffKind.DECLINED)
                     return false;
-                // Normally LOAD_FAILED. lavaplayer decides the reason on the audio thread, possibly
-                // before the failure is recorded, so a load failure can also arrive as FINISHED.
+                // Normally LOAD_FAILED. FINISHED when the track played some audio before it failed
+                // (lavaplayer reports LOAD_FAILED only for a failure before the first frame).
                 if (endReason == AudioTrackEndReason.LOAD_FAILED || endReason == AudioTrackEndReason.FINISHED)
                 {
                     player.playTrack(current.hold());
@@ -380,10 +410,66 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
             if (!isPromptCandidate(prompt, track))
                 return false;
             // This end came before the exception callback (or it's a normal end of a candidate).
-            boolean await = endReason == AudioTrackEndReason.LOAD_FAILED;
+            // lavaplayer marks a failing track as ending, logs the failure (a full stack trace),
+            // and only then records the exception, so an end in that window says FINISHED even
+            // though the track failed. With no audio received, wait for the exception side too.
+            boolean finishedWithoutAudio = endReason == AudioTrackEndReason.FINISHED && producedNoAudio(track);
+            boolean await = endReason == AudioTrackEndReason.LOAD_FAILED || finishedWithoutAudio;
             Handoff mine = new Handoff(track, await ? HandoffKind.AWAITING : HandoffKind.ENDED, null);
-            if (handoff.compareAndSet(current, mine))
-                return await;
+            if (!handoff.compareAndSet(current, mine))
+                continue;
+            if (finishedWithoutAudio && !scheduleFinishedFallback(prompt, player, track, mine))
+                return !handoff.compareAndSet(mine, null); // couldn't schedule: move on now
+            return await;
+        }
+    }
+
+    /**
+     * A FINISHED end with no audio usually means the exception callback is on its way, but a
+     * track can also just end empty. If no exception has settled the handoff after a few
+     * seconds, the queue moves on (unless something else started playing meanwhile).
+     *
+     * @return false if the fallback couldn't be scheduled (the caller then moves on at once)
+     */
+    private boolean scheduleFinishedFallback(YtDlpPrompt prompt, AudioPlayer player, AudioTrack track, Handoff mine)
+    {
+        try
+        {
+            prompt.schedule(() -> {
+                try
+                {
+                    if (handoff.compareAndSet(mine, null) && audioPlayer.getPlayingTrack() == null)
+                        continueAfterEnd(player, track, AudioTrackEndReason.FINISHED);
+                }
+                catch (RuntimeException ex)
+                {
+                    LOGGER.warn("yt-dlp couldn't move on after track {} ended without audio: {}",
+                            track.getIdentifier(), ex.toString());
+                }
+            }, FINISHED_WITHOUT_AUDIO_FALLBACK_SECONDS, TimeUnit.SECONDS);
+            return true;
+        }
+        catch (RuntimeException ex)
+        {
+            LOGGER.debug("yt-dlp couldn't schedule the fallback for track {}: {}", track.getIdentifier(), ex.toString());
+            return false;
+        }
+    }
+
+    /**
+     * Whether lavaplayer's frame buffer for this track never received audio. False if that
+     * can't be told (not a lavaplayer track, or its executor is already gone).
+     */
+    private static boolean producedNoAudio(AudioTrack track)
+    {
+        try
+        {
+            return track instanceof InternalAudioTrack internal
+                    && !internal.getActiveExecutor().getAudioBuffer().hasReceivedFrames();
+        }
+        catch (RuntimeException ex)
+        {
+            return false;
         }
     }
 
@@ -401,8 +487,14 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
             {
                 if (!handoff.compareAndSet(current, null))
                     continue;
-                // The LOAD_FAILED end came first and left the queue waiting for this decision.
-                if (hold != null)
+                // The end came first and left the queue waiting for this decision. If something
+                // else started on the idle player meanwhile (e.g. a play command), leave it be.
+                if (audioPlayer.getPlayingTrack() != null)
+                {
+                    if (hold != null)
+                        prompt.onHoldEnded(guildId);
+                }
+                else if (hold != null)
                     audioPlayer.playTrack(hold);
                 else
                     continueAfterEnd(audioPlayer, blocked, AudioTrackEndReason.LOAD_FAILED);
