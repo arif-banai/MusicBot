@@ -79,6 +79,20 @@ class LibraryManagementTest {
     }
 
     @Test
+    @DisplayName("search() also matches the entry's author (uploader)")
+    void search_matchesAuthor() throws IOException {
+        Path fileA = Files.createFile(libraryFolder.resolve("A [searchuplo1].webm"));
+        Path fileB = Files.createFile(libraryFolder.resolve("B [searchuplo2].webm"));
+        YtDlpLibrary library = new YtDlpLibrary(libraryFolder, playlistFile, f -> java.util.Optional.empty());
+        library.record("searchuplo1", fileA, info("searchuplo1", "Some Song", "Crazy Frog"));
+        library.record("searchuplo2", fileB, info("searchuplo2", "Other Song", "Someone Else"));
+
+        List<LibraryEntry> byUploader = library.search("crazy frog", 10);
+
+        assertEquals(List.of("searchuplo1"), byUploader.stream().map(LibraryEntry::key).toList());
+    }
+
+    @Test
     @DisplayName("remove(deleteFile=false) keeps the file but drops the entry, its aliases and its playlist line")
     void remove_indexOnly_keepsFile_dropsAliasesAndPlaylistLine() throws IOException {
         Path file = Files.createFile(libraryFolder.resolve("Song [removeidx01].webm"));

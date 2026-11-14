@@ -376,9 +376,9 @@ public final class YtDlpLibrary {
 
     /**
      * Entries matching every word of {@code query} (cleaned up the same way as a song title for
-     * matching) in their title, sidecar artist or sidecar track, or whose key is exactly
-     * {@code query}; exact-key matches sort first, then the rest by title. Empty for a blank query
-     * or a non-positive {@code limit}.
+     * matching) in their title, author (uploader), sidecar artist or sidecar track, or whose key
+     * is exactly {@code query}; exact-key matches sort first, then the rest by title. Empty for a
+     * blank query or a non-positive {@code limit}.
      */
     public synchronized List<LibraryEntry> search(String query, int limit) {
         if (query == null || query.isBlank() || limit <= 0) {
@@ -416,6 +416,7 @@ public final class YtDlpLibrary {
 
     private static Set<String> entryWords(LibraryEntry entry) {
         Set<String> words = new LinkedHashSet<>(normalizedWords(entry.title()));
+        words.addAll(normalizedWords(entry.author()));
         words.addAll(normalizedWords(entry.artist()));
         words.addAll(normalizedWords(entry.track()));
         return words;
