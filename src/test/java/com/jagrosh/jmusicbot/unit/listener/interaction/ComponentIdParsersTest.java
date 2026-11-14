@@ -24,6 +24,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ComponentIdParsersTest
 {
     @Test
+    void nowPlayingYtDlpSave_isTheSpecifiedLiteralId()
+    {
+        assertEquals("np_ytdlp_save", ComponentIdParsers.NOW_PLAYING_YTDLP_SAVE);
+        // Confirms why it can't go through parseNowPlayingButtonId: it has an extra underscore.
+        assertTrue(ComponentIdParsers.parseNowPlayingButtonId(ComponentIdParsers.NOW_PLAYING_YTDLP_SAVE).isEmpty());
+    }
+
+    @Test
     void parsePlaylistsButtonId_validId_returnsParsedValues()
     {
         var parsed = ComponentIdParsers.parsePlaylistsButtonId("playlists_queue_2_13_123456789");

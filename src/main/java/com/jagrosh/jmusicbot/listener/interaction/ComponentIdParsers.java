@@ -41,6 +41,11 @@ public final class ComponentIdParsers {
     private static final String YTDLP_PREFIX = "ytdlp_";
     /** Prefix of the similar-song suggestion buttons; checked before {@link #YTDLP_PREFIX}. */
     public static final String YTDLP_MATCH_PREFIX = "ytdlp_match_";
+    /**
+     * The now-playing "Download" button. Its action contains an underscore, so it is matched
+     * literally (before {@link #parseNowPlayingButtonId}, which rejects that) rather than parsed.
+     */
+    public static final String NOW_PLAYING_YTDLP_SAVE = "np_ytdlp_save";
 
     private ComponentIdParsers() {
     }
