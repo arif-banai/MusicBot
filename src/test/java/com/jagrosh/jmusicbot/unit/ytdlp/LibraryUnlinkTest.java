@@ -274,7 +274,7 @@ class LibraryUnlinkTest {
         SlashCommandData data = (SlashCommandData) new LibrarySlashCmd(bot).buildCommandData();
 
         assertEquals("library", data.getName());
-        assertEquals(List.of("unlink"), data.getSubcommands().stream().map(s -> s.getName()).toList());
+        assertEquals(List.of("unlink", "panel"), data.getSubcommands().stream().map(s -> s.getName()).toList());
     }
 
     @Test

@@ -1,0 +1,333 @@
+/*
+ * Copyright 2026 Arif Banai (arif-banai)
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.jagrosh.jmusicbot.commands.v2.dj;
+
+import java.awt.Color;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+
+import com.jagrosh.jdautilities.command.SlashCommandEvent;
+import com.jagrosh.jmusicbot.Bot;
+import com.jagrosh.jmusicbot.commands.v2.DJSlashCommand;
+import com.jagrosh.jmusicbot.commands.v2.music.PlaylistsSlashCmd;
+import com.jagrosh.jmusicbot.listener.interaction.ComponentIdParsers;
+import com.jagrosh.jmusicbot.utils.FormatUtil;
+import com.jagrosh.jmusicbot.utils.PaginatedListEmbedUtil;
+import com.jagrosh.jmusicbot.ytdlp.LibraryEntry;
+import com.jagrosh.jmusicbot.ytdlp.YtDlpLibrary;
+import com.jagrosh.jmusicbot.ytdlp.YtDlpService;
+import net.dv8tion.jda.api.EmbedBuilder;
+import net.dv8tion.jda.api.components.actionrow.ActionRow;
+import net.dv8tion.jda.api.components.buttons.Button;
+import net.dv8tion.jda.api.components.selections.StringSelectMenu;
+import net.dv8tion.jda.api.entities.MessageEmbed;
+import org.jetbrains.annotations.Nullable;
+
+/**
+ * {@code /library panel} (DJs only): an ephemeral panel for browsing and managing the yt-dlp
+ * library: info on the current song, search, remove and rescan. Registered alongside
+ * {@code /library unlink}, so only when yt-dlp is configured.
+ * <p>
+ * This class also holds the static view builders the panel's interactions re-render with
+ * ({@link com.jagrosh.jmusicbot.listener.LibraryInteractionListener}), the same way
+ * {@link PlaylistsSlashCmd} holds the Playlists panel's.
+ *
+ * @author Arif Banai (arif-banai)
+ */
+public class LibraryPanelSlashCmd extends DJSlashCommand
+{
+    /** Search results per page, matching the Playlists panel's track page size. */
+    public static final int PAGE_SIZE = PlaylistsSlashCmd.PLAYLIST_TRACKS_PER_PAGE;
+    /** The most matches ever fetched from the library for one query, spread over pages. */
+    private static final int MAX_SEARCH_RESULTS = 100;
+
+    public LibraryPanelSlashCmd(Bot bot)
+    {
+        super(bot);
+        this.name = "panel";
+        this.help = "opens the yt-dlp library management panel";
+        this.bePlaying = false;
+    }
+
+    @Override
+    public void doDJCommand(SlashCommandEvent event)
+    {
+        YtDlpService ytDlp = bot.getYtDlp();
+        if (ytDlp == null)
+        {
+            event.reply("The yt-dlp library isn't available.").setEphemeral(true).queue();
+            return;
+        }
+        long ownerUserId = event.getUser().getIdLong();
+        Color color = event.getMember() == null ? null : event.getMember().getColor();
+        event.deferReply(true).queue(hook -> ytDlp.libraryStats().whenComplete((stats, ex) ->
+        {
+            if (ex != null)
+            {
+                hook.sendMessage("Couldn't load the library: " + errorMessage(ex)).setEphemeral(true).queue();
+                return;
+            }
+            hook.sendMessageEmbeds(buildPanelEmbed(stats, color, null))
+                    .setComponents(buildPanelComponents(ownerUserId))
+                    .queue();
+        }));
+    }
+
+    // ---- Panel view ----
+
+    public static MessageEmbed buildPanelEmbed(YtDlpLibrary.LibraryStats stats, Color color, @Nullable String note)
+    {
+        StringBuilder description = new StringBuilder();
+        if (note != null && !note.isBlank())
+        {
+            description.append(note).append("\n\n");
+        }
+        description.append("**Songs:** ").append(stats.songs()).append('\n')
+                .append("**Size:** ").append(formatBytes(stats.totalBytes())).append('\n')
+                .append("**Folder:** `").append(stats.folder()).append('`');
+        EmbedBuilder embed = new EmbedBuilder().setTitle("Library").setDescription(description.toString());
+        PaginatedListEmbedUtil.applyStandardEmbedOptions(embed, null, color);
+        return embed.build();
+    }
+
+    public static List<ActionRow> buildPanelComponents(long ownerUserId)
+    {
+        Button info = Button.primary(ComponentIdParsers.libComponentId("info", ownerUserId), "Info");
+        Button search = Button.secondary(ComponentIdParsers.libComponentId("search", ownerUserId), "Search");
+        Button rescan = Button.secondary(ComponentIdParsers.libComponentId("rescan", ownerUserId), "Rescan");
+        return List.of(ActionRow.of(info, search, rescan));
+    }
+
+    // ---- Info view ----
+
+    public static MessageEmbed buildInfoEmbed(@Nullable LibraryEntry entry, List<String> aliases, Color color)
+    {
+        EmbedBuilder embed = new EmbedBuilder().setTitle("Library Info");
+        if (entry == null)
+        {
+            embed.setDescription("The current song isn't in the library.");
+        }
+        else
+        {
+            embed.setDescription("**" + FormatUtil.filter(entry.title()) + "**")
+                    .addField("Artist", entry.author().isEmpty() ? "*unknown*" : FormatUtil.filter(entry.author()), true)
+                    .addField("Source", entry.source() == null ? "file" : entry.source(), true)
+                    .addField("Key", "`" + entry.key() + "`", true)
+                    .addField("File", "`" + fileName(entry) + "`", true)
+                    .addField("Size", formatBytes(fileSize(entry.file())), true)
+                    .addField("Aliases", aliases.isEmpty() ? "none" : String.valueOf(aliases.size()), true)
+                    .addField("Link", entry.uri(), false);
+        }
+        PaginatedListEmbedUtil.applyStandardEmbedOptions(embed, null, color);
+        return embed.build();
+    }
+
+    public static List<ActionRow> buildInfoComponents(long ownerUserId, boolean showUnlink)
+    {
+        List<Button> buttons = new ArrayList<>();
+        if (showUnlink)
+        {
+            buttons.add(Button.danger(ComponentIdParsers.libComponentId("unlink", ownerUserId), "Unlink"));
+        }
+        buttons.add(Button.secondary(ComponentIdParsers.libComponentId("back", ownerUserId), "Back"));
+        return List.of(ActionRow.of(buttons));
+    }
+
+    // ---- Search results view ----
+
+    public static MessageEmbed buildSearchListEmbed(String query, List<LibraryEntry> pageEntries, int page,
+                                                     int totalPages, int totalResults, Color color)
+    {
+        List<String> lines = pageEntries.stream()
+                .map(e -> "`" + FormatUtil.filter(e.title())
+                        + (e.author().isEmpty() ? "" : " — " + FormatUtil.filter(e.author())) + "`")
+                .toList();
+        String description = PaginatedListEmbedUtil.buildNumberedListSection(
+                "**Results for \"" + FormatUtil.filter(query) + "\"** *(select one below)*",
+                lines, 0, (page - 1) * PAGE_SIZE + 1);
+        EmbedBuilder embed = new EmbedBuilder().setTitle("Library Search").setDescription(description)
+                .addField("Matches", String.valueOf(totalResults), true);
+        PaginatedListEmbedUtil.applyStandardEmbedOptions(embed, "Page " + page + " of " + totalPages, color);
+        return embed.build();
+    }
+
+    public static List<ActionRow> buildSearchListComponents(long ownerUserId, List<LibraryEntry> pageEntries,
+                                                             int page, int totalPages, String query)
+    {
+        List<ActionRow> rows = new ArrayList<>();
+        if (!pageEntries.isEmpty())
+        {
+            StringSelectMenu.Builder menu = StringSelectMenu.create(ComponentIdParsers.libComponentId(
+                            "pick", ownerUserId, ComponentIdParsers.libPageQueryArg(page, query)))
+                    .setPlaceholder("Select a song")
+                    .setMinValues(1)
+                    .setMaxValues(1);
+            for (LibraryEntry entry : pageEntries)
+            {
+                String label = truncate(entry.title(), 100);
+                String description = entry.author().isEmpty() ? "" : truncate(entry.author(), 100);
+                menu.addOption(label, truncate(entry.key(), 100), description);
+            }
+            rows.add(ActionRow.of(menu.build()));
+        }
+        Button back = Button.secondary(ComponentIdParsers.libComponentId("back", ownerUserId), "Back");
+        if (totalPages > 1)
+        {
+            int prevPage = Math.max(1, page - 1);
+            int nextPage = Math.min(totalPages, page + 1);
+            Button prev = Button.secondary(ComponentIdParsers.libComponentId(
+                    "page", ownerUserId, ComponentIdParsers.libPageQueryArg(prevPage, query)), "Prev");
+            Button next = Button.secondary(ComponentIdParsers.libComponentId(
+                    "page", ownerUserId, ComponentIdParsers.libPageQueryArg(nextPage, query)), "Next");
+            if (page <= 1)
+            {
+                prev = prev.asDisabled();
+            }
+            if (page >= totalPages)
+            {
+                next = next.asDisabled();
+            }
+            rows.add(ActionRow.of(prev, next, back));
+        }
+        else
+        {
+            rows.add(ActionRow.of(back));
+        }
+        return rows;
+    }
+
+    /** Clamps {@code limit} to {@link #MAX_SEARCH_RESULTS} for a library search. */
+    public static int searchLimit()
+    {
+        return MAX_SEARCH_RESULTS;
+    }
+
+    public static int totalPages(int totalResults)
+    {
+        return Math.max(1, (int) Math.ceil(totalResults / (double) PAGE_SIZE));
+    }
+
+    /** The entries on {@code page} (1-based) of {@code results}, clamping an out-of-range page. */
+    public static List<LibraryEntry> pageOf(List<LibraryEntry> results, int page)
+    {
+        int totalPages = totalPages(results.size());
+        int safePage = Math.max(1, Math.min(page, totalPages));
+        int from = (safePage - 1) * PAGE_SIZE;
+        int to = Math.min(from + PAGE_SIZE, results.size());
+        return from >= to ? List.of() : results.subList(from, to);
+    }
+
+    // ---- Detail view ----
+
+    public static MessageEmbed buildDetailEmbed(LibraryEntry entry, Color color)
+    {
+        EmbedBuilder embed = new EmbedBuilder().setTitle(FormatUtil.filter(entry.title()))
+                .addField("Author", entry.author().isEmpty() ? "*unknown*" : FormatUtil.filter(entry.author()), true)
+                .addField("Source", entry.source() == null ? "file" : entry.source(), true)
+                .addField("Key", "`" + entry.key() + "`", true)
+                .addField("File", "`" + fileName(entry) + "`", true)
+                .addField("Size", formatBytes(fileSize(entry.file())), true)
+                .addField("Link", entry.uri(), false);
+        PaginatedListEmbedUtil.applyStandardEmbedOptions(embed, null, color);
+        return embed.build();
+    }
+
+    public static List<ActionRow> buildDetailComponents(long ownerUserId, String key)
+    {
+        Button play = Button.success(ComponentIdParsers.libComponentId("play", ownerUserId, key), "Play");
+        Button queue = Button.primary(ComponentIdParsers.libComponentId("queue", ownerUserId, key), "Queue");
+        Button remove = Button.danger(ComponentIdParsers.libComponentId("remove", ownerUserId, key), "Remove…");
+        Button back = Button.secondary(ComponentIdParsers.libComponentId("back", ownerUserId), "Back");
+        return List.of(ActionRow.of(play, queue, remove, back));
+    }
+
+    // ---- Remove confirmation view ----
+
+    public static MessageEmbed buildConfirmEmbed(LibraryEntry entry, Color color)
+    {
+        EmbedBuilder embed = new EmbedBuilder().setTitle("Remove from library?")
+                .setDescription("Remove **" + FormatUtil.filter(entry.title()) + "** from the library?");
+        PaginatedListEmbedUtil.applyStandardEmbedOptions(embed, null, color);
+        return embed.build();
+    }
+
+    public static List<ActionRow> buildConfirmComponents(long ownerUserId, String key)
+    {
+        Button rmidx = Button.danger(ComponentIdParsers.libComponentId("rmidx", ownerUserId, key), "Remove from library");
+        Button rmfile = Button.danger(ComponentIdParsers.libComponentId("rmfile", ownerUserId, key), "Remove and delete file");
+        Button cancel = Button.secondary(ComponentIdParsers.libComponentId("cancel", ownerUserId, key), "Cancel");
+        return List.of(ActionRow.of(rmidx, rmfile, cancel));
+    }
+
+    // ---- Shared helpers ----
+
+    public static List<ActionRow> buildBackOnlyComponents(long ownerUserId)
+    {
+        return List.of(ActionRow.of(Button.secondary(ComponentIdParsers.libComponentId("back", ownerUserId), "Back")));
+    }
+
+    private static String fileName(LibraryEntry entry)
+    {
+        return entry.file().getFileName() == null ? entry.file().toString() : entry.file().getFileName().toString();
+    }
+
+    static long fileSize(Path file)
+    {
+        try
+        {
+            return Files.size(file);
+        }
+        catch (IOException ex)
+        {
+            return 0L;
+        }
+    }
+
+    static String formatBytes(long bytes)
+    {
+        if (bytes < 1024)
+        {
+            return bytes + " B";
+        }
+        String[] units = { "KB", "MB", "GB", "TB" };
+        double value = bytes;
+        int unit = -1;
+        do
+        {
+            value /= 1024.0;
+            unit++;
+        }
+        while (value >= 1024.0 && unit < units.length - 1);
+        return String.format("%.1f %s", value, units[unit]);
+    }
+
+    static String truncate(String text, int max)
+    {
+        if (text == null)
+        {
+            return "";
+        }
+        return text.length() <= max ? text : text.substring(0, max - 1) + "…";
+    }
+
+    private static String errorMessage(Throwable ex)
+    {
+        return ex.getMessage() != null ? ex.getMessage() : ex.toString();
+    }
+}

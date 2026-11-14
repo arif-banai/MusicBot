@@ -326,6 +326,28 @@ class LibraryImportScanTest {
     }
 
     @Test
+    @DisplayName("load() backfills an already-indexed entry's metadata from a sidecar that appears later")
+    void load_backfillsIndexedEntryFromSidecar() throws IOException {
+        audio("Song.mp3");
+        prober.result("Song.mp3", new ProbeResult("Song", "Band", 100_000L));
+        loadLibrary(); // indexes the probed entry (no artist/track/isrc) and saves
+        Path index = libraryFolder.resolve("library.json");
+        byte[] before = Files.readAllBytes(index);
+
+        Files.writeString(libraryFolder.resolve("Song.info.json"), """
+                { "artist": "Crazy Frog", "track": "Axel F", "isrc": "GBAYE0900001" }
+                """);
+
+        YtDlpLibrary second = loadLibrary();
+
+        LibraryEntry entry = second.find(fileKey("Song.mp3")).orElseThrow();
+        assertEquals("Crazy Frog", entry.artist());
+        assertEquals("Axel F", entry.track());
+        assertEquals("GBAYE0900001", entry.isrc());
+        assertFalse(java.util.Arrays.equals(before, Files.readAllBytes(index)), "the backfill is saved");
+    }
+
+    @Test
     @DisplayName("a load that fails after an index existed blocks saving, so the index isn't overwritten")
     void failedLoad_blocksSaves() throws IOException {
         audio("Song.mp3");

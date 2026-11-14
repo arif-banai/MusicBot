@@ -38,7 +38,13 @@ public class LibraryCmd extends DJCommand
     @Override
     public void doCommand(CommandEvent event)
     {
-        if (!"unlink".equalsIgnoreCase(event.getArgs() == null ? "" : event.getArgs().trim()))
+        String args = event.getArgs() == null ? "" : event.getArgs().trim();
+        if ("panel".equalsIgnoreCase(args))
+        {
+            event.replyError("Use `/library panel` to browse and manage the library.");
+            return;
+        }
+        if (!"unlink".equalsIgnoreCase(args))
         {
             event.replyError("Usage: `" + name + " unlink` unlinks the current song from its library song.");
             return;

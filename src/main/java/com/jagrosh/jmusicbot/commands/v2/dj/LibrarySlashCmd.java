@@ -31,7 +31,7 @@ public class LibrarySlashCmd extends SlashCommand
         this.help = "yt-dlp library commands";
         this.guildOnly = true;
         this.category = new Category("DJ");
-        this.children = new SlashCommand[]{ new LibraryUnlinkSlashCmd(bot) };
+        this.children = new SlashCommand[]{ new LibraryUnlinkSlashCmd(bot), new LibraryPanelSlashCmd(bot) };
     }
 
     @Override

@@ -349,6 +349,76 @@ class YtDlpLibraryTest {
         assertEquals(file.toAbsolutePath().toString(), lines.get(1));
     }
 
+    // ---- richer sidecar metadata ----
+
+    @Test
+    @DisplayName("record() reads the sidecar's artist, track and isrc after a download")
+    void record_readsSidecar() throws IOException {
+        Path file = Files.createFile(libraryFolder.resolve("X [abc123def45].webm"));
+        Files.writeString(libraryFolder.resolve("X [abc123def45].info.json"), """
+                { "artist": "Crazy Frog", "track": "Axel F", "isrc": "GBAYE0900001" }
+                """);
+        YtDlpLibrary library = new YtDlpLibrary(libraryFolder, playlistFile, f -> Optional.empty());
+
+        LibraryEntry entry = library.record("abc123def45", file, sampleInfo("abc123def45"));
+
+        assertEquals("Crazy Frog", entry.artist());
+        assertEquals("Axel F", entry.track());
+        assertEquals("GBAYE0900001", entry.isrc());
+    }
+
+    @Test
+    @DisplayName("the index round-trips the new metadata fields, and an index without them loads with nulls")
+    void index_roundTripsMetadata() throws IOException {
+        Path file = Files.createFile(libraryFolder.resolve("X [abc123def46].webm"));
+        Files.writeString(libraryFolder.resolve("X [abc123def46].info.json"), """
+                { "artist": "Crazy Frog", "track": "Axel F", "album": "Crazy Hits",
+                  "release_year": 2009, "isrc": "GBAYE0900001" }
+                """);
+        YtDlpLibrary first = new YtDlpLibrary(libraryFolder, playlistFile, f -> Optional.empty());
+        first.record("abc123def46", file, sampleInfo("abc123def46"));
+
+        YtDlpLibrary second = new YtDlpLibrary(libraryFolder, playlistFile, f -> Optional.empty());
+        second.load();
+
+        LibraryEntry reloaded = second.find("abc123def46").orElseThrow();
+        assertEquals("Crazy Frog", reloaded.artist());
+        assertEquals("Axel F", reloaded.track());
+        assertEquals("Crazy Hits", reloaded.album());
+        assertEquals(2009, reloaded.releaseYear());
+        assertEquals("GBAYE0900001", reloaded.isrc());
+
+        Path plain = Files.createFile(libraryFolder.resolve("Plain [plain000001].webm"));
+        second.record("plain000001", plain, sampleInfo("plain000001"));
+        LibraryEntry plainEntry = second.find("plain000001").orElseThrow();
+        assertNull(plainEntry.artist());
+        assertNull(plainEntry.track());
+        assertNull(plainEntry.album());
+        assertNull(plainEntry.releaseYear());
+        assertNull(plainEntry.isrc());
+    }
+
+    @Test
+    @DisplayName("fillMissing() keeps the entry's stored artist and ISRC when filling in missing details")
+    void fillMissing_preservesStoredMetadata() throws IOException {
+        Path file = Files.createFile(libraryFolder.resolve("X [fillmiss01].webm"));
+        Files.writeString(libraryFolder.resolve("X [fillmiss01].info.json"),
+                "{ \"artist\": \"Crazy Frog\", \"isrc\": \"GBAYE0900001\" }");
+        YtDlpLibrary library = new YtDlpLibrary(libraryFolder, playlistFile, f -> Optional.empty());
+        AudioTrackInfo noArtwork = new AudioTrackInfo("X", "", 0L, "fillmiss01", false,
+                "https://www.youtube.com/watch?v=fillmiss01", null, null);
+        library.record("fillmiss01", file, noArtwork);
+        assertNull(library.find("fillmiss01").orElseThrow().artworkUrl());
+
+        AudioTrackInfo real = new AudioTrackInfo("X", "Crazy Frog", 5000L, "fillmiss01", false,
+                "https://www.youtube.com/watch?v=fillmiss01", "https://example.com/art.jpg", null);
+        LibraryEntry filled = library.fillMissing("fillmiss01", real).orElseThrow();
+
+        assertEquals("https://example.com/art.jpg", filled.artworkUrl());
+        assertEquals("Crazy Frog", filled.artist());
+        assertEquals("GBAYE0900001", filled.isrc());
+    }
+
     // ---- schema v2, aliases and rejections ----
 
     private static final ObjectMapper JSON = new ObjectMapper();

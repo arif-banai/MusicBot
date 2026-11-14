@@ -117,6 +117,28 @@ public final class YtDlpLibrary {
     public record ProbeResult(@Nullable String title, @Nullable String author, long lengthMs) {
     }
 
+    /**
+     * Deletes a media file for {@link #remove}. Abstracted so tests can simulate a delete failure;
+     * public for the same reason {@link Prober} is (this package's tests live in a sibling
+     * {@code unit.ytdlp} package, which needs to be able to target it with a lambda).
+     */
+    @FunctionalInterface
+    public interface FileDeleter {
+        void delete(Path file) throws IOException;
+    }
+
+    /** What {@link #remove} did. */
+    public record RemoveResult(boolean removed, boolean fileDeleted, @Nullable String problem) {
+    }
+
+    /** What {@link #rescan} found, compared to the in-memory index just before it ran. */
+    public record ScanSummary(int added, int updated, int missing) {
+    }
+
+    /** What {@link #stats} reports about the library. */
+    public record LibraryStats(int songs, long totalBytes, Path folder) {
+    }
+
     private static final LocalAudioSourceManager LOCAL = new LocalAudioSourceManager();
 
     /** Probes with lavaplayer's local source ({@code loadItem} on the path), as {@link LibraryAudioTrack} plays it. */
@@ -139,6 +161,7 @@ public final class YtDlpLibrary {
     private final Path libraryFolder;
     private final Path playlistFile;
     private final Prober prober;
+    private final FileDeleter fileDeleter;
     private final Map<String, LibraryEntry> entries = new LinkedHashMap<>();
     /**
      * The same entries keyed by normalized absolute file path, so {@link #findByFile} (run once per
@@ -160,9 +183,15 @@ public final class YtDlpLibrary {
     }
 
     public YtDlpLibrary(Path libraryFolder, Path playlistFile, Prober prober) {
+        this(libraryFolder, playlistFile, prober, Files::delete);
+    }
+
+    /** For tests: lets a delete failure be simulated without relying on real file-locking tricks. */
+    public YtDlpLibrary(Path libraryFolder, Path playlistFile, Prober prober, FileDeleter fileDeleter) {
         this.libraryFolder = libraryFolder;
         this.playlistFile = playlistFile;
         this.prober = prober;
+        this.fileDeleter = fileDeleter;
     }
 
     /**
@@ -218,10 +247,22 @@ public final class YtDlpLibrary {
                 String uri = entry.uri().equals(entry.file().toString()) ? here.toString() : entry.uri();
                 loaded.put(entry.key(), new LibraryEntry(entry.key(), here, entry.title(), entry.author(),
                         entry.lengthMs(), entry.artworkUrl(), uri, entry.source(), entry.nameParts(),
-                        entry.adopted()));
+                        entry.adopted(), entry.artist(), entry.track(), entry.album(), entry.releaseYear(),
+                        entry.isrc()));
             }
         }
         int fromIndex = loaded.size();
+        int backfilled = 0;
+        for (String key : new ArrayList<>(loaded.keySet())) {
+            LibraryEntry entry = loaded.get(key);
+            if (entry.artist() == null && entry.track() == null && entry.isrc() == null) {
+                LibraryEntry updated = SidecarMetadata.read(entry.file()).map(entry::withMetadata).orElse(entry);
+                if (!updated.equals(entry)) {
+                    loaded.put(key, updated);
+                    backfilled++;
+                }
+            }
+        }
         Map<Path, LibraryEntry> byFile = new HashMap<>();
         for (LibraryEntry entry : loaded.values()) {
             byFile.put(entry.file(), entry);
@@ -257,7 +298,7 @@ public final class YtDlpLibrary {
         LOGGER.info("Library: {} songs ({} already indexed; {} from sidecars, {} from YouTube IDs, {} from tags/filenames;"
                         + " {} with unknown length)",
                 entries.size(), fromIndex, counts.sidecars, counts.youtubeIds, counts.probed, unknownLength);
-        return counts.sidecars + counts.probed > 0 || droppedLinks > 0;
+        return counts.sidecars + counts.probed > 0 || droppedLinks > 0 || backfilled > 0;
     }
 
     /** Returns the entry for the given key, if indexed and its file still exists. Never follows aliases. */
@@ -322,6 +363,218 @@ public final class YtDlpLibrary {
         return rejections.contains(new Pair(fromKey, toKey));
     }
 
+    /** Every requested key aliased to library song {@code key}. */
+    public synchronized List<String> aliasesTo(String key) {
+        List<String> result = new ArrayList<>();
+        aliases.forEach((from, to) -> {
+            if (to.equals(key)) {
+                result.add(from);
+            }
+        });
+        return List.copyOf(result);
+    }
+
+    /**
+     * Entries matching every word of {@code query} (cleaned up the same way as a song title for
+     * matching) in their title, author (uploader), sidecar artist or sidecar track, or whose key
+     * is exactly {@code query}; exact-key matches sort first, then the rest by title. Empty for a
+     * blank query or a non-positive {@code limit}.
+     */
+    public synchronized List<LibraryEntry> search(String query, int limit) {
+        if (query == null || query.isBlank() || limit <= 0) {
+            return List.of();
+        }
+        String key = query.strip();
+        Set<String> queryWords = normalizedWords(query);
+        List<LibraryEntry> matches = new ArrayList<>();
+        for (LibraryEntry entry : entries.values()) {
+            if (key.equals(entry.key()) || (!queryWords.isEmpty() && entryWords(entry).containsAll(queryWords))) {
+                matches.add(entry);
+            }
+        }
+        matches.sort((a, b) -> {
+            boolean aExact = key.equals(a.key());
+            boolean bExact = key.equals(b.key());
+            if (aExact != bExact) {
+                return aExact ? -1 : 1;
+            }
+            return a.title().compareToIgnoreCase(b.title());
+        });
+        return List.copyOf(matches.subList(0, Math.min(limit, matches.size())));
+    }
+
+    /**
+     * Every word of {@code text} after cleaning it up the same way as a song title for matching:
+     * both halves of an "Artist - Title" split, so splitting on a dash never loses a word.
+     */
+    private static Set<String> normalizedWords(@Nullable String text) {
+        SongMatcher.Song song = SongMatcher.normalize(text, null);
+        Set<String> words = new LinkedHashSet<>(song.title());
+        words.addAll(song.artist());
+        return words;
+    }
+
+    private static Set<String> entryWords(LibraryEntry entry) {
+        Set<String> words = new LinkedHashSet<>(normalizedWords(entry.title()));
+        words.addAll(normalizedWords(entry.author()));
+        words.addAll(normalizedWords(entry.artist()));
+        words.addAll(normalizedWords(entry.track()));
+        return words;
+    }
+
+    /**
+     * Removes the library song {@code key}: with {@code deleteFile}, deletes the media file first
+     * (and, best-effort, its sidecar and thumbnail), then drops the entry, every alias pointing at
+     * it, every rejection whose {@code to} is it, and its line in the library playlist file, and
+     * saves. If the file can't be deleted, nothing changes and {@code removed} is false. See
+     * {@link #remove(String, boolean, Long)} to also log who asked.
+     */
+    public RemoveResult remove(String key, boolean deleteFile) throws IOException {
+        return remove(key, deleteFile, null);
+    }
+
+    /** As {@link #remove(String, boolean)}, logging {@code actorUserId} (the DJ who asked) if given. */
+    public synchronized RemoveResult remove(String key, boolean deleteFile, @Nullable Long actorUserId)
+            throws IOException {
+        String actorSuffix = actorUserId != null ? ", by user " + actorUserId : "";
+        LibraryEntry entry = key == null ? null : entries.get(key);
+        if (entry == null) {
+            LOGGER.info("Remove {}: not in the library{}", key, actorSuffix);
+            return new RemoveResult(false, false, "not in the library");
+        }
+        boolean fileDeleted = false;
+        if (deleteFile) {
+            if (!entry.file().toAbsolutePath().normalize().startsWith(libraryFolder.toAbsolutePath().normalize())) {
+                String problem = "That file is outside the library folder; not deleting it.";
+                LOGGER.info("Remove {}: {}{}", key, problem, actorSuffix);
+                return new RemoveResult(false, false, problem);
+            }
+            try {
+                fileDeleter.delete(entry.file());
+                fileDeleted = true;
+            } catch (IOException ex) {
+                String problem = ex.getMessage() != null ? ex.getMessage() : ex.toString();
+                LOGGER.info("Remove {}: the file couldn't be deleted ({}); nothing changed{}", key, problem, actorSuffix);
+                return new RemoveResult(false, false, problem);
+            }
+            deleteSidecarAndThumbnails(entry.file());
+        }
+        entries.remove(key);
+        entriesByFile.remove(entry.file(), entry);
+        aliases.entrySet().removeIf(e -> e.getValue().equals(key));
+        rejections.removeIf(pair -> pair.to().equals(key));
+        removeFromPlaylist(entry.file());
+        saveIndex();
+        LOGGER.info("Removed library song {} (file deleted: {}{})", key, fileDeleted, actorSuffix);
+        return new RemoveResult(true, fileDeleted, null);
+    }
+
+    /** Best-effort: the sidecar and any thumbnail (.jpg/.png/.webp) with the same base name as {@code file}. */
+    private void deleteSidecarAndThumbnails(Path file) {
+        Path parent = file.getParent();
+        if (parent == null || file.getFileName() == null) {
+            return;
+        }
+        String base = baseName(file.getFileName().toString());
+        List<Path> extras = new ArrayList<>();
+        extras.add(parent.resolve(base + SIDECAR_SUFFIX));
+        for (String ext : new String[] {"jpg", "png", "webp"}) {
+            extras.add(parent.resolve(base + "." + ext));
+        }
+        for (Path extra : extras) {
+            try {
+                Files.deleteIfExists(extra);
+            } catch (IOException ex) {
+                LOGGER.debug("Couldn't delete {}: {}", extra, ex.toString());
+            }
+        }
+    }
+
+    /** Rewrites the playlist file without {@code absFile}'s line, if it has one. */
+    private void removeFromPlaylist(Path absFile) throws IOException {
+        if (!Files.isRegularFile(playlistFile)) {
+            return;
+        }
+        List<String> lines = Files.readAllLines(playlistFile, StandardCharsets.UTF_8);
+        List<String> kept = new ArrayList<>();
+        boolean changed = false;
+        for (String line : lines) {
+            if (!line.isBlank()) {
+                try {
+                    if (normalize(Path.of(line)).equals(absFile)) {
+                        changed = true;
+                        continue;
+                    }
+                } catch (InvalidPathException ex) {
+                    // Not a path this platform can parse; keep it.
+                }
+            }
+            kept.add(line);
+        }
+        if (changed) {
+            // Atomic, as saveIndex() writes library.json: a temp file in the same directory,
+            // then one atomic move, so a crash or concurrent read never sees a half-written file.
+            Path parent = playlistFile.getParent();
+            Path tempFile = Files.createTempFile(parent, "playlist", ".txt.tmp");
+            try {
+                Files.write(tempFile, kept, StandardCharsets.UTF_8);
+                Files.move(tempFile, playlistFile, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (IOException ex) {
+                Files.deleteIfExists(tempFile);
+                throw ex;
+            }
+        }
+    }
+
+    /**
+     * Re-runs the import scan from the saved index (as {@link #load()} does), counting how the
+     * in-memory map changed: entries added, entries whose details changed, and entries that are now
+     * missing (their file is gone). Saves if anything did. Does nothing if the library folder
+     * doesn't exist, as {@link #load()} does.
+     */
+    public synchronized ScanSummary rescan() throws IOException {
+        if (!Files.isDirectory(libraryFolder)) {
+            return new ScanSummary(0, 0, 0);
+        }
+        Map<String, LibraryEntry> before = new HashMap<>(entries);
+        boolean save = loadIndexAndScan(libraryFolder.resolve(INDEX_FILE_NAME));
+
+        int added = 0;
+        int updated = 0;
+        for (Map.Entry<String, LibraryEntry> e : entries.entrySet()) {
+            LibraryEntry previous = before.get(e.getKey());
+            if (previous == null) {
+                added++;
+            } else if (!previous.equals(e.getValue())) {
+                updated++;
+            }
+        }
+        int missing = 0;
+        for (String key : before.keySet()) {
+            if (!entries.containsKey(key)) {
+                missing++;
+            }
+        }
+
+        if (save || added > 0 || updated > 0 || missing > 0) {
+            saveIndex();
+        }
+        return new ScanSummary(added, updated, missing);
+    }
+
+    /** The song count, total size on disk of their files, and the library folder. */
+    public synchronized LibraryStats stats() {
+        long totalBytes = 0L;
+        for (LibraryEntry entry : entries.values()) {
+            try {
+                totalBytes += Files.size(entry.file());
+            } catch (IOException ex) {
+                // File missing or unreadable; doesn't count toward the total.
+            }
+        }
+        return new LibraryStats(entries.size(), totalBytes, libraryFolder);
+    }
+
     /**
      * Fills in the author, length and artwork of the entry for {@code key} from a real track,
      * where the entry has none, and saves. An imported ({@code file:}) entry never takes an author:
@@ -340,7 +593,8 @@ public final class YtDlpLibrary {
         String artwork = current.artworkUrl() == null || current.artworkUrl().isBlank() ? info.artworkUrl
                 : current.artworkUrl();
         LibraryEntry filled = new LibraryEntry(current.key(), current.file(), current.title(), author, lengthMs,
-                artwork, current.uri(), current.source(), current.nameParts(), current.adopted());
+                artwork, current.uri(), current.source(), current.nameParts(), current.adopted(),
+                current.artist(), current.track(), current.album(), current.releaseYear(), current.isrc());
         if (filled.equals(current)) {
             return Optional.of(current);
         }
@@ -381,6 +635,7 @@ public final class YtDlpLibrary {
         Path absFile = normalize(file);
         LibraryEntry entry = new LibraryEntry(key, absFile, info.title, info.author, info.length,
                 info.artworkUrl, info.uri, null, List.of(), false);
+        entry = SidecarMetadata.read(absFile).map(entry::withMetadata).orElse(entry);
         LibraryEntry previous = entries.put(key, entry);
         if (previous != null && !previous.file().equals(absFile)) {
             // Re-recorded at a new path: the old path no longer belongs to this key.
@@ -518,8 +773,9 @@ public final class YtDlpLibrary {
         String author = firstText(json, "uploader", "channel", "artist", "creator");
         JsonNode duration = json.get("duration");
         long lengthMs = duration != null && duration.isNumber() ? Math.round(duration.asDouble() * 1000.0) : 0L;
-        return Optional.of(new LibraryEntry(key, file, title != null ? title : baseName(fileName), author, lengthMs,
-                firstText(json, "thumbnail"), uri, null, List.of(), false));
+        LibraryEntry entry = new LibraryEntry(key, file, title != null ? title : baseName(fileName), author, lengthMs,
+                firstText(json, "thumbnail"), uri, null, List.of(), false);
+        return Optional.of(entry.withMetadata(SidecarMetadata.parse(json)));
     }
 
     /** An entry from the file's tags and length, or its filename; empty if the file isn't playable audio. */
@@ -694,9 +950,12 @@ public final class YtDlpLibrary {
         boolean adopted = adoptedNode != null && adoptedNode.isBoolean()
                 ? adoptedNode.asBoolean()
                 : (author == null || author.isEmpty()) && lengthMs <= 0; // v1's rule
+        JsonNode releaseYearNode = json.get("releaseYear");
+        Integer releaseYear = releaseYearNode != null && releaseYearNode.isInt() ? releaseYearNode.asInt() : null;
         return Optional.of(new LibraryEntry(key, file, textOrNull(json, "title"), author, lengthMs,
                 textOrNull(json, "artworkUrl"), textOrNull(json, "uri"), textOrNull(json, "source"),
-                nameParts, adopted));
+                nameParts, adopted, textOrNull(json, "artist"), textOrNull(json, "track"),
+                textOrNull(json, "album"), releaseYear, textOrNull(json, "isrc")));
     }
 
     private static @Nullable String textOrNull(JsonNode json, String field) {
@@ -740,6 +999,21 @@ public final class YtDlpLibrary {
                 entry.nameParts().forEach(parts::add);
             }
             node.put("adopted", entry.adopted());
+            if (entry.artist() != null) {
+                node.put("artist", entry.artist());
+            }
+            if (entry.track() != null) {
+                node.put("track", entry.track());
+            }
+            if (entry.album() != null) {
+                node.put("album", entry.album());
+            }
+            if (entry.releaseYear() != null) {
+                node.put("releaseYear", entry.releaseYear());
+            }
+            if (entry.isrc() != null) {
+                node.put("isrc", entry.isrc());
+            }
         }
         ObjectNode aliasesNode = root.putObject("aliases");
         aliases.forEach(aliasesNode::put);
