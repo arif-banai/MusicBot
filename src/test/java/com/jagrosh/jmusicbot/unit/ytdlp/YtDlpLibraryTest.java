@@ -398,6 +398,27 @@ class YtDlpLibraryTest {
         assertNull(plainEntry.isrc());
     }
 
+    @Test
+    @DisplayName("fillMissing() keeps the entry's stored artist and ISRC when filling in missing details")
+    void fillMissing_preservesStoredMetadata() throws IOException {
+        Path file = Files.createFile(libraryFolder.resolve("X [fillmiss01].webm"));
+        Files.writeString(libraryFolder.resolve("X [fillmiss01].info.json"),
+                "{ \"artist\": \"Crazy Frog\", \"isrc\": \"GBAYE0900001\" }");
+        YtDlpLibrary library = new YtDlpLibrary(libraryFolder, playlistFile, f -> Optional.empty());
+        AudioTrackInfo noArtwork = new AudioTrackInfo("X", "", 0L, "fillmiss01", false,
+                "https://www.youtube.com/watch?v=fillmiss01", null, null);
+        library.record("fillmiss01", file, noArtwork);
+        assertNull(library.find("fillmiss01").orElseThrow().artworkUrl());
+
+        AudioTrackInfo real = new AudioTrackInfo("X", "Crazy Frog", 5000L, "fillmiss01", false,
+                "https://www.youtube.com/watch?v=fillmiss01", "https://example.com/art.jpg", null);
+        LibraryEntry filled = library.fillMissing("fillmiss01", real).orElseThrow();
+
+        assertEquals("https://example.com/art.jpg", filled.artworkUrl());
+        assertEquals("Crazy Frog", filled.artist());
+        assertEquals("GBAYE0900001", filled.isrc());
+    }
+
     // ---- schema v2, aliases and rejections ----
 
     private static final ObjectMapper JSON = new ObjectMapper();

@@ -352,7 +352,8 @@ public final class YtDlpLibrary {
         String artwork = current.artworkUrl() == null || current.artworkUrl().isBlank() ? info.artworkUrl
                 : current.artworkUrl();
         LibraryEntry filled = new LibraryEntry(current.key(), current.file(), current.title(), author, lengthMs,
-                artwork, current.uri(), current.source(), current.nameParts(), current.adopted());
+                artwork, current.uri(), current.source(), current.nameParts(), current.adopted(),
+                current.artist(), current.track(), current.album(), current.releaseYear(), current.isrc());
         if (filled.equals(current)) {
             return Optional.of(current);
         }
