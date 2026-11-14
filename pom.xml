@@ -600,10 +600,17 @@
         <jdave.version>0.1.7</jdave.version>
         <udpqueue.version>0.2.12</udpqueue.version>
         <lavaplayer.version>2.2.7</lavaplayer.version>
-        <!-- Pinned to a main-branch snapshot: the TV client's Cobalt User-Agent is rejected by
-             YouTube ("The page needs to be reloaded"), fixed by b33460b3 which is in no release
-             yet (1.18.2 predates it). See youtube-source#226 and #240. -->
-        <youtube-source.version>f45bbb7aebfcbc1c553769e04af6cd43afa8b7c3-SNAPSHOT</youtube-source.version>
+        <!-- Pinned to the youtube-source main-branch snapshot (e41dd95f, 2026-11-13). The latest
+             release, 1.18.2, predates every fix below:
+               b33460b3 - TV client uses a PS4 User-Agent; the Cobalt UA is rejected with
+                          "The page needs to be reloaded" (youtube-source#226, #240)
+               34ee4c5f - client version bump to 21.02.35
+               f45bbb7a - recover total length for formats that omit contentLength
+               2be8e542 - close the embed response before getTimestamp, avoiding remote-cipher
+                          connection starvation (youtube-source#245)
+               e41dd95f - visitor id is refreshed every 10 min instead of never (youtube-source#255)
+             Move back to a tagged release once one includes these. -->
+        <youtube-source.version>e41dd95f8bd134b51e75080fb28cc805fecb431a-SNAPSHOT</youtube-source.version>
         <logback.version>1.5.25</logback.version>
         <typesafe-config.version>1.4.3</typesafe-config.version>
         <jsoup.version>1.22.1</jsoup.version>
