@@ -300,6 +300,7 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
             queue.clear();
             defaultQueue.clear();
         }
+        clearQueuedMatchSuggestions();
         return token;
     }
 

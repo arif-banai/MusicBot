@@ -481,7 +481,15 @@ public final class MatchSuggestions {
         // Acknowledge before touching the player/queue; the outcome follows through the hook.
         event.deferEdit().queue(null, error -> { });
         String reply = switchSuggestion(guild, suggestion);
-        event.getHook().editOriginal(reply).setComponents().queue(null, error -> { });
+        if (NOT_IN_QUEUE.equals(reply)) {
+            // The suggestion message still names a song that no longer makes sense to show as
+            // "switched" or otherwise publicly edited: tell the presser privately instead, and
+            // just clear the buttons (the text is left alone).
+            event.getHook().editOriginalComponents().queue(null, error -> { });
+            event.getHook().sendMessage(reply).setEphemeral(true).queue(null, error -> { });
+        } else {
+            event.getHook().editOriginal(reply).setComponents().queue(null, error -> { });
+        }
     }
 
     /**

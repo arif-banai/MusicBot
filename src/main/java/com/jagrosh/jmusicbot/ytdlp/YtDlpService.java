@@ -119,6 +119,8 @@ public final class YtDlpService {
 
         // The pool creates its thread on its first task, so nothing runs while the feature is off
         // (apart from filling in an adopted library file's metadata, which works in any mode).
+        // Single-threaded (FIFO) on purpose: queued- and play-time suggestion scans (MatchSuggestions)
+        // rely on this to run one at a time, in order.
         ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "ytdlp-prompt");
             t.setDaemon(true);

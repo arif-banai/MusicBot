@@ -245,6 +245,7 @@ class QueuedSuggestionTest {
         when(event.getHook()).thenReturn(hook);
         when(hook.sendMessage(anyString())).thenReturn(mock(WebhookMessageCreateAction.class, RETURNS_SELF));
         when(hook.editOriginal(anyString())).thenReturn(mock(WebhookMessageEditAction.class, RETURNS_SELF));
+        when(hook.editOriginalComponents()).thenReturn(mock(WebhookMessageEditAction.class, RETURNS_SELF));
         return event;
     }
 
@@ -336,7 +337,9 @@ class QueuedSuggestionTest {
 
         suggestions.handlePress(event, switchIdFor(id));
 
-        verify(event.getHook()).editOriginal(eq("That song is no longer in the queue."));
+        verify(event.getHook()).sendMessage(eq("That song is no longer in the queue."));
+        verify(event.getHook()).editOriginalComponents();
+        verify(event.getHook(), never()).editOriginal(anyString());
         assertTrue(queue.getList().isEmpty(), "the queue (already empty) is unchanged");
         assertTrue(library.aliasTarget(REQ_ID).isEmpty(), "no alias is recorded");
     }
