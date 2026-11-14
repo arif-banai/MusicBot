@@ -19,6 +19,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
@@ -211,8 +212,13 @@ public final class YtDlpLibrary {
                 if (line.isBlank()) {
                     continue;
                 }
-                if (normalize(Path.of(line)).equals(absFile)) {
-                    return;
+                try {
+                    if (normalize(Path.of(line)).equals(absFile)) {
+                        return;
+                    }
+                } catch (InvalidPathException ex) {
+                    // Not a path this platform can parse (e.g. a URL or a line with reserved
+                    // characters); it can't be the same file as absFile, so keep scanning.
                 }
             }
         }

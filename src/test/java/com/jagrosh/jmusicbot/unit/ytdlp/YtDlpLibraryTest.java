@@ -125,7 +125,12 @@ class YtDlpLibraryTest {
 
         Optional<LibraryEntry> found = second.findById("vid00000003");
         assertTrue(found.isPresent());
-        assertEquals("Song Title", found.get().title());
+        LibraryEntry entry = found.get();
+        assertEquals("Song Title", entry.title());
+        assertEquals("Author Name", entry.author());
+        assertEquals(12345L, entry.lengthMs());
+        assertEquals("https://example.com/art.jpg", entry.artworkUrl());
+        assertEquals("https://www.youtube.com/watch?v=vid00000003", entry.uri());
     }
 
     @Test
@@ -168,5 +173,21 @@ class YtDlpLibraryTest {
         Optional<LibraryEntry> found = library.findByFile(dotForm);
         assertTrue(found.isPresent());
         assertEquals("vid00000005", found.get().videoId());
+    }
+
+    @Test
+    @DisplayName("record() tolerates unrelated unparseable lines already in the playlist file")
+    void record_tolerateMalformedExistingPlaylistLines() throws IOException {
+        Files.createDirectories(playlistFile.getParent());
+        Files.writeString(playlistFile, "https://www.youtube.com/watch?v=abc\n" + "trailing space \n");
+
+        Path file = libraryFolder.resolve("Song Title [vid00000006].webm");
+        Files.createFile(file);
+        YtDlpLibrary library = new YtDlpLibrary(libraryFolder, playlistFile);
+
+        library.record("vid00000006", file, sampleInfo("vid00000006"));
+
+        List<String> lines = Files.readAllLines(playlistFile);
+        assertTrue(lines.contains(file.toAbsolutePath().toString()));
     }
 }
