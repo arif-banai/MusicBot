@@ -1,0 +1,104 @@
+/*
+ * Copyright 2026 Arif Banai (arif-banai)
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.jagrosh.jmusicbot.ytdlp;
+
+import java.nio.file.Path;
+import java.util.List;
+
+import com.jagrosh.jmusicbot.config.model.ConfigOption;
+import com.jagrosh.jmusicbot.utils.OtherUtil;
+import com.typesafe.config.Config;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * Settings for the optional yt-dlp download library.
+ * The feature is off when {@link #path()} is blank, which is the default.
+ *
+ * @author Arif Banai (arif-banai)
+ */
+public record YtDlpSettings(String path, Mode mode, Path libraryFolder, String libraryPlaylist,
+                             int delaySeconds, int timeoutSeconds, List<String> extraArgs,
+                             int promptTimeoutSeconds) {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(YtDlpSettings.class);
+
+    /**
+     * How the bot reacts to YouTube tracks when yt-dlp is configured.
+     */
+    public enum Mode {
+        /** Post buttons to download with yt-dlp when YouTube playback fails. */
+        PROMPT,
+        /** Always play YouTube tracks through yt-dlp. */
+        ALWAYS;
+
+        /**
+         * Parses a mode string case-insensitively. Falls back to {@link #PROMPT} and
+         * logs a warning for any value that doesn't match a known mode.
+         */
+        public static Mode parse(String raw) {
+            String trimmed = raw == null ? "" : raw.trim();
+            for (Mode mode : values()) {
+                if (mode.name().equalsIgnoreCase(trimmed)) {
+                    return mode;
+                }
+            }
+            LOGGER.warn("Unknown ytdlp.mode '{}', defaulting to 'prompt'", raw);
+            return PROMPT;
+        }
+    }
+
+    /**
+     * Returns true if a yt-dlp path is configured. When false, the feature is
+     * completely off and behaviour is unchanged from before this feature existed.
+     */
+    public boolean enabled() {
+        return path != null && !path.isBlank();
+    }
+
+    /**
+     * Returns settings representing the feature turned off, using the same
+     * defaults as {@code reference.conf}.
+     */
+    public static YtDlpSettings disabled() {
+        return new YtDlpSettings("", Mode.PROMPT, resolveLibraryFolder("ytdlp-library"),
+                "ytdlp-library", 5, 300, List.of(), 120);
+    }
+
+    /**
+     * Reads yt-dlp settings from the given config using the {@code ytdlp.*} keys.
+     */
+    public static YtDlpSettings fromConfig(Config config) {
+        String path = ConfigOption.YTDLP_PATH.getString(config);
+        Mode mode = Mode.parse(ConfigOption.YTDLP_MODE.getString(config));
+        Path libraryFolder = resolveLibraryFolder(ConfigOption.YTDLP_LIBRARY_FOLDER.getString(config));
+        String libraryPlaylist = ConfigOption.YTDLP_LIBRARY_PLAYLIST.getString(config);
+        int delaySeconds = ConfigOption.YTDLP_DELAY_SECONDS.getInt(config);
+        int timeoutSeconds = ConfigOption.YTDLP_TIMEOUT_SECONDS.getInt(config);
+        List<String> extraArgs = ConfigOption.YTDLP_EXTRA_ARGS.getStringList(config);
+        int promptTimeoutSeconds = ConfigOption.YTDLP_PROMPT_TIMEOUT_SECONDS.getInt(config);
+
+        return new YtDlpSettings(path, mode, libraryFolder, libraryPlaylist, delaySeconds, timeoutSeconds,
+                extraArgs, promptTimeoutSeconds);
+    }
+
+    /**
+     * Resolves the library folder against the bot's working directory when relative.
+     */
+    private static Path resolveLibraryFolder(String rawPath) {
+        return OtherUtil.getPath(rawPath).toAbsolutePath().normalize();
+    }
+}

@@ -86,7 +86,17 @@ public enum ConfigOption {
     PROXY_PORT("proxy.port", ConfigType.INT, false, "Proxy server port"),
     PROXY_LAVAPLAYER("proxy.lavaplayer", ConfigType.BOOLEAN, false, "Route Lavaplayer audio requests through proxy"),
     PROXY_JDA("proxy.jda", ConfigType.BOOLEAN, false, "Route JDA Discord API traffic through proxy"),
-    PROXY_GITHUB("proxy.github", ConfigType.BOOLEAN, false, "Route GitHub version checks through proxy");
+    PROXY_GITHUB("proxy.github", ConfigType.BOOLEAN, false, "Route GitHub version checks through proxy"),
+
+    // yt-dlp download library options
+    YTDLP_PATH("ytdlp.path", ConfigType.STRING, false, "Path to the yt-dlp executable (blank disables the feature)"),
+    YTDLP_MODE("ytdlp.mode", ConfigType.STRING, false, "yt-dlp mode: prompt (ask before downloading) or always (always download)"),
+    YTDLP_LIBRARY_FOLDER("ytdlp.libraryFolder", ConfigType.STRING, false, "Folder where yt-dlp downloads are kept"),
+    YTDLP_LIBRARY_PLAYLIST("ytdlp.libraryPlaylist", ConfigType.STRING, false, "Playlist name listing every yt-dlp download"),
+    YTDLP_DELAY_SECONDS("ytdlp.delaySeconds", ConfigType.INT, false, "Seconds to wait between yt-dlp downloads"),
+    YTDLP_TIMEOUT_SECONDS("ytdlp.timeoutSeconds", ConfigType.INT, false, "Seconds before a single yt-dlp download is cancelled"),
+    YTDLP_EXTRA_ARGS("ytdlp.extraArgs", ConfigType.STRING_LIST, false, "Extra arguments passed to yt-dlp"),
+    YTDLP_PROMPT_TIMEOUT_SECONDS("ytdlp.promptTimeoutSeconds", ConfigType.INT, false, "Seconds to wait for a prompt button press before skipping");
     
     private final String key;
     private final ConfigType type;
