@@ -77,6 +77,13 @@ class YtDlpLibraryTest {
     }
 
     @Test
+    @DisplayName("videoIdFromFileName() rejects bracketed catalogue numbers that aren't 11 characters")
+    void videoIdFromFileName_rejectsCatalogueNumbers() {
+        assertEquals(Optional.empty(), YtDlpLibrary.videoIdFromFileName("A. Giuliano Lomonte - Thiago [HARLO004].opus"));
+        assertEquals(Optional.empty(), YtDlpLibrary.videoIdFromFileName("Anck - Ingenue [UTR035].opus"));
+    }
+
+    @Test
     @DisplayName("record() then findById() returns the recorded metadata")
     void record_thenFindById_returnsMetadata() throws IOException {
         Path file = libraryFolder.resolve("Song Title [vid00000001].webm");
@@ -148,6 +155,19 @@ class YtDlpLibraryTest {
     }
 
     @Test
+    @DisplayName("load() does not adopt files whose bracketed suffix is a catalogue number, not a video ID")
+    void load_doesNotAdoptCatalogueNumberFiles() throws IOException {
+        Path file = libraryFolder.resolve("Anck - Ingenue [UTR035].opus");
+        Files.createFile(file);
+        YtDlpLibrary library = new YtDlpLibrary(libraryFolder, playlistFile);
+
+        library.load();
+
+        assertTrue(library.findById("UTR035").isEmpty());
+        assertTrue(library.findByFile(file).isEmpty());
+    }
+
+    @Test
     @DisplayName("findById() is a miss once the file is gone")
     void findById_missingFileIsMiss() throws IOException {
         Path file = libraryFolder.resolve("Song Title [vid00000004].webm");
@@ -189,5 +209,24 @@ class YtDlpLibraryTest {
 
         List<String> lines = Files.readAllLines(playlistFile);
         assertTrue(lines.contains(file.toAbsolutePath().toString()));
+    }
+
+    @Test
+    @DisplayName("record() starts a new line when the playlist file lacks a trailing newline")
+    void record_appendsOnNewLineWhenPlaylistLacksTrailingNewline() throws IOException {
+        Files.createDirectories(playlistFile.getParent());
+        Path otherFile = libraryFolder.resolve("Other Song [zzzzzzzzzzz].webm");
+        Files.writeString(playlistFile, otherFile.toAbsolutePath().toString()); // no trailing newline
+
+        Path file = libraryFolder.resolve("Song Title [vid00000007].webm");
+        Files.createFile(file);
+        YtDlpLibrary library = new YtDlpLibrary(libraryFolder, playlistFile);
+
+        library.record("vid00000007", file, sampleInfo("vid00000007"));
+
+        List<String> lines = Files.readAllLines(playlistFile);
+        assertEquals(2, lines.size());
+        assertEquals(otherFile.toAbsolutePath().toString(), lines.get(0));
+        assertEquals(file.toAbsolutePath().toString(), lines.get(1));
     }
 }

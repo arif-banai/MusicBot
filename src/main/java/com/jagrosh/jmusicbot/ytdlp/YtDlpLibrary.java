@@ -54,8 +54,13 @@ public final class YtDlpLibrary {
     private static final String INDEX_FILE_NAME = "library.json";
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    /** Matches a trailing {@code [<videoId>].<ext>} suffix. The video ID may contain {@code _} or {@code -}. */
-    private static final Pattern BRACKET_SUFFIX = Pattern.compile("^(.*)\\[([A-Za-z0-9_-]+)\\]\\.[^.\\s\\[\\]]+$");
+    /**
+     * Matches a trailing {@code [<videoId>].<ext>} suffix. The video ID may contain
+     * {@code _} or {@code -} but must be exactly 11 characters, matching a real YouTube
+     * video ID, so catalogue numbers in hand-placed files (e.g. {@code "Thiago [HARLO004].opus"})
+     * aren't misread as video IDs.
+     */
+    private static final Pattern BRACKET_SUFFIX = Pattern.compile("^(.*)\\[([A-Za-z0-9_-]{11})\\]\\.[^.\\s\\[\\]]+$");
 
     private final Path libraryFolder;
     private final Path playlistFile;
@@ -207,8 +212,14 @@ public final class YtDlpLibrary {
             Files.createDirectories(parent);
         }
 
+        boolean needsLeadingNewline = false;
         if (Files.isRegularFile(playlistFile)) {
-            for (String line : Files.readAllLines(playlistFile, StandardCharsets.UTF_8)) {
+            byte[] bytes = Files.readAllBytes(playlistFile);
+            if (bytes.length > 0) {
+                byte last = bytes[bytes.length - 1];
+                needsLeadingNewline = last != '\n' && last != '\r';
+            }
+            for (String line : new String(bytes, StandardCharsets.UTF_8).lines().toList()) {
                 if (line.isBlank()) {
                     continue;
                 }
@@ -225,6 +236,11 @@ public final class YtDlpLibrary {
 
         try (var writer = Files.newBufferedWriter(playlistFile, StandardCharsets.UTF_8,
                 StandardOpenOption.CREATE, StandardOpenOption.APPEND)) {
+            // A hand-edited playlist file might not end in a line terminator; starting on a
+            // fresh line keeps "one absolute path per line" true for both entries.
+            if (needsLeadingNewline) {
+                writer.newLine();
+            }
             writer.write(absFile.toString());
             writer.newLine();
         }
