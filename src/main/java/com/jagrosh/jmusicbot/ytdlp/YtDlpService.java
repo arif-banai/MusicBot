@@ -242,8 +242,9 @@ public final class YtDlpService {
      * track is queued, instead of waiting for {@link #prepareForPlayback} at play time.
      * Returns the same instance for a {@code null} track, a track that's already a
      * {@link LibraryAudioTrack}, a non-local track (e.g. YouTube; those are decided only at
-     * play time), or a local file that isn't in the library index. Does no I/O beyond the
-     * in-memory index lookup.
+     * play time), or a local file that isn't in the library index. For an adopted file (no
+     * YouTube metadata recorded yet) the local track's own length and author are kept. Does no
+     * I/O beyond the in-memory index lookup.
      */
     public AudioTrack wrapLibraryFile(AudioTrack track) {
         if (track == null || track instanceof LibraryAudioTrack) {
@@ -257,7 +258,17 @@ public final class YtDlpService {
         if (entry.isEmpty()) {
             return track;
         }
-        return copyState(track, libraryTrack(entry.get(), track.getSourceManager()));
+        LibraryEntry hit = entry.get();
+        if (!isAdopted(hit)) {
+            return copyState(track, libraryTrack(hit, track.getSourceManager()));
+        }
+        // An adopted file has no length or author in the index (only a title from its filename),
+        // so keep what the local track itself knows; otherwise the queue shows 00:00 for it.
+        AudioTrackInfo local = track.getInfo();
+        AudioTrackInfo info = new AudioTrackInfo(hit.title(), local.author, Math.max(hit.lengthMs(), local.length),
+                hit.videoId(), false, hit.uri(), hit.artworkUrl(), null);
+        return copyState(track, new LibraryAudioTrack(info, hit.videoId(), completed(hit), null,
+                track.getSourceManager()));
     }
 
     /**

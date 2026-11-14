@@ -196,6 +196,88 @@ class YtDlpLibraryTest {
     }
 
     @Test
+    @DisplayName("findByFile() follows a re-record to a new path: the old path misses, the new one hits")
+    void findByFile_reRecordAtNewPath_movesTheLookup() throws IOException {
+        Path oldFile = libraryFolder.resolve("Old Name [vid00000008].webm");
+        Path newFile = libraryFolder.resolve("New Name [vid00000008].opus");
+        Files.createFile(oldFile);
+        Files.createFile(newFile);
+        YtDlpLibrary library = new YtDlpLibrary(libraryFolder, playlistFile);
+        library.record("vid00000008", oldFile, sampleInfo("vid00000008"));
+
+        library.record("vid00000008", newFile, sampleInfo("vid00000008"));
+
+        assertTrue(library.findByFile(oldFile).isEmpty());
+        assertEquals("vid00000008", library.findByFile(newFile).orElseThrow().videoId());
+    }
+
+    @Test
+    @DisplayName("findByFile() misses a file that was deleted before load()")
+    void findByFile_fileDeletedBeforeLoad_misses() throws IOException {
+        Path kept = libraryFolder.resolve("Kept [vid00000009].webm");
+        Path gone = libraryFolder.resolve("Gone [vid00000010].webm");
+        Files.createFile(kept);
+        Files.createFile(gone);
+        new YtDlpLibrary(libraryFolder, playlistFile).record("vid00000010", gone, sampleInfo("vid00000010"));
+        Files.delete(gone);
+
+        YtDlpLibrary library = new YtDlpLibrary(libraryFolder, playlistFile);
+        library.load();
+
+        assertTrue(library.findByFile(gone).isEmpty());
+        assertTrue(library.findById("vid00000010").isEmpty());
+        assertEquals("vid00000009", library.findByFile(kept).orElseThrow().videoId());
+    }
+
+    @Test
+    @DisplayName("findByFile() cost doesn't grow with the library size (no scan of every entry per lookup)")
+    void findByFile_costIndependentOfLibrarySize() throws IOException {
+        // Timing-based: queueing the whole library runs one findByFile per track, so a lookup that
+        // scans every entry makes that O(N^2). Compare the per-lookup cost for a small and a large
+        // library (misses, so neither side pays for Files.exists); a scan costs ~20x more on the
+        // large one, a map lookup about the same.
+        YtDlpLibrary small = adoptedLibrary("small", 150);
+        YtDlpLibrary large = adoptedLibrary("large", 3000);
+        Path probe = tempDir.resolve("elsewhere").resolve("Not In Library [zzzzzzzzzzz].webm");
+
+        long smallNanos = bestLookupNanos(small, probe);
+        long largeNanos = bestLookupNanos(large, probe);
+
+        double ratio = (double) largeNanos / Math.max(1L, smallNanos);
+        assertTrue(ratio < 5.0, "a 20x larger library made lookups " + String.format("%.1f", ratio)
+                + "x slower (" + smallNanos + " ns vs " + largeNanos + " ns for the batch)");
+    }
+
+    private YtDlpLibrary adoptedLibrary(String name, int size) throws IOException {
+        Path folder = tempDir.resolve(name);
+        Files.createDirectories(folder);
+        for (int i = 0; i < size; i++) {
+            Files.createFile(folder.resolve("Song " + i + " [" + String.format("v%010d", i) + "].webm"));
+        }
+        YtDlpLibrary library = new YtDlpLibrary(folder, tempDir.resolve(name + ".txt"));
+        library.load();
+        assertTrue(library.findById(String.format("v%010d", size - 1)).isPresent());
+        return library;
+    }
+
+    /** Best of several timed batches of findByFile misses, after a warm-up batch. */
+    private static long bestLookupNanos(YtDlpLibrary library, Path probe) {
+        int lookups = 2000;
+        for (int i = 0; i < lookups; i++) {
+            assertTrue(library.findByFile(probe).isEmpty());
+        }
+        long best = Long.MAX_VALUE;
+        for (int round = 0; round < 5; round++) {
+            long start = System.nanoTime();
+            for (int i = 0; i < lookups; i++) {
+                library.findByFile(probe);
+            }
+            best = Math.min(best, System.nanoTime() - start);
+        }
+        return best;
+    }
+
+    @Test
     @DisplayName("record() tolerates unrelated unparseable lines already in the playlist file")
     void record_tolerateMalformedExistingPlaylistLines() throws IOException {
         Files.createDirectories(playlistFile.getParent());

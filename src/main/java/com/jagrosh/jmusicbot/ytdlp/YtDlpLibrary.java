@@ -23,6 +23,7 @@ import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -65,6 +66,12 @@ public final class YtDlpLibrary {
     private final Path libraryFolder;
     private final Path playlistFile;
     private final Map<String, LibraryEntry> entries = new LinkedHashMap<>();
+    /**
+     * The same entries keyed by normalized absolute file path, so {@link #findByFile} (run once per
+     * queued track) is a map lookup rather than a scan of the whole library. Kept in step with
+     * {@link #entries} by {@link #load} and {@link #record}.
+     */
+    private final Map<Path, LibraryEntry> entriesByFile = new HashMap<>();
 
     public YtDlpLibrary(Path libraryFolder, Path playlistFile) {
         this.libraryFolder = libraryFolder;
@@ -121,6 +128,10 @@ public final class YtDlpLibrary {
 
         entries.clear();
         entries.putAll(loaded);
+        entriesByFile.clear();
+        for (LibraryEntry entry : loaded.values()) {
+            entriesByFile.put(entry.file(), entry);
+        }
     }
 
     /** Returns the entry for the given video ID, if indexed and its file still exists. */
@@ -138,13 +149,11 @@ public final class YtDlpLibrary {
      * matches the same entry.
      */
     public synchronized Optional<LibraryEntry> findByFile(Path file) {
-        Path target = normalize(file);
-        for (LibraryEntry entry : entries.values()) {
-            if (normalize(entry.file()).equals(target) && Files.exists(entry.file())) {
-                return Optional.of(entry);
-            }
+        LibraryEntry entry = entriesByFile.get(normalize(file));
+        if (entry == null || !Files.exists(entry.file())) {
+            return Optional.empty();
         }
-        return Optional.empty();
+        return Optional.of(entry);
     }
 
     /**
@@ -157,7 +166,12 @@ public final class YtDlpLibrary {
         Path absFile = normalize(file);
         LibraryEntry entry = new LibraryEntry(videoId, absFile, info.title, info.author, info.length,
                 info.artworkUrl, info.uri);
-        entries.put(videoId, entry);
+        LibraryEntry previous = entries.put(videoId, entry);
+        if (previous != null && !previous.file().equals(absFile)) {
+            // Re-recorded at a new path: the old path no longer belongs to this video.
+            entriesByFile.remove(previous.file(), previous);
+        }
+        entriesByFile.put(absFile, entry);
         saveIndex();
         appendToPlaylist(absFile);
         return entry;

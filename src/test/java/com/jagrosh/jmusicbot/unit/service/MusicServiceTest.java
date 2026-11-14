@@ -1352,6 +1352,110 @@ public class MusicServiceTest
     }
 
     @Nested
+    @DisplayName("yt-dlp library files show the library's details")
+    class LibraryFileDisplayTests
+    {
+        private static final String FILE = "C:/lib/Name [x1Xd0m2OdcU].webm";
+
+        private AudioTrack localTrack;
+        private AudioTrack libraryTrack;
+
+        @BeforeEach
+        void setUpLibrary()
+        {
+            localTrack = mock(AudioTrack.class);
+            when(localTrack.getInfo()).thenReturn(new AudioTrackInfo(
+                    "Name [x1Xd0m2OdcU].webm", "Unknown artist", 61_000L, FILE, false, FILE));
+            when(localTrack.getDuration()).thenReturn(61_000L);
+            libraryTrack = mock(AudioTrack.class);
+            when(libraryTrack.getInfo()).thenReturn(new AudioTrackInfo(
+                    "Indexed Title", "Indexed Author", 123_000L, "x1Xd0m2OdcU", false,
+                    "https://www.youtube.com/watch?v=x1Xd0m2OdcU"));
+            when(libraryTrack.getDuration()).thenReturn(123_000L);
+            com.jagrosh.jmusicbot.ytdlp.YtDlpService ytDlp = mock(com.jagrosh.jmusicbot.ytdlp.YtDlpService.class);
+            when(ytDlp.wrapLibraryFile(any())).thenAnswer(inv -> inv.getArgument(0) == localTrack
+                    ? libraryTrack : inv.getArgument(0));
+            when(fixture.getBot().getYtDlp()).thenReturn(ytDlp);
+        }
+
+        @Test
+        @DisplayName("addTrackToQueue() confirms and queues a library file under its library title")
+        void addTrackToQueue_libraryFile_usesLibraryTitle()
+        {
+            MusicService.TrackAddResult result = musicService.addTrackToQueue(fixture.getGuild(), fixture.getMember(),
+                    localTrack, FILE, fixture.getTextChannel());
+
+            assertNotNull(result);
+            assertTrue(result.formattedMessage.contains("Indexed Title"), result.formattedMessage);
+            assertFalse(result.formattedMessage.contains(".webm"), result.formattedMessage);
+            assertTrue(result.formattedMessage.contains("02:03"), result.formattedMessage);
+            assertEquals("Indexed Title", result.trackTitle);
+            org.mockito.ArgumentCaptor<QueuedTrack> queued = org.mockito.ArgumentCaptor.forClass(QueuedTrack.class);
+            verify(fixture.getAudioHandler()).addTrack(queued.capture());
+            assertSame(libraryTrack, queued.getValue().getTrack());
+            // The request still records what was actually asked for.
+            assertEquals(FILE, queued.getValue().getRequestMetadata().requestInfo.url);
+        }
+
+        @Test
+        @DisplayName("addTrackToQueue() leaves a track unchanged when the bot has no yt-dlp service")
+        void addTrackToQueue_noYtDlpService_unchanged()
+        {
+            when(fixture.getBot().getYtDlp()).thenReturn(null);
+
+            MusicService.TrackAddResult result = musicService.addTrackToQueue(fixture.getGuild(), fixture.getMember(),
+                    localTrack, FILE, fixture.getTextChannel());
+
+            assertEquals("Name [x1Xd0m2OdcU].webm", result.trackTitle);
+        }
+
+        private List<String> loadPlaylistLines(java.util.function.Consumer<com.sedmelluq.discord.lavaplayer.player.AudioLoadResultHandler> respond)
+        {
+            com.jagrosh.jmusicbot.playlist.PlaylistLoader.Playlist playlist =
+                    mock(com.jagrosh.jmusicbot.playlist.PlaylistLoader.Playlist.class);
+            when(playlist.getName()).thenReturn("ytdlp-library");
+            when(playlist.getItems()).thenReturn(List.of(FILE));
+            when(fixture.getPlaylistLoader().getPlaylistResult("ytdlp-library"))
+                    .thenReturn(com.jagrosh.jmusicbot.playlist.PlaylistLoader.PlaylistResult.success(playlist));
+            doAnswer(invocation ->
+            {
+                respond.accept(invocation.getArgument(2));
+                return null;
+            }).when(fixture.getPlayerManager()).loadItemOrdered(any(), eq(FILE),
+                    any(com.sedmelluq.discord.lavaplayer.player.AudioLoadResultHandler.class));
+
+            List<String> lines = new ArrayList<>();
+            musicService.loadPlaylistPageWithTracks("ytdlp-library", 1, 10, page -> lines.addAll(page.formattedLines));
+            return lines;
+        }
+
+        @Test
+        @DisplayName("Playlists details view lists a library file (track loaded) under its library title")
+        void playlistDetails_trackLoaded_usesLibraryTitle()
+        {
+            List<String> lines = loadPlaylistLines(handler -> handler.trackLoaded(localTrack));
+
+            assertEquals(1, lines.size());
+            assertTrue(lines.get(0).contains("Indexed Title"), lines.get(0));
+            assertFalse(lines.get(0).contains(".webm"), lines.get(0));
+        }
+
+        @Test
+        @DisplayName("Playlists details view lists a library file (playlist loaded) under its library title")
+        void playlistDetails_playlistLoaded_usesLibraryTitle()
+        {
+            com.sedmelluq.discord.lavaplayer.track.AudioPlaylist loaded =
+                    mock(com.sedmelluq.discord.lavaplayer.track.AudioPlaylist.class);
+            when(loaded.getTracks()).thenReturn(List.of(localTrack));
+
+            List<String> lines = loadPlaylistLines(handler -> handler.playlistLoaded(loaded));
+
+            assertEquals(1, lines.size());
+            assertTrue(lines.get(0).contains("Indexed Title"), lines.get(0));
+        }
+    }
+
+    @Nested
     @DisplayName("Favorites Playlist Operation")
     class FavoritesPlaylistOperationTests
     {

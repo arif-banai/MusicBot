@@ -30,6 +30,7 @@ import com.jagrosh.jmusicbot.settings.Settings;
 import com.jagrosh.jmusicbot.utils.FormatUtil;
 import com.jagrosh.jmusicbot.utils.QueryNormalizer;
 import com.jagrosh.jmusicbot.utils.TimeUtil;
+import com.jagrosh.jmusicbot.ytdlp.YtDlpService;
 import com.sedmelluq.discord.lavaplayer.player.AudioLoadResultHandler;
 import com.sedmelluq.discord.lavaplayer.track.AudioPlaylist;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
@@ -200,19 +201,45 @@ public class MusicService
 
         AudioHandler handler = getHandler(guild);
         handler.setLastReason(member.getUser().getName() + " " + reason);
-        QueuedTrack queuedTrack = new QueuedTrack(track,
-                new RequestMetadata(member.getUser(),
-                        new RequestMetadata.RequestInfo(queryArgs, track.getInfo().uri),
-                        channel.getIdLong()));
+        // The request records what was asked for (the original track's URL); the queue and the
+        // confirmation show the library's title and length for a yt-dlp library file.
+        RequestMetadata requestMetadata = new RequestMetadata(member.getUser(),
+                new RequestMetadata.RequestInfo(queryArgs, track.getInfo().uri),
+                channel.getIdLong());
+        AudioTrack shown = wrapLibraryFile(track);
+        QueuedTrack queuedTrack = new QueuedTrack(shown, requestMetadata);
         int position = adder.add(handler, queuedTrack) + 1;
 
-        String title = FormatUtil.getTrackTitle(track);
-        String message = formatTrackAddedMessage(title, track.getDuration(), position);
+        String title = FormatUtil.getTrackTitle(shown);
+        String message = formatTrackAddedMessage(title, shown.getDuration(), position);
 
         LOG.info("Track added to {}: guild={}, user={}, track=\"{}\", position={}",
                 logLocation, guild.getId(), member.getUser().getName(), title, position);
 
         return new TrackAddResult(position, message, title);
+    }
+
+    /**
+     * Swaps in the yt-dlp library's track for a local file that is in the library index, so it
+     * shows the library's title, length and URL instead of its filename. Returns the track
+     * unchanged when the bot has no yt-dlp service, the file isn't in the library, or the lookup
+     * fails.
+     */
+    private AudioTrack wrapLibraryFile(AudioTrack track)
+    {
+        YtDlpService ytDlp = bot.getYtDlp();
+        if (ytDlp == null || track == null)
+            return track;
+        try
+        {
+            return ytDlp.wrapLibraryFile(track);
+        }
+        catch (RuntimeException ex)
+        {
+            LOG.warn("yt-dlp library couldn't check track {} against the library index: {}",
+                    track.getIdentifier(), ex.toString());
+            return track;
+        }
     }
 
     /**
@@ -2049,7 +2076,7 @@ public class MusicService
                 @Override
                 public void trackLoaded(AudioTrack track)
                 {
-                    lines[index] = FormatUtil.formatTrackLineForEmbed(track);
+                    lines[index] = FormatUtil.formatTrackLineForEmbed(wrapLibraryFile(track));
                     maybeDone.run();
                 }
 
@@ -2075,7 +2102,7 @@ public class MusicService
                         maybeDone.run();
                         return;
                     }
-                    lines[index] = FormatUtil.formatTrackLineForEmbed(single);
+                    lines[index] = FormatUtil.formatTrackLineForEmbed(wrapLibraryFile(single));
                     maybeDone.run();
                 }
 

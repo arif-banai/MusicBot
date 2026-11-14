@@ -264,6 +264,39 @@ class PrepareForPlaybackTest {
     }
 
     @Test
+    void wrapLibraryFile_adoptedFile_keepsTheLocalTracksLengthAndAuthor() throws IOException {
+        // An adopted file (hand-placed, no index entry) has no length or author in the index.
+        Path adoptedFile = libraryFolder.resolve("Adopted Song [ADOPTED0001].webm");
+        Files.writeString(adoptedFile, "not really audio");
+        library.load();
+        AudioTrack local = mock(AudioTrack.class);
+        AudioSourceManager source = mock(AudioSourceManager.class);
+        when(source.getSourceName()).thenReturn("local");
+        when(local.getSourceManager()).thenReturn(source);
+        when(local.getInfo()).thenReturn(new AudioTrackInfo("Unknown title", "Local Author", 245_000L,
+                adoptedFile.toString(), false, adoptedFile.toString()));
+
+        AudioTrack result = disabled().wrapLibraryFile(local);
+
+        LibraryAudioTrack wrapped = assertInstanceOf(LibraryAudioTrack.class, result);
+        assertEquals("Adopted Song", wrapped.getInfo().title);
+        assertEquals(245_000L, wrapped.getInfo().length);
+        assertEquals(245_000L, wrapped.getDuration());
+        assertEquals("Local Author", wrapped.getInfo().author);
+        assertEquals("https://www.youtube.com/watch?v=ADOPTED0001", wrapped.getInfo().uri);
+    }
+
+    @Test
+    void wrapLibraryFile_indexedFile_keepsTheIndexLength() {
+        AudioTrack local = track("local", hitFile.toString(), false);
+
+        LibraryAudioTrack wrapped = assertInstanceOf(LibraryAudioTrack.class, disabled().wrapLibraryFile(local));
+
+        assertEquals(123_000L, wrapped.getInfo().length);
+        assertEquals("Indexed Author", wrapped.getInfo().author);
+    }
+
+    @Test
     void wrapLibraryFile_localFileNotInIndex_unchanged() {
         AudioTrack local = track("local", tempDir.resolve("other.mp3").toString(), false);
         assertSame(local, disabled().wrapLibraryFile(local));
