@@ -30,6 +30,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import com.jagrosh.jmusicbot.ytdlp.LibraryEntry;
 import com.jagrosh.jmusicbot.ytdlp.ProcessRunner;
@@ -345,13 +346,25 @@ class YtDlpDownloaderTest {
     @DisplayName("a future callback that interrupts the worker doesn't kill it")
     void callbackInterrupt_workerSurvives() throws Exception {
         CompletableFuture<LibraryEntry> a = downloader.request("a", url("a"), info("a"), 1L, false);
-        // Registered before start(), so it runs on the worker thread when "a" completes.
-        a.thenRun(() -> Thread.currentThread().interrupt());
+        // Registered before start(), so it runs on the worker thread when "a" completes. The test
+        // thread never waits on "a" itself (a waiting get() can run pending callbacks on the
+        // waiting thread), and the callback only interrupts the worker.
+        CountDownLatch ran = new CountDownLatch(1);
+        AtomicReference<String> ranOn = new AtomicReference<>();
+        a.thenRun(() -> {
+            ranOn.set(Thread.currentThread().getName());
+            if ("ytdlp-downloader".equals(Thread.currentThread().getName())) {
+                Thread.currentThread().interrupt();
+            }
+            ran.countDown();
+        });
         CompletableFuture<LibraryEntry> b = downloader.request("b", url("b"), info("b"), 1L, false);
         downloader.start();
 
-        assertEquals("a", a.get(WAIT_SECONDS, TimeUnit.SECONDS).key());
+        assertTrue(ran.await(WAIT_SECONDS, TimeUnit.SECONDS));
+        assertEquals("ytdlp-downloader", ranOn.get());
         assertEquals("b", b.get(WAIT_SECONDS, TimeUnit.SECONDS).key());
+        assertEquals("a", a.getNow(null).key());
 
         CompletableFuture<LibraryEntry> c = downloader.request("c", url("c"), info("c"), 1L, false);
         assertEquals("c", c.get(WAIT_SECONDS, TimeUnit.SECONDS).key());
