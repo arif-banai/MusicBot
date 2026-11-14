@@ -21,7 +21,9 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.Supplier;
 
@@ -63,12 +65,24 @@ public final class YtDlpService {
     private volatile boolean enabled;
     private volatile @Nullable YtDlpPrompt prompt;
     private volatile @Nullable ScheduledExecutorService ownedScheduler;
+    /** Runs library index updates off the player and audio threads. */
+    private final Executor background;
 
     public YtDlpService(YtDlpSettings s, YtDlpLibrary library, YtDlpDownloader downloader, ProcessRunner runner) {
+        this(s, library, downloader, runner, ForkJoinPool.commonPool());
+    }
+
+    /**
+     * @param background runs library index updates (file I/O), so they never run on the thread
+     *                   that called {@link #prepareForPlayback}
+     */
+    public YtDlpService(YtDlpSettings s, YtDlpLibrary library, YtDlpDownloader downloader, ProcessRunner runner,
+                        Executor background) {
         this.settings = s;
         this.library = library;
         this.downloader = downloader;
         this.runner = runner;
+        this.background = background;
         this.enabled = s.enabled();
     }
 
@@ -101,14 +115,15 @@ public final class YtDlpService {
         ProcessRunner runner = new SystemProcessRunner();
         YtDlpDownloader downloader = new YtDlpDownloader(settings, library, runner,
                 d -> Thread.sleep(d.toMillis()));
-        YtDlpService service = new YtDlpService(settings, library, downloader, runner);
 
-        // The pool creates its thread on the first schedule, so nothing runs while the feature is off.
+        // The pool creates its thread on its first task, so nothing runs while the feature is off
+        // (apart from filling in an adopted library file's metadata, which works in any mode).
         ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "ytdlp-prompt");
             t.setDaemon(true);
             return t;
         });
+        YtDlpService service = new YtDlpService(settings, library, downloader, runner, scheduler);
         service.ownedScheduler = scheduler;
         service.prompt = new YtDlpPrompt(bot, service, new PendingPrompts(), scheduler);
         return service;
@@ -206,6 +221,9 @@ public final class YtDlpService {
             }
             Optional<LibraryEntry> hit = library.findById(videoId);
             if (hit.isPresent()) {
+                if (isAdopted(hit.get())) {
+                    fillInMetadata(videoId, info);
+                }
                 return copyState(track, new LibraryAudioTrack(info, videoId, completed(hit.get()), null,
                         track.getSourceManager()));
             }
@@ -293,6 +311,36 @@ public final class YtDlpService {
             return false;
         }
         return library.findById(info.identifier).isEmpty();
+    }
+
+    /**
+     * Whether an entry was adopted from a file in the library folder rather than recorded from
+     * a YouTube track, so it only has a title guessed from the filename: no author, no length.
+     */
+    private static boolean isAdopted(LibraryEntry entry) {
+        return (entry.author() == null || entry.author().isEmpty()) && entry.lengthMs() <= 0;
+    }
+
+    /**
+     * Records the YouTube track's metadata for an adopted library file, in the background
+     * (it rewrites {@code library.json}). Re-checks first, so a second play doesn't record twice.
+     */
+    private void fillInMetadata(String videoId, AudioTrackInfo info) {
+        try {
+            background.execute(() -> {
+                try {
+                    Optional<LibraryEntry> current = library.findById(videoId);
+                    if (current.isPresent() && isAdopted(current.get())) {
+                        library.record(videoId, current.get().file(), info);
+                        LOGGER.info("Filled in YouTube metadata for library file {}", current.get().file());
+                    }
+                } catch (IOException | RuntimeException ex) {
+                    LOGGER.warn("Couldn't record metadata for library video {}: {}", videoId, ex.toString());
+                }
+            });
+        } catch (RuntimeException ex) { // e.g. the executor is shut down
+            LOGGER.debug("Skipped recording metadata for library video {}: {}", videoId, ex.toString());
+        }
     }
 
     /** Withdraws this guild from every queued download (stop, or leaving voice). */

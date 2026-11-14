@@ -71,10 +71,26 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
     private String lastReason = null;
     private volatile String favoritedTrackUri = null;
     /**
-     * yt-dlp prompt mode: the hold track to play in place of a YouTube track that was just
-     * blocked, set in onTrackException and taken by the following onTrackEnd.
+     * yt-dlp prompt mode: where a prompt candidate's end and its exception callback meet.
+     * lavaplayer may deliver either first (it marks the track as ending before it reports the
+     * exception), so whichever side comes first leaves its part here and the second side acts.
+     * Every change is a compareAndSet, so exactly one side plays the hold or pulls the queue.
      */
-    private final AtomicReference<AudioTrack> pendingHold = new AtomicReference<>();
+    private final AtomicReference<Handoff> handoff = new AtomicReference<>();
+
+    private enum HandoffKind
+    {
+        /** Exception first: a prompt was opened; the end should play {@code hold}. */
+        OFFERED,
+        /** Exception first: no prompt; the end should move on as usual. */
+        DECLINED,
+        /** LOAD_FAILED end first: the queue waits; the exception side plays the hold or pulls. */
+        AWAITING,
+        /** Any other end first: the queue already moved on; a late hold is withdrawn. */
+        ENDED
+    }
+
+    private record Handoff(AudioTrack track, HandoffKind kind, AudioTrack hold) {}
 
     protected AudioHandler(PlayerManager manager, Guild guild, AudioPlayer player)
     {
@@ -151,6 +167,7 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
         LOGGER.debug("Stopping and clearing queue");
         queue.clearAll();
         defaultQueue.clear();
+        cancelYtDlpPrompt();
         audioPlayer.stopTrack();
         cancelYtDlpDownloads();
         //current = null;
@@ -165,6 +182,7 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
         LOGGER.debug("Stopping playback and clearing queue (preserving history)");
         queue.clear();
         defaultQueue.clear();
+        cancelYtDlpPrompt();
         audioPlayer.stopTrack();
         cancelYtDlpDownloads();
     }
@@ -217,6 +235,22 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
         YtDlpService ytDlp = ytDlp();
         if (ytDlp != null)
             ytDlp.cancelGuild(guildId);
+    }
+
+    /** Stop/leave: claims an open prompt as "Cancelled" before the hold ends (and would say "Skipped"). */
+    private void cancelYtDlpPrompt()
+    {
+        YtDlpPrompt prompt = ytDlpPrompt();
+        if (prompt == null)
+            return;
+        try
+        {
+            prompt.cancel(guildId);
+        }
+        catch (RuntimeException ex)
+        {
+            LOGGER.warn("yt-dlp couldn't cancel the prompt: {}", ex.toString());
+        }
     }
 
     private void endYtDlpPrompt()
@@ -306,21 +340,104 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
         }
 
         // yt-dlp prompt mode: a blocked YouTube track pauses the queue on its hold track
-        AudioTrack hold = pendingHold.getAndSet(null);
-        if (hold != null)
-        {
-            // Normally LOAD_FAILED. lavaplayer decides the reason on the audio thread, possibly
-            // before the failure is recorded, so a load failure can also arrive as FINISHED.
-            if (endReason == AudioTrackEndReason.LOAD_FAILED || endReason == AudioTrackEndReason.FINISHED)
-            {
-                player.playTrack(hold);
-                return;
-            }
-            endYtDlpPrompt(); // the blocked track was stopped before its hold could start
-        }
+        if (resolveYtDlpHandoff(player, track, endReason))
+            return;
         if (track instanceof LibraryAudioTrack libraryTrack && libraryTrack.isGated())
             endYtDlpPrompt();
 
+        continueAfterEnd(player, track, endReason);
+    }
+
+    /**
+     * The end side of the yt-dlp handoff (see {@link #handoff}).
+     *
+     * @return true if this end is fully handled: the hold now plays, or the queue waits for
+     *         the exception callback to decide
+     */
+    private boolean resolveYtDlpHandoff(AudioPlayer player, AudioTrack track, AudioTrackEndReason endReason)
+    {
+        YtDlpPrompt prompt = ytDlpPrompt();
+        while (true)
+        {
+            Handoff current = handoff.get();
+            if (current != null && current.track() == track
+                    && (current.kind() == HandoffKind.OFFERED || current.kind() == HandoffKind.DECLINED))
+            {
+                if (!handoff.compareAndSet(current, null))
+                    continue;
+                if (current.kind() == HandoffKind.DECLINED)
+                    return false;
+                // Normally LOAD_FAILED. lavaplayer decides the reason on the audio thread, possibly
+                // before the failure is recorded, so a load failure can also arrive as FINISHED.
+                if (endReason == AudioTrackEndReason.LOAD_FAILED || endReason == AudioTrackEndReason.FINISHED)
+                {
+                    player.playTrack(current.hold());
+                    return true;
+                }
+                endYtDlpPrompt(); // the blocked track was stopped before its hold could start
+                return false;
+            }
+            if (!isPromptCandidate(prompt, track))
+                return false;
+            // This end came before the exception callback (or it's a normal end of a candidate).
+            boolean await = endReason == AudioTrackEndReason.LOAD_FAILED;
+            Handoff mine = new Handoff(track, await ? HandoffKind.AWAITING : HandoffKind.ENDED, null);
+            if (handoff.compareAndSet(current, mine))
+                return await;
+        }
+    }
+
+    /**
+     * The exception side of the yt-dlp handoff (see {@link #handoff}), called once per failed
+     * prompt candidate with the hold to play, or null if no prompt was opened.
+     */
+    private void settleYtDlpHandoff(YtDlpPrompt prompt, AudioTrack blocked, AudioTrack hold)
+    {
+        Handoff decision = new Handoff(blocked, hold != null ? HandoffKind.OFFERED : HandoffKind.DECLINED, hold);
+        while (true)
+        {
+            Handoff current = handoff.get();
+            if (current != null && current.track() == blocked && current.kind() == HandoffKind.AWAITING)
+            {
+                if (!handoff.compareAndSet(current, null))
+                    continue;
+                // The LOAD_FAILED end came first and left the queue waiting for this decision.
+                if (hold != null)
+                    audioPlayer.playTrack(hold);
+                else
+                    continueAfterEnd(audioPlayer, blocked, AudioTrackEndReason.LOAD_FAILED);
+                return;
+            }
+            if (current != null && current.track() == blocked && current.kind() == HandoffKind.ENDED)
+            {
+                if (!handoff.compareAndSet(current, null))
+                    continue;
+                // It ended some other way first (stopped, or the FINISHED race); the queue moved on.
+                if (hold != null)
+                    prompt.onHoldEnded(guildId);
+                return;
+            }
+            if (handoff.compareAndSet(current, decision))
+                return;
+        }
+    }
+
+    private static boolean isPromptCandidate(YtDlpPrompt prompt, AudioTrack track)
+    {
+        try
+        {
+            return prompt != null && track != null && prompt.isCandidate(track);
+        }
+        catch (RuntimeException ex)
+        {
+            LOGGER.debug("yt-dlp candidate check failed: {}", ex.toString());
+            return false;
+        }
+    }
+
+    /** What happens after a track ends: repeat, then the next song (or default playlist, or leaving). */
+    private void continueAfterEnd(AudioPlayer player, AudioTrack track, AudioTrackEndReason endReason)
+    {
         RepeatMode repeatMode = manager.getBot().getSettingsManager().getSettings(guildId).getRepeatMode();
         // if the track ended normally, and we're in repeat mode, re-add it to the queue
         if(endReason==AudioTrackEndReason.FINISHED && repeatMode != RepeatMode.OFF)
@@ -437,32 +554,32 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
         YtDlpPrompt prompt = ytDlpPrompt();
         if (prompt == null)
             return;
+        if (track instanceof LibraryAudioTrack)
+        {
+            try
+            {
+                prompt.notifyDownloadFailed(guild(), track, exception);
+            }
+            catch (RuntimeException ex)
+            {
+                LOGGER.warn("yt-dlp couldn't report the failure of track {}: {}", track.getIdentifier(), ex.toString());
+            }
+            return;
+        }
+        if (!isPromptCandidate(prompt, track))
+            return;
+        AudioTrack hold = null;
         try
         {
-            if (track instanceof LibraryAudioTrack)
-                prompt.notifyDownloadFailed(guild(), track, exception);
-            else if (prompt.shouldOffer(track, exception))
-                prompt.holdFor(guild(), track).ifPresent(hold -> offerHold(prompt, track, hold));
+            if (prompt.shouldOffer(track, exception))
+                hold = prompt.holdFor(guild(), track).orElse(null);
         }
         catch (RuntimeException ex)
         {
             LOGGER.warn("yt-dlp couldn't handle the failure of track {}: {}", track.getIdentifier(), ex.toString());
         }
-    }
-
-    /**
-     * Hands the hold to the coming onTrackEnd of the blocked track. lavaplayer marks the track
-     * as ending before it calls onTrackException, so on the audio thread that end can run
-     * while this method is still running, and miss the hold. The player clears its playing
-     * track before it dispatches the end, so if the blocked track is no longer playing after
-     * the hold was published, that end has started; if it also didn't take the hold, withdraw
-     * the hold and close its prompt, and the queue moves on as it does without yt-dlp.
-     */
-    private void offerHold(YtDlpPrompt prompt, AudioTrack blocked, AudioTrack hold)
-    {
-        pendingHold.set(hold);
-        if (audioPlayer.getPlayingTrack() != blocked && pendingHold.compareAndSet(hold, null))
-            prompt.onHoldEnded(guildId);
+        // Always settle, prompt or not: an end that came first may be waiting on this decision.
+        settleYtDlpHandoff(prompt, track, hold);
     }
 
     @Override

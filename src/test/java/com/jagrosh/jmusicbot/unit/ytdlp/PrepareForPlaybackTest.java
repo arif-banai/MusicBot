@@ -18,6 +18,7 @@ package com.jagrosh.jmusicbot.unit.ytdlp;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
@@ -39,6 +40,7 @@ import org.junit.jupiter.api.io.TempDir;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -189,6 +191,51 @@ class PrepareForPlaybackTest {
                 () -> CompletableFuture.<LibraryEntry>completedFuture(null), null, null);
         assertSame(wrapped, always().prepareForPlayback(wrapped, GUILD));
         verifyNoInteractions(downloader);
+    }
+
+    @Test
+    void adoptedHit_recordsYoutubeMetadataInBackground() throws IOException {
+        String adoptedId = "ADOPTED0001";
+        Path adoptedFile = libraryFolder.resolve("Hand Named [" + adoptedId + "].webm");
+        Files.writeString(adoptedFile, "not really audio");
+        library.load(); // adopts the file with a title guessed from its name
+        assertEquals("", library.findById(adoptedId).orElseThrow().author());
+        List<Runnable> background = new ArrayList<>();
+        YtDlpService service = new YtDlpService(
+                new YtDlpSettings("", Mode.PROMPT, libraryFolder, "ytdlp-library", 0, 300, List.of(), 120),
+                library, downloader, runner, background::add);
+
+        AudioTrack result = service.prepareForPlayback(youtube(adoptedId), GUILD);
+
+        assertInstanceOf(LibraryAudioTrack.class, result);
+        // Nothing was written on the calling (player/audio) thread.
+        assertEquals("", library.findById(adoptedId).orElseThrow().author());
+        assertEquals(1, background.size());
+
+        background.forEach(Runnable::run);
+        LibraryEntry recorded = library.findById(adoptedId).orElseThrow();
+        assertEquals("YouTube Title", recorded.title());
+        assertEquals("YouTube Author", recorded.author());
+        assertEquals(200_000L, recorded.lengthMs());
+        assertEquals(adoptedFile.toAbsolutePath().normalize(), recorded.file());
+
+        // Once it has metadata, further hits don't record again.
+        background.clear();
+        service.prepareForPlayback(youtube(adoptedId), GUILD);
+        assertTrue(background.isEmpty());
+    }
+
+    @Test
+    void indexedHit_doesNotRecordAgain() {
+        List<Runnable> background = new ArrayList<>();
+        YtDlpService service = new YtDlpService(
+                new YtDlpSettings("", Mode.PROMPT, libraryFolder, "ytdlp-library", 0, 300, List.of(), 120),
+                library, downloader, runner, background::add);
+
+        assertInstanceOf(LibraryAudioTrack.class, service.prepareForPlayback(youtube(HIT_ID), GUILD));
+
+        assertTrue(background.isEmpty());
+        assertEquals("Indexed Title", library.findById(HIT_ID).orElseThrow().title());
     }
 
     @Test

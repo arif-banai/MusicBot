@@ -93,13 +93,34 @@ public final class YtDlpPrompt {
      * track, and the exception is, or is caused by, youtube-source's {@code AllClientsFailedException}.
      */
     public boolean shouldOffer(AudioTrack track, FriendlyException e) {
+        return isCandidate(track) && hasCause(e, AllClientsFailedException.class);
+    }
+
+    /**
+     * Whether a failure of this track could open a prompt: the feature is on in prompt mode and
+     * the track is a (not yet wrapped) YouTube track. False whenever the feature is off.
+     */
+    public boolean isCandidate(AudioTrack track) {
         if (!service.isEnabled() || service.mode() != YtDlpSettings.Mode.PROMPT) {
             return false;
         }
-        if (track == null || track instanceof LibraryAudioTrack || !YtDlpService.isYoutube(track)) {
-            return false;
+        return track != null && !(track instanceof LibraryAudioTrack) && YtDlpService.isYoutube(track);
+    }
+
+    /**
+     * Stop, or the bot leaving: if no button was pressed yet, closes the guild's prompt and
+     * says it was cancelled. Called before the player stops the hold, so the hold's own end
+     * then finds the prompt already answered and doesn't also say "Skipped".
+     */
+    public void cancel(long guildId) {
+        Optional<Pending> current = state.get(guildId);
+        if (current.isEmpty()) {
+            return;
         }
-        return hasCause(e, AllClientsFailedException.class);
+        Pending claimed = claim(guildId, current.get().gate());
+        if (claimed != null) {
+            edit(guildId, claimed.channelId(), claimed.messageId(), "⏹ Cancelled **" + title(claimed.hold()) + "**");
+        }
     }
 
     /**

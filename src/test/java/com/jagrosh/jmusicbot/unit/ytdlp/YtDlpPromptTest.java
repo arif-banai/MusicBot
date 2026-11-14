@@ -359,6 +359,35 @@ class YtDlpPromptTest {
     }
 
     @Test
+    void cancel_beforeHoldEnds_saysCancelledNotSkipped() {
+        YtDlpPrompt prompt = prompt(Mode.PROMPT);
+        Runnable timeout = openPrompt(prompt);
+
+        prompt.cancel(GUILD);      // stop: called before the player stops the hold
+        prompt.onHoldEnded(GUILD); // the hold's STOPPED end
+        timeout.run();
+
+        assertTrue(state.get(GUILD).isEmpty());
+        verify(timeoutFuture).cancel(false);
+        verify(channel).editMessageById(eq(MESSAGE), argThat((CharSequence s) -> s.toString().contains("Cancelled")));
+        verify(channel, never()).editMessageById(anyLong(),
+                argThat((CharSequence s) -> s.toString().contains("Skipped")));
+        verify(channel, times(1)).editMessageById(anyLong(), any(CharSequence.class));
+        verify(player, never()).stopTrack(); // AudioHandler does the stopping
+    }
+
+    @Test
+    void cancel_afterPress_doesNothing() {
+        YtDlpPrompt prompt = prompt(Mode.PROMPT);
+        openPrompt(prompt);
+        assertEquals(PressOutcome.ACCEPTED, state.press(GUILD, VIDEO_ID)); // a button won
+
+        prompt.cancel(GUILD);
+
+        verify(channel, never()).editMessageById(anyLong(), any(CharSequence.class));
+    }
+
+    @Test
     void onHoldEnded_beforePress_closesPromptAndCancelsTimeout() {
         YtDlpPrompt prompt = prompt(Mode.PROMPT);
         Runnable timeout = openPrompt(prompt);
