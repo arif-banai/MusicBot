@@ -46,7 +46,6 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -89,14 +88,31 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
      */
     private final AtomicReference<Handoff> handoff = new AtomicReference<>();
     /**
-     * "Play now" queue replacement in flight (see {@link #beginQueueReplacement()}): while
-     * true, {@code continueAfterEnd} neither re-queues a repeat clone nor applies the idle-queue
+     * Guards only the pure in-memory state touched by a "play now" queue replacement —
+     * {@link #activeReplacementToken}, {@code queue}, {@code defaultQueue} — never a call into
+     * the player ({@code playTrack}/{@code stopTrack}/{@code setPaused}) or
+     * {@code closeAudioConnection}. lavaplayer dispatches every track event (including
+     * {@code onTrackEnd}, which reaches {@link #continueAfterEnd}) under its own internal
+     * track-switch lock, so code that holds <em>this</em> monitor must never call back into the
+     * player: doing so risks a lock-order inversion (the player thread blocked on this monitor
+     * inside {@code continueAfterEnd}, while this thread is blocked on the player's lock inside
+     * {@code playTrack}) and a deadlock. Every method below follows the same shape: decide what
+     * to do (and which track, if any, to start) while holding this lock, then act on that
+     * decision after releasing it.
+     */
+    private final Object replacementLock = new Object();
+    /**
+     * Identifies the "play now" queue replacement currently in flight (see
+     * {@link #beginQueueReplacement()}), or {@code null} if none is. While non-null,
+     * {@code continueAfterEnd} neither re-queues a repeat clone nor applies the idle-queue
      * disconnect/default-playlist behaviour for a track end, since the queue is only
      * momentarily empty while the replacement's first track is still loading over the network.
-     * Cleared by {@link #replaceCurrentTrackIfStillPlaying(AudioTrack)} or
-     * {@link #endQueueReplacement()}, whichever runs first.
+     * A token (rather than a boolean) so a late call from a <em>superseded</em> replacement
+     * (e.g. two "Play now" clicks in a row, or a loaded-track callback that fires after a newer
+     * replacement already began) can only resolve the one it was handed, never a newer one.
+     * Guarded by {@link #replacementLock}.
      */
-    private final AtomicBoolean queueReplacementPending = new AtomicBoolean(false);
+    private Object activeReplacementToken;
 
     private enum HandoffKind
     {
@@ -251,25 +267,37 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
      * NOT stopped here.
      * <p>
      * Callers must follow up, for every replacement track as it loads, with
-     * {@link #replaceCurrentTrackIfStillPlaying(AudioTrack)} (passing the track that was
-     * playing, or {@code null}, when this method was called), and once loading is done, with
-     * {@link #endQueueReplacement()} — even if nothing was ever queued.
+     * {@link #replaceCurrentTrackIfStillPlaying(Object, AudioTrack)} (passing the token
+     * returned here and the track that was playing, or {@code null}, when this method was
+     * called), and once loading is done — or if loading fails before any track calls that —
+     * with {@link #endQueueReplacement(Object)}.
+     *
+     * @return a token identifying this replacement; pass it to the two follow-up calls
      */
-    public synchronized void beginQueueReplacement()
+    public Object beginQueueReplacement()
     {
         LOGGER.debug("Beginning queue replacement (preserving history, deferring the empty-queue check)");
-        queueReplacementPending.set(true);
-        queue.clear();
-        defaultQueue.clear();
+        // No player call here, so no ordering constraint with replacementLock; done first so a
+        // prompt/handoff tied to the about-to-be-replaced track is settled before anything else.
         resetYtDlpHandoff();
         cancelYtDlpPrompt();
         cancelYtDlpDownloads();
+        Object token = new Object();
+        synchronized (replacementLock)
+        {
+            activeReplacementToken = token;
+            queue.clear();
+            defaultQueue.clear();
+        }
+        return token;
     }
 
     /**
-     * The first-loaded-track half of a "play now" replacement begun with
+     * The loaded-track half of a "play now" replacement begun with
      * {@link #beginQueueReplacement()}. Safe to call once per loaded replacement track (only
-     * the first call that finds the guard still armed does anything); later calls are no-ops.
+     * the first call for the given {@code token}, while it's still the active replacement, does
+     * anything); later calls — and any call for a {@code token} a newer {@code beginQueueReplacement()}
+     * has since superseded — are no-ops.
      * <p>
      * If {@code original} (the track captured before the replacement began, or {@code null} if
      * nothing was playing then) is still the currently playing track, pulls the queue head
@@ -279,23 +307,35 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
      * If {@code original} is {@code null} or no longer playing (it already ended naturally
      * during the load, and {@link #addTrack(QueuedTrack)}'s own idle-start, or a normal
      * {@code continueAfterEnd} pull, already started the right track), this does nothing but
-     * disarm the guard. Either way, unpauses the player: "Play now" means play.
+     * retire the token. Either way (when this call was the one that found the token still
+     * active), unpauses the player: "Play now" means play.
+     * <p>
+     * Decides what to do while holding {@link #replacementLock}; the player call (if any)
+     * happens after releasing it, so this never risks the lock-order inversion described there.
      *
      * @return true if this call actually replaced the current track
      */
-    public synchronized boolean replaceCurrentTrackIfStillPlaying(AudioTrack original)
+    public boolean replaceCurrentTrackIfStillPlaying(Object token, AudioTrack original)
     {
-        if (!queueReplacementPending.getAndSet(false))
+        QueuedTrack head = null;
+        boolean isActive;
+        synchronized (replacementLock)
+        {
+            isActive = activeReplacementToken == token;
+            if (isActive)
+            {
+                activeReplacementToken = null;
+                if (original != null && audioPlayer.getPlayingTrack() == original)
+                    head = queue.pull();
+            }
+        }
+        if (!isActive)
             return false;
         boolean replaced = false;
-        if (original != null && audioPlayer.getPlayingTrack() == original)
+        if (head != null)
         {
-            QueuedTrack head = queue.pull();
-            if (head != null)
-            {
-                playPrepared(head.getTrack());
-                replaced = true;
-            }
+            playPrepared(head.getTrack());
+            replaced = true;
         }
         audioPlayer.setPaused(false);
         return replaced;
@@ -303,17 +343,29 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
 
     /**
      * Ends a "play now" replacement begun with {@link #beginQueueReplacement()}, once loading
-     * is done (whether or not any track was actually loaded). A no-op if
-     * {@link #replaceCurrentTrackIfStillPlaying(AudioTrack)} already resolved it. If it didn't
-     * (e.g. the playlist loaded zero tracks) and nothing ended up playing, applies the normal
-     * empty-queue behaviour (default playlist, then disconnect unless staying) that was
-     * deferred while the guard was armed.
+     * is done (whether or not any track was actually loaded) — or failed outright. A no-op if
+     * {@link #replaceCurrentTrackIfStillPlaying(Object, AudioTrack)} already resolved
+     * {@code token}, or if a newer replacement has since superseded it. Otherwise (e.g. the
+     * playlist loaded zero tracks), if nothing ended up playing, applies the normal empty-queue
+     * behaviour (default playlist, then disconnect unless staying) that was deferred while the
+     * guard was armed. Decides under {@link #replacementLock}; the player/connection call (if
+     * any) happens after releasing it.
      */
-    public synchronized void endQueueReplacement()
+    public void endQueueReplacement(Object token)
     {
-        if (!queueReplacementPending.getAndSet(false))
-            return;
-        if (audioPlayer.getPlayingTrack() == null && queue.isEmpty())
+        boolean isActive;
+        boolean shouldApplyEmptyQueueBehaviour = false;
+        synchronized (replacementLock)
+        {
+            isActive = activeReplacementToken == token;
+            if (isActive)
+            {
+                activeReplacementToken = null;
+                if (audioPlayer.getPlayingTrack() == null && queue.isEmpty())
+                    shouldApplyEmptyQueueBehaviour = true;
+            }
+        }
+        if (shouldApplyEmptyQueueBehaviour)
             applyEmptyQueueBehaviour();
     }
 
@@ -326,6 +378,22 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
     {
         resetYtDlpHandoff();
         cancelYtDlpPrompt();
+    }
+
+    /**
+     * Starts {@code qtrack} immediately, replacing whatever is currently playing (that track
+     * then ends with REPLACED, which {@code continueAfterEnd} ignores entirely — no pull, no
+     * disconnect, no repeat re-queue) and unpausing the player ("Play now" means play). Wraps a
+     * local library file the same way {@link #addTrack(QueuedTrack)}/
+     * {@link #addTrackToFront(QueuedTrack)} do. Doesn't touch the queue. For a synchronous
+     * "play now" (playing from history or a URL) that already knows something is playing — use
+     * {@link #addTrackToFront(QueuedTrack)} instead when nothing is.
+     */
+    public void playNowReplacingCurrent(QueuedTrack qtrack)
+    {
+        qtrack = wrapForQueue(qtrack);
+        playPrepared(qtrack.getTrack());
+        audioPlayer.setPaused(false);
     }
 
     /**
@@ -653,8 +721,17 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
         }
     }
 
-    /** What happens after a track ends: repeat, then the next song (or default playlist, or leaving). */
-    private synchronized void continueAfterEnd(AudioPlayer player, AudioTrack track, AudioTrackEndReason endReason)
+    /**
+     * What happens after a track ends: repeat, then the next song (or default playlist, or
+     * leaving). Decides what to do (and which track, if any, to start) while holding
+     * {@link #replacementLock} — touching only {@code queue}/{@code activeReplacementToken},
+     * never calling into the player — then acts on that decision after releasing it. This
+     * method itself is NOT synchronized: it runs on lavaplayer's own event-dispatch thread,
+     * under lavaplayer's internal track-switch lock, so it must never block waiting for a lock
+     * that a replacement call (on another thread) might be holding while itself waiting on the
+     * track-switch lock inside a player call — see {@link #replacementLock}.
+     */
+    private void continueAfterEnd(AudioPlayer player, AudioTrack track, AudioTrackEndReason endReason)
     {
         if (endReason == AudioTrackEndReason.REPLACED)
         {
@@ -663,41 +740,51 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
             return;
         }
 
-        // A "play now" queue replacement is loading its first track: the queue is only
-        // momentarily empty (or about to be discarded), so neither the repeat re-queue nor the
-        // idle-queue behaviour below should run yet. See beginQueueReplacement()/endQueueReplacement().
-        boolean replacementPending = queueReplacementPending.get();
-
-        RepeatMode repeatMode = manager.getBot().getSettingsManager().getSettings(guildId).getRepeatMode();
-        // if the track ended normally, and we're in repeat mode, re-add it to the queue
-        if(!replacementPending && endReason==AudioTrackEndReason.FINISHED && repeatMode != RepeatMode.OFF)
+        QueuedTrack toPlay = null;
+        boolean shouldApplyEmptyQueueBehaviour = false;
+        synchronized (replacementLock)
         {
-            QueuedTrack clone = new QueuedTrack(track.makeClone(), track.getUserData(RequestMetadata.class));
-            if(repeatMode == RepeatMode.ALL)
+            // A "play now" queue replacement is loading its first track: the queue is only
+            // momentarily empty (or about to be discarded), so neither the repeat re-queue nor
+            // the idle-queue behaviour below should run yet. See beginQueueReplacement()/endQueueReplacement().
+            boolean replacementPending = activeReplacementToken != null;
+
+            RepeatMode repeatMode = manager.getBot().getSettingsManager().getSettings(guildId).getRepeatMode();
+            // if the track ended normally, and we're in repeat mode, re-add it to the queue
+            if(!replacementPending && endReason==AudioTrackEndReason.FINISHED && repeatMode != RepeatMode.OFF)
             {
-                queue.add(clone);
-                lastReason = "Repeating the queue.";
+                QueuedTrack clone = new QueuedTrack(track.makeClone(), track.getUserData(RequestMetadata.class));
+                if(repeatMode == RepeatMode.ALL)
+                {
+                    queue.add(clone);
+                    lastReason = "Repeating the queue.";
+                }
+                else
+                {
+                    queue.addAt(0, clone);
+                    lastReason = "Repeating the song.";
+                }
+            }
+
+            if(queue.isEmpty())
+            {
+                if (!replacementPending)
+                    shouldApplyEmptyQueueBehaviour = true;
             }
             else
             {
-                queue.addAt(0, clone);
-                lastReason = "Repeating the song.";
+                toPlay = queue.pull();
+                if (lastReason == null || (!lastReason.startsWith("Repeating") && !lastReason.startsWith("Skipped")))
+                    lastReason = "Playing next song.";
             }
         }
 
-        if(queue.isEmpty())
-        {
-            if (replacementPending)
-                return;
+        // Act outside the lock: playPrepared/applyEmptyQueueBehaviour call into the player
+        // (and possibly closeAudioConnection), which must never happen while replacementLock is held.
+        if (toPlay != null)
+            playPrepared(toPlay.getTrack());
+        else if (shouldApplyEmptyQueueBehaviour)
             applyEmptyQueueBehaviour();
-        }
-        else
-        {
-            QueuedTrack qt = queue.pull();
-            if (lastReason == null || (!lastReason.startsWith("Repeating") && !lastReason.startsWith("Skipped")))
-                lastReason = "Playing next song.";
-            playPrepared(qt.getTrack());
-        }
     }
 
     /** The idle-queue fallback: play the default playlist, or (unless staying) disconnect. */
