@@ -1009,12 +1009,18 @@ public final class YtDlpLibrary {
     private ParsedIndex readIndex(Path indexFile) {
         ParsedIndex empty = new ParsedIndex(new LinkedHashMap<>(), new LinkedHashMap<>(), new LinkedHashSet<>(),
                 new HashSet<>(), null);
-        if (!Files.isRegularFile(indexFile)) {
-            return empty;
-        }
         JsonNode root;
         try {
-            root = MAPPER.readTree(indexFile.toFile());
+            // Read under this object's lock, as saveIndex writes under it: on Windows, replacing
+            // library.json fails while another thread has it open, and that save would be lost.
+            byte[] bytes;
+            synchronized (this) {
+                if (!Files.isRegularFile(indexFile)) {
+                    return empty;
+                }
+                bytes = Files.readAllBytes(indexFile);
+            }
+            root = MAPPER.readTree(bytes);
         } catch (IOException | RuntimeException ex) {
             LOGGER.warn("Failed to read {}: {}", indexFile, ex.toString());
             return unreadable(indexFile);

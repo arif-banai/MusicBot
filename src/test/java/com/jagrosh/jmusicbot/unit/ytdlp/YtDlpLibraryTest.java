@@ -678,4 +678,51 @@ class YtDlpLibraryTest {
         assertFalse(library.isRejected("vid00000022", "requested06"));
         assertEquals(1, readIndex().get("rejections").size());
     }
+
+    @Test
+    @DisplayName("saves made while rescans run all land, on disk and in memory")
+    void savesDuringRescans_allLand() throws Exception {
+        Path file = libraryFolder.resolve("Song Title [vid00000030].webm");
+        Files.createFile(file);
+        YtDlpLibrary library = new YtDlpLibrary(libraryFolder, playlistFile, f -> Optional.empty());
+        library.record("vid00000030", file, sampleInfo("vid00000030"));
+
+        int saves = 300;
+        java.util.concurrent.atomic.AtomicBoolean done = new java.util.concurrent.atomic.AtomicBoolean();
+        java.util.concurrent.atomic.AtomicReference<Throwable> scanError = new java.util.concurrent.atomic.AtomicReference<>();
+        Thread scanner = new Thread(() -> {
+            try {
+                while (!done.get()) {
+                    library.rescan();
+                }
+            } catch (Throwable t) {
+                scanError.set(t);
+            }
+        });
+        scanner.start();
+        List<String> failures = new java.util.ArrayList<>();
+        try {
+            for (int i = 0; i < saves; i++) {
+                try {
+                    library.alias("requested-" + i, "vid00000030");
+                } catch (IOException ex) {
+                    failures.add(i + ": " + ex);
+                }
+            }
+        } finally {
+            done.set(true);
+            scanner.join(10_000);
+        }
+
+        assertNull(scanError.get(), "rescan failed");
+        assertEquals(List.of(), failures, "saves failed while a rescan ran");
+        for (int i = 0; i < saves; i++) {
+            assertEquals(Optional.of("vid00000030"), library.aliasTarget("requested-" + i), "in memory: " + i);
+        }
+        YtDlpLibrary reloaded = new YtDlpLibrary(libraryFolder, playlistFile, f -> Optional.empty());
+        reloaded.load();
+        for (int i = 0; i < saves; i++) {
+            assertEquals(Optional.of("vid00000030"), reloaded.aliasTarget("requested-" + i), "on disk: " + i);
+        }
+    }
 }
