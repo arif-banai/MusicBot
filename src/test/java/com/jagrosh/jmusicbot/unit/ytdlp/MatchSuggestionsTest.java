@@ -779,13 +779,16 @@ class MatchSuggestionsTest {
             assertTrue(done.await(2, TimeUnit.SECONDS), "the aligner was never invoked");
             assertNotEquals(callerThread, sawThread.get());
         } finally {
-            realExecutor.shutdownNow();
+            // The Switch finishes on this executor: it swaps the track and saves the link into the
+            // temp folder. Let that land before @TempDir is deleted.
+            realExecutor.shutdown();
+            assertTrue(realExecutor.awaitTermination(5, TimeUnit.SECONDS), "the Switch never finished");
         }
     }
 
     @Test
     @DisplayName("the alignment job is cancelled after 1 s; the switch falls back to 0:00 (test stays under 3 s)")
-    void switch_timeout_startsAtZero() {
+    void switch_timeout_startsAtZero() throws InterruptedException {
         MatchSuggestions.Aligner stub = (snap, file, streamLen, libLen) -> {
             try {
                 Thread.sleep(2_000);
@@ -806,7 +809,10 @@ class MatchSuggestionsTest {
             verify(handler, timeout(2_500)).replaceWithLibraryCopy(eq(request), replacement.capture());
             assertEquals(0L, replacement.getValue().getPosition());
         } finally {
-            realExecutor.shutdownNow();
+            // The Switch finishes on this executor: it swaps the track and saves the link into the
+            // temp folder. Let that land before @TempDir is deleted.
+            realExecutor.shutdown();
+            assertTrue(realExecutor.awaitTermination(5, TimeUnit.SECONDS), "the Switch never finished");
         }
     }
 
