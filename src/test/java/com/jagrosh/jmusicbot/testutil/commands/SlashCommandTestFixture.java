@@ -38,6 +38,7 @@ import net.dv8tion.jda.api.entities.User;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.entities.channel.concrete.VoiceChannel;
 import net.dv8tion.jda.api.entities.channel.unions.AudioChannelUnion;
+import net.dv8tion.jda.api.entities.channel.unions.GuildMessageChannelUnion;
 import net.dv8tion.jda.api.events.interaction.command.CommandAutoCompleteInteractionEvent;
 import net.dv8tion.jda.api.interactions.AutoCompleteQuery;
 import net.dv8tion.jda.api.interactions.InteractionHook;
@@ -47,6 +48,8 @@ import net.dv8tion.jda.api.requests.restaction.WebhookMessageEditAction;
 import net.dv8tion.jda.api.requests.restaction.interactions.AutoCompleteCallbackAction;
 import net.dv8tion.jda.api.requests.restaction.interactions.ReplyCallbackAction;
 
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.function.Consumer;
 
 import static org.mockito.ArgumentMatchers.*;
@@ -106,6 +109,10 @@ public class SlashCommandTestFixture
     private final AutoCompleteQuery focusedOption;
     private final AutoCompleteCallbackAction autoCompleteCallback;
 
+    // Scheduler mocks (scheduled tasks are recorded, never run, unless a test runs them)
+    private final ScheduledExecutorService threadpool;
+    private final ScheduledFuture<?> scheduledFuture;
+
     // Constants
     public static final long GUILD_ID = 123456789L;
     public static final long USER_ID = 987654321L;
@@ -132,7 +139,9 @@ public class SlashCommandTestFixture
         member = mock(Member.class);
         user = mock(User.class);
         selfMember = mock(SelfMember.class);
-        textChannel = mock(TextChannel.class);
+        // The command channel is also exposed through JDA's guild-channel union.
+        // This lets tests exercise the same path used by voice-channel text chat.
+        textChannel = mock(TextChannel.class, withSettings().extraInterfaces(GuildMessageChannelUnion.class));
         audioManager = mock(AudioManager.class);
         audioHandler = mock(AudioHandler.class);
         selfVoiceState = mock(GuildVoiceState.class);
@@ -158,6 +167,9 @@ public class SlashCommandTestFixture
         focusedOption = mock(AutoCompleteQuery.class);
         autoCompleteCallback = mock(AutoCompleteCallbackAction.class);
 
+        threadpool = mock(ScheduledExecutorService.class);
+        scheduledFuture = mock(ScheduledFuture.class);
+
         setupDefaultRelationships();
     }
 
@@ -180,6 +192,8 @@ public class SlashCommandTestFixture
         when(bot.getNowplayingHandler()).thenReturn(nowPlayingHandler);
         when(bot.getWaiter()).thenReturn(eventWaiter);
         when(bot.getAudioLoadWrapper()).thenReturn(AudioLoadWrapper.NO_OP);
+        when(bot.getThreadpool()).thenReturn(threadpool);
+        doReturn(scheduledFuture).when(threadpool).schedule(any(Runnable.class), anyLong(), any());
 
         // Settings relationships
         when(settingsManager.getSettings(anyLong())).thenReturn(settings);
@@ -190,6 +204,7 @@ public class SlashCommandTestFixture
         when(event.getGuild()).thenReturn(guild);
         when(event.getMember()).thenReturn(member);
         when(event.getTextChannel()).thenReturn(textChannel);
+        when(event.getGuildChannel()).thenReturn((GuildMessageChannelUnion) textChannel);
         when(event.getUser()).thenReturn(user);
 
         // Client defaults
@@ -517,6 +532,16 @@ public class SlashCommandTestFixture
     public AutoCompleteQuery getFocusedOption()
     {
         return focusedOption;
+    }
+
+    public ScheduledExecutorService getThreadpool()
+    {
+        return threadpool;
+    }
+
+    public ScheduledFuture<?> getScheduledFuture()
+    {
+        return scheduledFuture;
     }
 
     public AutoCompleteCallbackAction getAutoCompleteCallback()

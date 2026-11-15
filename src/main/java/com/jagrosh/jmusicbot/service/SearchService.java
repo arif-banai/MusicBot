@@ -25,7 +25,7 @@ import com.sedmelluq.discord.lavaplayer.track.AudioPlaylist;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
 import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.Member;
-import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
+import net.dv8tion.jda.api.entities.channel.middleman.GuildMessageChannel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -58,7 +58,7 @@ public class SearchService
      * @param callback     The callback for handling results
      */
     public void search(Guild guild, Member member, String query, String searchPrefix,
-                       TextChannel channel, SearchCallback callback)
+                       GuildMessageChannel channel, SearchCallback callback)
     {
         LOG.debug("Search requested: guild={}, user={}, query=\"{}\", prefix={}",
                 guild.getId(), member.getUser().getName(), query, searchPrefix);
@@ -134,11 +134,11 @@ public class SearchService
         private final Guild guild;
         private final Member member;
         private final String query;
-        private final TextChannel channel;
+        private final GuildMessageChannel channel;
         private final SearchCallback callback;
 
         private SearchResultHandler(Guild guild, Member member, String query,
-                                    TextChannel channel, SearchCallback callback)
+                                    GuildMessageChannel channel, SearchCallback callback)
         {
             this.guild = guild;
             this.member = member;

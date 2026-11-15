@@ -36,7 +36,6 @@ import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDAInfo;
 import net.dv8tion.jda.api.Permission;
 import net.dv8tion.jda.api.entities.channel.ChannelType;
-import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import net.dv8tion.jda.api.utils.FileUpload;
 
 /**
@@ -84,7 +83,7 @@ public class DebugCmd extends OwnerCommand
         sb.append("```");
 
         if (event.isFromType(ChannelType.PRIVATE)
-                || event.getSelfMember().hasPermission((TextChannel) event.getChannel(), Permission.MESSAGE_ATTACH_FILES))
+                || event.getSelfMember().hasPermission(event.getGuildChannel(), Permission.MESSAGE_ATTACH_FILES))
             event.getChannel().sendFiles(FileUpload.fromData(sb.toString().getBytes(), "debug_information.txt")).queue();
         else
             event.reply("Debug Information: " + sb.toString());

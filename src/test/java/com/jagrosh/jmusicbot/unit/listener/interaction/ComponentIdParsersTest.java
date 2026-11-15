@@ -24,6 +24,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ComponentIdParsersTest
 {
     @Test
+    void nowPlayingYtDlpSave_isTheSpecifiedLiteralId()
+    {
+        assertEquals("np_ytdlp_save", ComponentIdParsers.NOW_PLAYING_YTDLP_SAVE);
+        // Confirms why it can't go through parseNowPlayingButtonId: it has an extra underscore.
+        assertTrue(ComponentIdParsers.parseNowPlayingButtonId(ComponentIdParsers.NOW_PLAYING_YTDLP_SAVE).isEmpty());
+    }
+
+    @Test
     void parsePlaylistsButtonId_validId_returnsParsedValues()
     {
         var parsed = ComponentIdParsers.parsePlaylistsButtonId("playlists_queue_2_13_123456789");
@@ -174,5 +182,194 @@ class ComponentIdParsersTest
         assertTrue(ComponentIdParsers.parseNowPlayingButtonId("pause").isEmpty());
         assertTrue(ComponentIdParsers.parseNowPlayingButtonId("np_").isEmpty());
         assertTrue(ComponentIdParsers.parseNowPlayingButtonId("np_pause_more").isEmpty());
+    }
+
+    @Test
+    void parse_videoIdWithUnderscores()
+    {
+        var parsed = ComponentIdParsers.parseYtDlpButtonId("ytdlp_all_42_a_b-c_d1234");
+        assertTrue(parsed.isPresent());
+        assertEquals("all", parsed.get().action());
+        assertEquals(42L, parsed.get().requesterId());
+        assertEquals("a_b-c_d1234", parsed.get().videoId());
+    }
+
+    @Test
+    void roundTrip_oneAndAll()
+    {
+        for (String action : new String[] { "one", "all" })
+        {
+            String id = ComponentIdParsers.ytDlpButtonId(action, 123456789012345678L, "_a-b_c__d1");
+            var parsed = ComponentIdParsers.parseYtDlpButtonId(id);
+            assertTrue(parsed.isPresent(), id);
+            assertEquals(action, parsed.get().action());
+            assertEquals(123456789012345678L, parsed.get().requesterId());
+            assertEquals("_a-b_c__d1", parsed.get().videoId());
+        }
+    }
+
+    @Test
+    void parse_rejectsOtherPrefixes()
+    {
+        assertTrue(ComponentIdParsers.parseYtDlpButtonId("np_skip").isEmpty());
+        assertTrue(ComponentIdParsers.parseYtDlpButtonId("ytdlp_one_notanumber_abc").isEmpty());
+        assertTrue(ComponentIdParsers.parseYtDlpButtonId("ytdlp_one_42_").isEmpty());
+        assertTrue(ComponentIdParsers.parseYtDlpButtonId("ytdlp_one_42").isEmpty());
+        assertTrue(ComponentIdParsers.parseYtDlpButtonId("ytdlp_maybe_42_abc").isEmpty());
+    }
+
+    @Test
+    void ytDlpMatch_roundTrip()
+    {
+        for (String action : new String[] { "switch", "reject" })
+        {
+            String id = ComponentIdParsers.ytDlpMatchButtonId(action, 123456789012345678L, 7L);
+            assertEquals("ytdlp_match_" + action + "_123456789012345678_7", id);
+            var parsed = ComponentIdParsers.parseYtDlpMatchButtonId(id);
+            assertTrue(parsed.isPresent(), id);
+            assertEquals(action, parsed.get().action());
+            assertEquals(123456789012345678L, parsed.get().requesterId());
+            assertEquals(7L, parsed.get().suggestionId());
+        }
+    }
+
+    @Test
+    void ytDlpMatch_oldTwoPartFormat_parsesWithSuggestionIdZero()
+    {
+        var parsed = ComponentIdParsers.parseYtDlpMatchButtonId("ytdlp_match_switch_123");
+        assertTrue(parsed.isPresent());
+        assertEquals("switch", parsed.get().action());
+        assertEquals(123L, parsed.get().requesterId());
+        assertEquals(0L, parsed.get().suggestionId());
+    }
+
+    @Test
+    void ytDlpMatch_rejectsOthers()
+    {
+        assertTrue(ComponentIdParsers.parseYtDlpMatchButtonId("ytdlp_one_42_abc").isEmpty());
+        assertTrue(ComponentIdParsers.parseYtDlpMatchButtonId("ytdlp_match_maybe_42").isEmpty());
+        assertTrue(ComponentIdParsers.parseYtDlpMatchButtonId("ytdlp_match_switch_x").isEmpty());
+        assertTrue(ComponentIdParsers.parseYtDlpMatchButtonId("ytdlp_match_switch_123_x").isEmpty());
+        assertTrue(ComponentIdParsers.parseYtDlpMatchButtonId("ytdlp_match_switch_123_7_9").isEmpty());
+        assertTrue(ComponentIdParsers.parseYtDlpMatchButtonId("ytdlp_match_switch").isEmpty());
+        // The prompt parser doesn't take match buttons either.
+        assertTrue(ComponentIdParsers.parseYtDlpButtonId("ytdlp_match_switch_42").isEmpty());
+    }
+
+    @Test
+    void libComponentId_noArg_roundTrips()
+    {
+        String id = ComponentIdParsers.libComponentId("rescan", 123456789012345678L);
+        assertEquals("lib_rescan_123456789012345678", id);
+        var parsed = ComponentIdParsers.parseLibComponentId(id);
+        assertTrue(parsed.isPresent(), id);
+        assertEquals("rescan", parsed.get().action());
+        assertEquals(123456789012345678L, parsed.get().ownerUserId());
+        assertEquals(null, parsed.get().arg());
+    }
+
+    @Test
+    void libComponentId_withTokenArg_roundTrips()
+    {
+        String token = "abc123def456";
+        String id = ComponentIdParsers.libComponentId("back", 42L, token);
+        assertEquals("lib_back_42_" + token, id);
+        var parsed = ComponentIdParsers.parseLibComponentId(id);
+        assertTrue(parsed.isPresent(), id);
+        assertEquals("back", parsed.get().action());
+        assertEquals(42L, parsed.get().ownerUserId());
+        assertEquals(token, parsed.get().arg());
+    }
+
+    @Test
+    void libComponentId_withTokenAndIndex_roundTrips()
+    {
+        String token = "abc123def456";
+        String id = ComponentIdParsers.libComponentId("play", 42L, token, 7);
+        assertEquals("lib_play_42_" + token + "_7", id);
+        var parsed = ComponentIdParsers.parseLibComponentId(id);
+        assertTrue(parsed.isPresent(), id);
+        assertEquals("play", parsed.get().action());
+        assertEquals(42L, parsed.get().ownerUserId());
+        assertEquals(token + "_7", parsed.get().arg());
+    }
+
+    @Test
+    void libComponentId_withToken_staysUnder100CharsEvenForTheLongestOwnerAndIndex()
+    {
+        // A file: key or a search query can exceed Discord's 100-char custom-ID limit on their
+        // own; a token is a fixed-length, opaque UUID (see LibraryPanelTokens), so the whole
+        // component ID stays well under the limit regardless of how long the underlying key or
+        // query is, even at the longest possible owner ID and a multi-digit index.
+        String token = java.util.UUID.randomUUID().toString().replace("-", "");
+        String id = ComponentIdParsers.libComponentId("rmfile", Long.MAX_VALUE, token, -12345);
+        assertTrue(id.length() <= 100, id);
+        // Sanity: a 150-char file: key embedded directly, as the old scheme did, blows past the limit.
+        String longKey = "file:" + "x".repeat(150);
+        assertTrue(("lib_rmfile_" + Long.MAX_VALUE + "_" + longKey).length() > 100);
+    }
+
+    @Test
+    void libComponentId_invalid_returnsEmpty()
+    {
+        assertTrue(ComponentIdParsers.parseLibComponentId(null).isEmpty());
+        assertTrue(ComponentIdParsers.parseLibComponentId("lib_rescan").isEmpty());
+        assertTrue(ComponentIdParsers.parseLibComponentId("lib_rescan_notanumber").isEmpty());
+        assertTrue(ComponentIdParsers.parseLibComponentId("playlists_rescan_1_1_1").isEmpty());
+        // The search-modal ID isn't a component ID.
+        assertTrue(ComponentIdParsers.parseLibComponentId(ComponentIdParsers.libSearchModalId(1L)).isEmpty());
+    }
+
+    @Test
+    void libSearchModalId_roundTrips()
+    {
+        String id = ComponentIdParsers.libSearchModalId(987654321L);
+        assertEquals("lib_searchmodal_987654321", id);
+        var parsed = ComponentIdParsers.parseLibSearchModalOwnerId(id);
+        assertTrue(parsed.isPresent(), id);
+        assertEquals(987654321L, parsed.get());
+    }
+
+    @Test
+    void libSearchModalId_rejectsOthers()
+    {
+        assertTrue(ComponentIdParsers.parseLibSearchModalOwnerId(null).isEmpty());
+        assertTrue(ComponentIdParsers.parseLibSearchModalOwnerId("lib_rescan_42").isEmpty());
+        assertTrue(ComponentIdParsers.parseLibSearchModalOwnerId("lib_searchmodal_notanumber").isEmpty());
+    }
+
+    @Test
+    void parseLibTokenArg_tokenOnly_returnsNullIndex()
+    {
+        var parsed = ComponentIdParsers.parseLibTokenArg("abcDEF123");
+        assertTrue(parsed.isPresent());
+        assertEquals("abcDEF123", parsed.get().token());
+        assertEquals(null, parsed.get().index());
+    }
+
+    @Test
+    void parseLibTokenArg_tokenAndIndex_splitsOnFirstUnderscore()
+    {
+        var parsed = ComponentIdParsers.parseLibTokenArg("abcDEF123_7");
+        assertTrue(parsed.isPresent());
+        assertEquals("abcDEF123", parsed.get().token());
+        assertEquals(7, parsed.get().index());
+    }
+
+    @Test
+    void parseLibTokenArg_negativeIndex_parsesAsASignedDelta()
+    {
+        var parsed = ComponentIdParsers.parseLibTokenArg("abcDEF123_-1");
+        assertTrue(parsed.isPresent());
+        assertEquals("abcDEF123", parsed.get().token());
+        assertEquals(-1, parsed.get().index());
+    }
+
+    @Test
+    void parseLibTokenArg_invalid_returnsEmpty()
+    {
+        assertTrue(ComponentIdParsers.parseLibTokenArg(null).isEmpty());
+        assertTrue(ComponentIdParsers.parseLibTokenArg("").isEmpty());
+        assertTrue(ComponentIdParsers.parseLibTokenArg("abc_notanumber").isEmpty());
     }
 }

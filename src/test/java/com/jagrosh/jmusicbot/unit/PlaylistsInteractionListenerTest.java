@@ -17,8 +17,10 @@ package com.jagrosh.jmusicbot.unit;
 
 import com.jagrosh.jmusicbot.listener.PlaylistsInteractionListener;
 import com.jagrosh.jmusicbot.service.MusicService;
+import com.jagrosh.jmusicbot.testutil.listener.InteractionAckTracker;
 import com.jagrosh.jmusicbot.testutil.listener.ListenerTestFixture;
 import net.dv8tion.jda.api.entities.MessageEmbed;
+import net.dv8tion.jda.api.entities.channel.unions.GuildMessageChannelUnion;
 import net.dv8tion.jda.api.entities.channel.unions.MessageChannelUnion;
 import net.dv8tion.jda.api.requests.restaction.interactions.MessageEditCallbackAction;
 import org.junit.jupiter.api.BeforeEach;
@@ -26,7 +28,10 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -85,15 +90,15 @@ class PlaylistsInteractionListenerTest
                 .thenReturn(MusicService.PlaylistNamesInfo.success(List.of("favorite")));
 
         MessageChannelUnion channelUnion = mock(MessageChannelUnion.class);
-        when(channelUnion.asTextChannel()).thenReturn(fixture.getTextChannel());
+        when(channelUnion.asGuildMessageChannel())
+                .thenReturn((GuildMessageChannelUnion) fixture.getTextChannel());
         when(fixture.getButtonInteractionEvent().getChannel()).thenReturn(channelUnion);
 
-        MessageEditCallbackAction editAction = mock(MessageEditCallbackAction.class);
-        when(fixture.getButtonInteractionEvent().editMessageEmbeds(any(MessageEmbed[].class))).thenReturn(editAction);
-        when(editAction.setComponents(anyList())).thenReturn(editAction);
-        doNothing().when(editAction).queue();
+        InteractionAckTracker acks = InteractionAckTracker.attach(fixture.getButtonInteractionEvent(), fixture.getReplyAction());
 
         listener.onButtonInteraction(fixture.getButtonInteractionEvent());
+
+        assertEquals(List.of("deferEdit"), acks.acks());
 
         verify(fixture.getMusicService()).queuePlaylist(
                 eq(fixture.getGuild()),
@@ -132,17 +137,17 @@ class PlaylistsInteractionListenerTest
         when(fixture.getMusicService().getPlaylistTrackCount(any())).thenReturn(3);
 
         MessageChannelUnion channelUnion = mock(MessageChannelUnion.class);
-        when(channelUnion.asTextChannel()).thenReturn(fixture.getTextChannel());
+        when(channelUnion.asGuildMessageChannel())
+                .thenReturn((GuildMessageChannelUnion) fixture.getTextChannel());
         when(channelUnion.getIdLong()).thenReturn(123L);
         when(fixture.getButtonInteractionEvent().getChannel()).thenReturn(channelUnion);
         when(fixture.getButtonInteractionEvent().getMessageIdLong()).thenReturn(456L);
 
-        MessageEditCallbackAction editAction = mock(MessageEditCallbackAction.class);
-        when(fixture.getButtonInteractionEvent().editMessageEmbeds(any(MessageEmbed[].class))).thenReturn(editAction);
-        when(editAction.setComponents(anyList())).thenReturn(editAction);
-        doNothing().when(editAction).queue();
+        InteractionAckTracker acks = InteractionAckTracker.attach(fixture.getButtonInteractionEvent(), fixture.getReplyAction());
 
         listener.onButtonInteraction(fixture.getButtonInteractionEvent());
+
+        assertEquals(List.of("deferEdit"), acks.acks());
 
         verify(fixture.getMusicService()).queuePlaylist(
                 eq(fixture.getGuild()),
@@ -212,12 +217,11 @@ class PlaylistsInteractionListenerTest
         when(fixture.getButtonInteractionEvent().getChannel()).thenReturn(channelUnion);
         when(fixture.getButtonInteractionEvent().getMessageIdLong()).thenReturn(456L);
 
-        MessageEditCallbackAction editAction = mock(MessageEditCallbackAction.class);
-        when(fixture.getButtonInteractionEvent().editMessageEmbeds(any(MessageEmbed[].class))).thenReturn(editAction);
-        when(editAction.setComponents(anyList())).thenReturn(editAction);
-        doNothing().when(editAction).queue();
+        InteractionAckTracker acks = InteractionAckTracker.attach(fixture.getButtonInteractionEvent(), fixture.getReplyAction());
 
         listener.onButtonInteraction(fixture.getButtonInteractionEvent());
+
+        assertEquals(List.of("deferEdit"), acks.acks());
 
         verify(fixture.getButtonInteractionEvent(), never()).reply(argThat((String s) -> s.contains("No track selected")));
         verify(fixture.getMusicService()).loadPlaylistPageWithTracks(any(MusicService.PlaylistDraftContext.class), anyInt(), anyInt(), any());
@@ -258,12 +262,11 @@ class PlaylistsInteractionListenerTest
         when(fixture.getButtonInteractionEvent().getChannel()).thenReturn(channelUnion);
         when(fixture.getButtonInteractionEvent().getMessageIdLong()).thenReturn(456L);
 
-        MessageEditCallbackAction editAction = mock(MessageEditCallbackAction.class);
-        when(fixture.getButtonInteractionEvent().editMessageEmbeds(any(MessageEmbed[].class))).thenReturn(editAction);
-        when(editAction.setComponents(anyList())).thenReturn(editAction);
-        doNothing().when(editAction).queue();
+        InteractionAckTracker acks = InteractionAckTracker.attach(fixture.getButtonInteractionEvent(), fixture.getReplyAction());
 
         listener.onButtonInteraction(fixture.getButtonInteractionEvent());
+
+        assertEquals(List.of("deferEdit"), acks.acks());
 
         verify(fixture.getMusicService()).loadPlaylistPageWithTracks(any(MusicService.PlaylistDraftContext.class), anyInt(), anyInt(), any());
     }
@@ -295,5 +298,232 @@ class PlaylistsInteractionListenerTest
 
         verify(fixture.getMusicService()).discardPlaylistDraft(draftContext);
         verify(fixture.getButtonInteractionEvent()).editMessageEmbeds(any(MessageEmbed[].class));
+    }
+
+    // ==================== Acknowledgement: exactly once, later output via the hook ====================
+
+    private static final MusicService.PlaylistTracksPageInfo FAVORITE_PAGE = new MusicService.PlaylistTracksPageInfo(
+            "favorite", 3, 0, false, false, List.of(
+            "`[03:57]` [**spinnin**](https://example/1)",
+            "`[05:57]` [**daylight**](https://example/2)",
+            "`[04:31]` [**rapture**](https://example/3)"));
+
+    /**
+     * Stubs a 3-track "favorite" playlist for the details view and captures the page-load callback
+     * without running it, so the test decides when the (network-bound) re-render finishes.
+     */
+    private AtomicReference<Consumer<MusicService.PlaylistTracksPageInfo>> stubFavoriteDetails()
+    {
+        when(fixture.getMusicService().getAvailablePlaylistNames())
+                .thenReturn(MusicService.PlaylistNamesInfo.success(List.of("favorite")));
+        when(fixture.getMusicService().getPlaylistDetails("favorite"))
+                .thenReturn(new MusicService.PlaylistDetailsInfo("favorite", 3, List.of(), false));
+        when(fixture.getMusicService().getPlaylistTrackCount(any())).thenReturn(3);
+        MusicService.PlaylistDraftContext draftContext =
+                new MusicService.PlaylistDraftContext(123456789L, 123L, 456L, fixture.getUser().getIdLong(), "favorite");
+        when(fixture.getMusicService().buildPlaylistDraftContext(anyLong(), anyLong(), anyLong(), anyLong(), anyString()))
+                .thenReturn(draftContext);
+        stubChannel();
+        when(fixture.getButtonInteractionEvent().getMessageIdLong()).thenReturn(456L);
+
+        AtomicReference<Consumer<MusicService.PlaylistTracksPageInfo>> render = new AtomicReference<>();
+        doAnswer(invocation ->
+        {
+            render.set(invocation.getArgument(3));
+            return null;
+        }).when(fixture.getMusicService()).loadPlaylistPageWithTracks(any(MusicService.PlaylistDraftContext.class), anyInt(), anyInt(), any());
+        return render;
+    }
+
+    private void stubChannel()
+    {
+        MessageChannelUnion channelUnion = mock(MessageChannelUnion.class);
+        when(channelUnion.asGuildMessageChannel())
+                .thenReturn((GuildMessageChannelUnion) fixture.getTextChannel());
+        when(channelUnion.getIdLong()).thenReturn(123L);
+        when(fixture.getButtonInteractionEvent().getChannel()).thenReturn(channelUnion);
+    }
+
+    private void assertEphemeralFollowup(InteractionAckTracker acks, String content)
+    {
+        verify(acks.hook()).sendMessage(content);
+        verify(acks.followup()).setEphemeral(true);
+        verify(acks.followup()).queue();
+        verify(fixture.getButtonInteractionEvent(), never()).reply(anyString());
+    }
+
+    @Test
+    @DisplayName("playlistdetails playall: re-render first, then the playlist-loaded reply goes through the hook (E5)")
+    void playlistDetailsPlayAll_renderThenLoaded_acknowledgesOnce()
+    {
+        fixture.withButtonId("playlistdetails_1_1_playall_1_0_" + fixture.getUser().getIdLong())
+                .withMemberInVoiceChannel();
+        AtomicReference<Consumer<MusicService.PlaylistTracksPageInfo>> render = stubFavoriteDetails();
+        AtomicReference<MusicService.OutputAdapter> output = new AtomicReference<>();
+        doAnswer(invocation ->
+        {
+            output.set(invocation.getArgument(4));
+            return null;
+        }).when(fixture.getMusicService()).playPlaylistNow(any(), any(), eq("favorite"), any(), any());
+        InteractionAckTracker acks = InteractionAckTracker.attach(fixture.getButtonInteractionEvent(), fixture.getReplyAction());
+
+        listener.onButtonInteraction(fixture.getButtonInteractionEvent());
+        render.get().accept(FAVORITE_PAGE);
+        output.get().replySuccess("Now playing playlist `favorite` (queue replaced).");
+
+        assertEquals(List.of("deferEdit"), acks.acks());
+        verify(acks.hook()).editOriginalEmbeds(any(MessageEmbed[].class));
+        assertEphemeralFollowup(acks, "Now playing playlist `favorite` (queue replaced).");
+    }
+
+    @Test
+    @DisplayName("playlistdetails queueall: an immediate error reply still leaves the view re-render one acknowledgement")
+    void playlistDetailsQueueAll_immediateError_acknowledgesOnce()
+    {
+        fixture.withButtonId("playlistdetails_1_1_queueall_1_0_" + fixture.getUser().getIdLong())
+                .withMemberInVoiceChannel();
+        AtomicReference<Consumer<MusicService.PlaylistTracksPageInfo>> render = stubFavoriteDetails();
+        doAnswer(invocation ->
+        {
+            MusicService.OutputAdapter output = invocation.getArgument(4);
+            output.replyError("Playlist could not be read.");
+            return null;
+        }).when(fixture.getMusicService()).queuePlaylist(any(), any(), eq("favorite"), any(), any());
+        InteractionAckTracker acks = InteractionAckTracker.attach(fixture.getButtonInteractionEvent(), fixture.getReplyAction());
+
+        listener.onButtonInteraction(fixture.getButtonInteractionEvent());
+        render.get().accept(FAVORITE_PAGE);
+
+        assertEquals(List.of("deferEdit"), acks.acks());
+        assertEphemeralFollowup(acks, "Playlist could not be read.");
+        verify(acks.hook()).editOriginalEmbeds(any(MessageEmbed[].class));
+    }
+
+    @Test
+    @DisplayName("playlistdetails queue (one track): load result after the re-render goes through the hook")
+    void playlistDetailsQueueTrack_renderThenLoaded_acknowledgesOnce()
+    {
+        fixture.withButtonId("playlistdetails_1_1_queue_1_2_" + fixture.getUser().getIdLong())
+                .withMemberInVoiceChannel();
+        AtomicReference<Consumer<MusicService.PlaylistTracksPageInfo>> render = stubFavoriteDetails();
+        when(fixture.getMusicService().getPlaylistTrackUrlAtPosition(any(MusicService.PlaylistDraftContext.class), eq(2)))
+                .thenReturn("https://example/2");
+        AtomicReference<MusicService.OutputAdapter> output = new AtomicReference<>();
+        doAnswer(invocation ->
+        {
+            output.set(invocation.getArgument(4));
+            return null;
+        }).when(fixture.getMusicService()).play(any(), any(), eq("https://example/2"), any(), any());
+        InteractionAckTracker acks = InteractionAckTracker.attach(fixture.getButtonInteractionEvent(), fixture.getReplyAction());
+
+        listener.onButtonInteraction(fixture.getButtonInteractionEvent());
+        render.get().accept(FAVORITE_PAGE);
+        output.get().replySuccess("Added daylight to the queue");
+
+        assertEquals(List.of("deferEdit"), acks.acks());
+        assertEphemeralFollowup(acks, "Added daylight to the queue");
+    }
+
+    @Test
+    @DisplayName("playlistdetails next: acknowledges before the track page loads (no 3-second timeout)")
+    void playlistDetailsNext_defersBeforeLoadingTracks()
+    {
+        fixture.withButtonId("playlistdetails_1_1_next_1_0_" + fixture.getUser().getIdLong());
+        AtomicReference<Consumer<MusicService.PlaylistTracksPageInfo>> render = stubFavoriteDetails();
+        InteractionAckTracker acks = InteractionAckTracker.attach(fixture.getButtonInteractionEvent(), fixture.getReplyAction());
+
+        listener.onButtonInteraction(fixture.getButtonInteractionEvent());
+
+        assertEquals(List.of("deferEdit"), acks.acks(), "must acknowledge before the page's tracks finish loading");
+        render.get().accept(FAVORITE_PAGE);
+        assertEquals(List.of("deferEdit"), acks.acks());
+        verify(acks.hook()).editOriginalEmbeds(any(MessageEmbed[].class));
+    }
+
+    @Test
+    @DisplayName("playlistdetails move: acknowledges before the track page loads, then shows the menu through the hook")
+    void playlistDetailsMove_defersBeforeLoadingTracks()
+    {
+        fixture.withButtonId("playlistdetails_1_1_move_1_2_" + fixture.getUser().getIdLong());
+        AtomicReference<Consumer<MusicService.PlaylistTracksPageInfo>> render = stubFavoriteDetails();
+        when(fixture.getMusicService().canEditPlaylistEntries(eq(fixture.getGuild()), eq(fixture.getMember())))
+                .thenReturn(true);
+        InteractionAckTracker acks = InteractionAckTracker.attach(fixture.getButtonInteractionEvent(), fixture.getReplyAction());
+
+        listener.onButtonInteraction(fixture.getButtonInteractionEvent());
+
+        assertEquals(List.of("deferEdit"), acks.acks(), "must acknowledge before the page's tracks finish loading");
+        render.get().accept(FAVORITE_PAGE);
+        assertEquals(List.of("deferEdit"), acks.acks());
+        verify(acks.hook()).editOriginalEmbeds(any(MessageEmbed[].class));
+        verify(acks.hookEdit()).setComponents(
+                argThat((java.util.Collection<? extends net.dv8tion.jda.api.components.MessageTopLevelComponent> rows)
+                        -> rows.size() == 2));
+        verify(acks.hookEdit()).queue();
+    }
+
+    @Test
+    @DisplayName("playlistdetails move: a playlist that vanished while loading gets an ephemeral follow-up")
+    void playlistDetailsMove_missingPlaylist_ephemeralFollowup()
+    {
+        fixture.withButtonId("playlistdetails_1_1_move_1_2_" + fixture.getUser().getIdLong());
+        AtomicReference<Consumer<MusicService.PlaylistTracksPageInfo>> render = stubFavoriteDetails();
+        when(fixture.getMusicService().canEditPlaylistEntries(eq(fixture.getGuild()), eq(fixture.getMember())))
+                .thenReturn(true);
+        InteractionAckTracker acks = InteractionAckTracker.attach(fixture.getButtonInteractionEvent(), fixture.getReplyAction());
+
+        listener.onButtonInteraction(fixture.getButtonInteractionEvent());
+        render.get().accept(null);
+
+        assertEquals(List.of("deferEdit"), acks.acks());
+        assertEphemeralFollowup(acks, "Playlist no longer exists. Click Back and Refresh.");
+    }
+
+    @Test
+    @DisplayName("playlists playnow (list view): embed refresh and later playlist-loaded reply acknowledge once")
+    void playlistsPlayNow_refreshThenLoaded_acknowledgesOnce()
+    {
+        fixture.withButtonId("playlists_playnow_1_1_" + fixture.getUser().getIdLong())
+                .withMemberInVoiceChannel();
+        when(fixture.getMusicService().getAvailablePlaylistNames())
+                .thenReturn(MusicService.PlaylistNamesInfo.success(List.of("favorite")));
+        stubChannel();
+        AtomicReference<MusicService.OutputAdapter> output = new AtomicReference<>();
+        doAnswer(invocation ->
+        {
+            output.set(invocation.getArgument(4));
+            return null;
+        }).when(fixture.getMusicService()).playPlaylistNow(any(), any(), eq("favorite"), any(), any());
+        InteractionAckTracker acks = InteractionAckTracker.attach(fixture.getButtonInteractionEvent(), fixture.getReplyAction());
+
+        listener.onButtonInteraction(fixture.getButtonInteractionEvent());
+        output.get().replySuccess("Now playing playlist `favorite` (queue replaced).");
+
+        assertEquals(List.of("deferEdit"), acks.acks());
+        verify(acks.hook()).editOriginalEmbeds(any(MessageEmbed[].class));
+        assertEphemeralFollowup(acks, "Now playing playlist `favorite` (queue replaced).");
+    }
+
+    @Test
+    @DisplayName("playlists queue (list view): an immediate error reply leaves one acknowledgement")
+    void playlistsQueue_immediateError_acknowledgesOnce()
+    {
+        fixture.withButtonId("playlists_queue_1_1_" + fixture.getUser().getIdLong())
+                .withMemberInVoiceChannel();
+        when(fixture.getMusicService().getAvailablePlaylistNames())
+                .thenReturn(MusicService.PlaylistNamesInfo.success(List.of("favorite")));
+        stubChannel();
+        doAnswer(invocation ->
+        {
+            MusicService.OutputAdapter output = invocation.getArgument(4);
+            output.replyError("Playlist could not be read.");
+            return null;
+        }).when(fixture.getMusicService()).queuePlaylist(any(), any(), eq("favorite"), any(), any());
+        InteractionAckTracker acks = InteractionAckTracker.attach(fixture.getButtonInteractionEvent(), fixture.getReplyAction());
+
+        listener.onButtonInteraction(fixture.getButtonInteractionEvent());
+
+        assertEquals(List.of("deferEdit"), acks.acks());
+        assertEphemeralFollowup(acks, "Playlist could not be read.");
     }
 }

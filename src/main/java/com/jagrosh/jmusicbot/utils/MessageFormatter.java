@@ -4,9 +4,15 @@ import com.jagrosh.jmusicbot.Bot;
 import com.jagrosh.jmusicbot.audio.AudioHandler;
 import com.jagrosh.jmusicbot.audio.NowPlayingInfo;
 import com.jagrosh.jmusicbot.audio.RequestMetadata;
+import com.jagrosh.jmusicbot.listener.interaction.ComponentIdParsers;
 import com.jagrosh.jmusicbot.settings.RepeatMode;
 import com.jagrosh.jmusicbot.settings.Settings;
+import com.jagrosh.jmusicbot.ytdlp.LibraryAudioTrack;
+import com.jagrosh.jmusicbot.ytdlp.LibraryKeys;
+import com.jagrosh.jmusicbot.ytdlp.YtDlpService;
+import com.sedmelluq.discord.lavaplayer.source.AudioSourceManager;
 import com.sedmelluq.discord.lavaplayer.source.local.LocalAudioTrack;
+import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
 import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.components.actionrow.ActionRow;
 import net.dv8tion.jda.api.components.buttons.Button;
@@ -14,6 +20,10 @@ import net.dv8tion.jda.api.entities.User;
 import net.dv8tion.jda.api.entities.emoji.Emoji;
 import net.dv8tion.jda.api.utils.messages.MessageCreateBuilder;
 import net.dv8tion.jda.api.utils.messages.MessageCreateData;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
 
 public class MessageFormatter {
     private static final String NP_PREFIX = "np_";
@@ -78,7 +88,7 @@ public class MessageFormatter {
 
         mb.setEmbeds(eb.build());
         if (showButtons) {
-            applyNowPlayingButtons(mb, info, repeatMode);
+            applyNowPlayingButtons(mb, bot, info, repeatMode);
         }
         return mb.build();
     }
@@ -99,7 +109,7 @@ public class MessageFormatter {
         eb.setDescription(buildPlaybackStatusDescription(bot, info, repeatMode, true));
 
         if (showButtons) {
-            applyNowPlayingButtons(mb, info, repeatMode);
+            applyNowPlayingButtons(mb, bot, info, repeatMode);
         }
 
         mb.setEmbeds(eb.build());
@@ -143,7 +153,15 @@ public class MessageFormatter {
                 .build();
     }
 
+    private static final String YTDLP_WAITING_LINE = AudioHandler.PAUSE_EMOJI
+            + " Waiting: YouTube blocked this song. Choose in the yt-dlp download prompt.";
+
     private static String buildPlaybackStatusLine(Bot bot, NowPlayingInfo info) {
+        if (info.isAwaitingYtDlpGate) {
+            // A yt-dlp prompt is open for this track: it isn't playing, so no progress bar or
+            // elapsed time, which would otherwise make it look like normal playback.
+            return YTDLP_WAITING_LINE;
+        }
         String statusEmoji = info.isPaused ? AudioHandler.PAUSE_EMOJI : AudioHandler.PLAY_EMOJI;
         String timeDisplay = "`[" + TimeUtil.formatTime(info.position) + "/" + TimeUtil.formatTime(info.duration) + "]`";
         if (bot.getConfig().showNpProgressBar()) {
@@ -192,9 +210,51 @@ public class MessageFormatter {
 
     private static String sourceNameForTrack(NowPlayingInfo info)
     {
-        return info.track.getSourceManager() != null
-                ? info.track.getSourceManager().getSourceName()
+        return sourceLabel(info.track);
+    }
+
+    /**
+     * The source shown for a track: the lavaplayer source name, or for any {@link LibraryAudioTrack}
+     * {@code "<source> (library)"} &mdash; using its display source if it has one that's meaningful
+     * (not the local file manager used to actually play it), otherwise falling back to the source
+     * implied by its own library key &mdash; or plain {@code "library"} when neither is known
+     * (e.g. a file imported with no recognised source).
+     */
+    private static String sourceLabel(AudioTrack track)
+    {
+        if (track instanceof LibraryAudioTrack libraryTrack)
+        {
+            AudioSourceManager display = libraryTrack.getSourceManager();
+            String sourceName = display != null ? display.getSourceName() : null;
+            if (sourceName == null || sourceName.isBlank() || "local".equals(sourceName))
+            {
+                sourceName = LibraryKeys.sourceOf(libraryTrack.getKey()).orElse(null);
+            }
+            return sourceName != null && !sourceName.isBlank() ? sourceName + " (library)" : "library";
+        }
+        return track.getSourceManager() != null
+                ? track.getSourceManager().getSourceName()
                 : "Unknown";
+    }
+
+    /**
+     * Whether the now-playing "Download" button should be shown: {@code ytdlp.downloadButton} is
+     * on, yt-dlp is enabled, the track has a library key, it isn't already in the library (directly
+     * or through an alias), and it isn't already a {@link LibraryAudioTrack}.
+     */
+    private static boolean showYtDlpDownloadButton(Bot bot, NowPlayingInfo info)
+    {
+        if (info.track == null || info.track instanceof LibraryAudioTrack)
+        {
+            return false;
+        }
+        YtDlpService ytDlp = bot.getYtDlp();
+        if (ytDlp == null || !ytDlp.isEnabled() || !ytDlp.settings().downloadButton())
+        {
+            return false;
+        }
+        Optional<String> key = LibraryKeys.of(info.track);
+        return key.isPresent() && ytDlp.library().resolve(key.get()).isEmpty();
     }
 
     private static String resolveArtworkUrl(Bot bot, NowPlayingInfo info)
@@ -218,7 +278,7 @@ public class MessageFormatter {
         return null;
     }
 
-    private static void applyNowPlayingButtons(MessageCreateBuilder mb, NowPlayingInfo info, RepeatMode repeatMode) {
+    private static void applyNowPlayingButtons(MessageCreateBuilder mb, Bot bot, NowPlayingInfo info, RepeatMode repeatMode) {
         boolean canGoPrevious = info.position > 5000 || info.previousTrackCount > 0;
         boolean canShuffle = info.queueSize > 1;
         boolean canVolDown = info.volume > MIN_VOLUME;
@@ -232,9 +292,10 @@ public class MessageFormatter {
 
         Button previousButton = Button.secondary(nowPlayingButtonId("previous"), "Prev").withEmoji(Emoji.fromUnicode("\u23EE")) // ⏮
                 .withDisabled(!canGoPrevious);
-        Button pauseButton = info.isPaused
+        Button pauseButton = (info.isPaused
                 ? Button.primary(nowPlayingButtonId("pause"), "Resume").withEmoji(Emoji.fromUnicode("\u25B6")) // ▶
-                : Button.primary(nowPlayingButtonId("pause"), "Pause").withEmoji(Emoji.fromUnicode("\u23F8")); // ⏸
+                : Button.primary(nowPlayingButtonId("pause"), "Pause").withEmoji(Emoji.fromUnicode("\u23F8"))) // ⏸
+                .withDisabled(info.isAwaitingYtDlpGate);
         Button shuffleButton = Button.secondary(nowPlayingButtonId("shuffle"), "Shuffle").withEmoji(Emoji.fromUnicode("\uD83D\uDD00")) // 🔀
                 .withDisabled(!canShuffle);
         Button volumeDownButton = Button.secondary(nowPlayingButtonId("voldown"), "Vol -").withEmoji(Emoji.fromUnicode("\uD83D\uDD09")) // 🔉
@@ -246,21 +307,27 @@ public class MessageFormatter {
                 : Button.secondary(nowPlayingButtonId("favorite"), "Favorite"))
                 .withEmoji(Emoji.fromUnicode("\u2B50")); // ⭐
 
-        mb.setComponents(
-                ActionRow.of(
-                        previousButton,
-                        pauseButton,
-                        Button.secondary(nowPlayingButtonId("skip"), "Skip").withEmoji(Emoji.fromUnicode("\u23ED")), // ⏭
-                        Button.danger(nowPlayingButtonId("stop"), "Stop").withEmoji(Emoji.fromUnicode("\u23F9")) // ⏹
-                ),
-                ActionRow.of(
-                        shuffleButton,
-                        repeatButton,
-                        favoriteButton,
-                        volumeDownButton,
-                        volumeUpButton
-                )
-        );
+        List<ActionRow> rows = new ArrayList<>();
+        rows.add(ActionRow.of(
+                previousButton,
+                pauseButton,
+                Button.secondary(nowPlayingButtonId("skip"), "Skip").withEmoji(Emoji.fromUnicode("\u23ED")), // ⏭
+                Button.danger(nowPlayingButtonId("stop"), "Stop").withEmoji(Emoji.fromUnicode("\u23F9")) // ⏹
+        ));
+        rows.add(ActionRow.of(
+                shuffleButton,
+                repeatButton,
+                favoriteButton,
+                volumeDownButton,
+                volumeUpButton
+        ));
+        if (showYtDlpDownloadButton(bot, info)) {
+            rows.add(ActionRow.of(
+                    Button.secondary(ComponentIdParsers.NOW_PLAYING_YTDLP_SAVE, "Download")
+                            .withEmoji(Emoji.fromUnicode("\u2B07")) // ⬇
+            ));
+        }
+        mb.setComponents(rows);
     }
 
     private static String nowPlayingButtonId(String action) {

@@ -55,7 +55,7 @@ public class PlaynextSlashCmd extends DJSlashCommand
 
         event.reply(loadingEmoji + " Loading... `[" + query + "]`").queue(hook ->
         {
-            musicService.playNext(event.getGuild(), event.getMember(), query, event.getTextChannel(),
+            musicService.playNext(event.getGuild(), event.getMember(), query, event.getGuildChannel(),
                     new InteractionHookOutputAdapter(hook, event.getJDA(), event.getClient().getWarning()));
         });
     }

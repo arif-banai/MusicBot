@@ -19,14 +19,29 @@ import com.jagrosh.jmusicbot.Bot;
 import com.jagrosh.jmusicbot.BotConfig;
 import com.jagrosh.jmusicbot.audio.AudioSource;
 import com.jagrosh.jmusicbot.audio.PlayerManager;
+import com.jagrosh.jmusicbot.ytdlp.LibraryAudioTrack;
+import com.jagrosh.jmusicbot.ytdlp.ProcessRunner;
+import com.jagrosh.jmusicbot.ytdlp.YtDlpDownloader;
+import com.jagrosh.jmusicbot.ytdlp.YtDlpLibrary;
+import com.jagrosh.jmusicbot.ytdlp.YtDlpService;
+import com.jagrosh.jmusicbot.ytdlp.YtDlpSettings;
+import com.sedmelluq.discord.lavaplayer.source.AudioSourceManager;
+import com.sedmelluq.discord.lavaplayer.track.AudioItem;
+import com.sedmelluq.discord.lavaplayer.track.AudioReference;
+import com.sedmelluq.discord.lavaplayer.track.AudioTrackInfo;
 import com.typesafe.config.ConfigFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -146,6 +161,93 @@ class PlayerManagerTest {
             playerManager.init();
 
             verify(config).getFrameBufferMs();
+        }
+    }
+
+    @Nested
+    @DisplayName("yt-dlp Library Source Registration Tests")
+    class LibrarySourceRegistrationTests {
+
+        @Test
+        @DisplayName("init() registers the ytdlp-library source manager before YouTube")
+        void libraryRegisteredBeforeYoutube() {
+            when(config.proxyLavaplayer()).thenReturn(false);
+            when(config.getEnabledAudioSources()).thenReturn(Set.of(AudioSource.YOUTUBE));
+            when(config.useYouTubeOauth()).thenReturn(false);
+            when(config.getMaxYTPlaylistPages()).thenReturn(10);
+
+            playerManager.init();
+
+            List<AudioSourceManager> sources = playerManager.getSourceManagers();
+            int libraryIndex = indexOfSource(sources, "ytdlp-library");
+            int youtubeIndex = indexOfSource(sources, "youtube");
+
+            assertTrue(libraryIndex >= 0, "ytdlp-library source manager should be registered");
+            assertTrue(youtubeIndex >= 0, "youtube source manager should be registered");
+            assertTrue(libraryIndex < youtubeIndex,
+                    "ytdlp-library must be asked before youtube, so a library hit is never sent to YouTube");
+        }
+
+        @Test
+        @DisplayName("init() registers the ytdlp-library source manager even with no audio sources enabled")
+        void libraryRegisteredEvenWithoutYoutube() {
+            when(config.proxyLavaplayer()).thenReturn(false);
+            when(config.getEnabledAudioSources()).thenReturn(Set.of());
+
+            playerManager.init();
+
+            assertTrue(indexOfSource(playerManager.getSourceManagers(), "ytdlp-library") >= 0,
+                    "ytdlp-library source manager should be registered even with the feature off");
+        }
+
+        private int indexOfSource(List<AudioSourceManager> sources, String name) {
+            for (int i = 0; i < sources.size(); i++) {
+                if (name.equals(sources.get(i).getSourceName())) {
+                    return i;
+                }
+            }
+            return -1;
+        }
+    }
+
+    @Nested
+    @DisplayName("yt-dlp Service Wiring Tests")
+    class YtDlpServiceWiringTests {
+
+        @TempDir
+        Path tempDir;
+
+        @Test
+        @DisplayName("init() wires the library source manager to bot.getYtDlp(), so a library hit plays from disk")
+        void libraryHitPlaysFromDiskThroughRealService() throws IOException {
+            String videoId = "HITHITHIT01";
+            Path libraryFolder = tempDir.resolve("ytdlp-library");
+            Files.createDirectories(libraryFolder);
+            Path hitFile = libraryFolder.resolve("Some Song [" + videoId + "].webm");
+            Files.writeString(hitFile, "not really audio");
+
+            YtDlpLibrary library = new YtDlpLibrary(libraryFolder,
+                    tempDir.resolve("Playlists").resolve("ytdlp-library.txt"));
+            library.record(videoId, hitFile, new AudioTrackInfo("Indexed Title", "Indexed Author", 123_000L,
+                    videoId, false, "https://www.youtube.com/watch?v=" + videoId));
+            YtDlpSettings settings = new YtDlpSettings("", YtDlpSettings.Mode.PROMPT, libraryFolder,
+                    "ytdlp-library", 0, 300, List.of(), 120);
+            YtDlpService service = new YtDlpService(settings, library, mock(YtDlpDownloader.class),
+                    mock(ProcessRunner.class));
+
+            when(bot.getYtDlp()).thenReturn(service);
+            when(config.proxyLavaplayer()).thenReturn(false);
+            // No other audio sources enabled: a regression that bypassed the library manager
+            // can't accidentally "succeed" by reaching the network.
+            when(config.getEnabledAudioSources()).thenReturn(Set.of());
+
+            playerManager.init();
+
+            AudioItem item = playerManager.loadItemSync(new AudioReference(
+                    "https://www.youtube.com/watch?v=" + videoId, null));
+
+            LibraryAudioTrack track = assertInstanceOf(LibraryAudioTrack.class, item);
+            assertEquals(videoId, track.getKey());
         }
     }
 }

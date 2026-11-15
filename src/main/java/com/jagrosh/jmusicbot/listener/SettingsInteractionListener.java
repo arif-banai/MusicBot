@@ -480,6 +480,14 @@ public class SettingsInteractionListener extends ListenerAdapter
             hook.sendMessage(expiredMessage()).setEphemeral(true).queue();
             return;
         }
+        // JDA 6.7+ hands interactions a detached channel snapshot when the bot cannot access the
+        // channel; retrieveMessageById would throw instead of failing the RestAction.
+        if (channel.isDetached())
+        {
+            hook.sendMessage("I can't access this channel anymore, so the settings panel can't be refreshed. Run `/settings` again.")
+                    .setEphemeral(true).queue();
+            return;
+        }
 
         Settings settings = bot.getSettingsManager().getSettings(guild);
         channel.retrieveMessageById(panelMessageId)

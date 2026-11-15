@@ -19,6 +19,8 @@ import com.jagrosh.jmusicbot.commands.v2.MusicSlashCommand;
 import com.jagrosh.jmusicbot.testutil.commands.SlashCommandTestFixture;
 import com.jagrosh.jmusicbot.testutil.commands.TestMusicSlashCommand;
 import com.jagrosh.jmusicbot.testutil.commands.ValidationScenarioBuilder;
+import net.dv8tion.jda.api.entities.channel.ChannelType;
+import net.dv8tion.jda.api.entities.channel.unions.GuildMessageChannelUnion;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -55,6 +57,24 @@ public class MusicSlashCommandTest
 
         // Then
         assertTrue(command.wasDoCommandCalled(), "doCommand should be called for valid command");
+    }
+
+    @Test
+    void testExecute_VoiceChannelTextChat_DoesNotRequireTextChannelCast()
+    {
+        // Given: Discord exposes a voice channel's built-in chat as a guild message channel.
+        ValidationScenarioBuilder.with(fixture).validBasic().build();
+        GuildMessageChannelUnion voiceChat = mock(GuildMessageChannelUnion.class);
+        when(voiceChat.getType()).thenReturn(ChannelType.VOICE);
+        when(fixture.getEvent().getGuildChannel()).thenReturn(voiceChat);
+        command = TestMusicSlashCommand.createBasic(fixture.getBot());
+
+        // When
+        command.testExecute(fixture.getEvent());
+
+        // Then
+        assertTrue(command.wasDoCommandCalled(), "voice-channel chat should pass command validation");
+        verify(fixture.getEvent(), never()).getTextChannel();
     }
 
     // ==================== Text Channel Restriction Tests ====================

@@ -23,12 +23,15 @@ import com.jagrosh.jmusicbot.settings.RepeatMode;
 import com.jagrosh.jmusicbot.testutil.service.MusicServiceScenarioBuilder;
 import com.jagrosh.jmusicbot.testutil.service.OutputAdapterSpy;
 import com.jagrosh.jmusicbot.testutil.service.ServiceTestFixture;
+import com.sedmelluq.discord.lavaplayer.player.AudioLoadResultHandler;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrackInfo;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -154,12 +157,28 @@ public class MusicServiceTest
             String query = "test song";
 
             // When
-            musicService.play(fixture.getGuild(), fixture.getMember(), 
+            musicService.play(fixture.getGuild(), fixture.getMember(),
                     "\"" + query + "\"", fixture.getTextChannel(), output);
 
             // Then
-            verify(fixture.getPlayerManager()).loadItemOrdered(eq(fixture.getGuild()), 
+            verify(fixture.getPlayerManager()).loadItemOrdered(eq(fixture.getGuild()),
                     eq(query), any());
+        }
+
+        @Test
+        @DisplayName("play() with scheme-less YouTube link loads it as a link, not a search")
+        void playWithSchemeLessYoutubeLink_loadsAsHttpsLink()
+        {
+            // Given
+            String query = "youtube.com/watch?v=IY1oU1G2DA0";
+
+            // When
+            musicService.play(fixture.getGuild(), fixture.getMember(),
+                    query, fixture.getTextChannel(), output);
+
+            // Then
+            verify(fixture.getPlayerManager()).loadItemOrdered(eq(fixture.getGuild()),
+                    eq("https://youtube.com/watch?v=IY1oU1G2DA0"), any());
         }
     }
 
@@ -221,8 +240,105 @@ public class MusicServiceTest
                     "<" + url + ">", fixture.getTextChannel(), output);
 
             // Then
-            verify(fixture.getPlayerManager()).loadItemOrdered(eq(fixture.getGuild()), 
+            verify(fixture.getPlayerManager()).loadItemOrdered(eq(fixture.getGuild()),
                     eq(url), any());
+        }
+    }
+
+    // ==================== PlayNowFromUrl Operation Tests ====================
+
+    @Nested
+    @DisplayName("PlayNowFromUrl Operation")
+    class PlayNowFromUrlOperationTests
+    {
+        private AudioTrack loadedTrack()
+        {
+            AudioTrack track = mock(AudioTrack.class);
+            AudioTrackInfo info = new AudioTrackInfo("Title", "Author", 180000L, "id",
+                    false, "https://example.com/track");
+            when(track.getInfo()).thenReturn(info);
+            when(track.getDuration()).thenReturn(180000L);
+            return track;
+        }
+
+        private AudioLoadResultHandler captureLoadHandler(String url)
+        {
+            ArgumentCaptor<AudioLoadResultHandler> captor = ArgumentCaptor.forClass(AudioLoadResultHandler.class);
+            verify(fixture.getPlayerManager()).loadItemOrdered(eq(fixture.getGuild()), eq(url), captor.capture());
+            return captor.getValue();
+        }
+
+        @Test
+        @DisplayName("playNowFromUrl() does not stop the track it just started when nothing was playing")
+        void playNowFromUrl_doesNotStopFreshlyStartedTrack_whenIdle()
+        {
+            String url = "https://example.com/track";
+            AudioTrack track = loadedTrack();
+
+            // Nothing is playing before the add; addTrackToFront would start it immediately,
+            // the same way the real AudioHandler does.
+            when(fixture.getAudioPlayer().getPlayingTrack()).thenReturn(null);
+            doAnswer(invocation ->
+            {
+                when(fixture.getAudioPlayer().getPlayingTrack()).thenReturn(mock(AudioTrack.class));
+                return -1;
+            }).when(fixture.getAudioHandler()).addTrackToFront(any(QueuedTrack.class));
+
+            musicService.playNowFromUrl(fixture.getGuild(), fixture.getMember(), url,
+                    fixture.getTextChannel(), output);
+            captureLoadHandler(url).trackLoaded(track);
+
+            verify(fixture.getAudioPlayer(), never()).stopTrack();
+            output.assertSuccessMessageContains("Now playing");
+        }
+
+        @Test
+        @DisplayName("playNowFromUrl() replaces the previous track directly (not via addTrackToFront+stopTrack) when something was already playing")
+        void playNowFromUrl_replacesPreviousTrackDirectly_whenSomethingWasPlaying()
+        {
+            String url = "https://example.com/track";
+            AudioTrack track = loadedTrack();
+            fixture.withPlayingTrack();
+
+            musicService.playNowFromUrl(fixture.getGuild(), fixture.getMember(), url,
+                    fixture.getTextChannel(), output);
+            captureLoadHandler(url).trackLoaded(track);
+
+            // N2: addTrackToFront + a later stopTrack() would race a prompt-cancel-triggered end
+            // of the old track; playNowReplacingCurrent starts the new track directly instead.
+            verify(fixture.getAudioHandler()).playNowReplacingCurrent(any());
+            verify(fixture.getAudioHandler(), never()).addTrackToFront(any());
+            verify(fixture.getAudioPlayer(), never()).stopTrack();
+        }
+
+        @Test
+        @DisplayName("playNowFromUrl() unpauses the player: Play now means play")
+        void playNowFromUrl_unpausesPlayer()
+        {
+            String url = "https://example.com/track";
+            AudioTrack track = loadedTrack();
+            fixture.withPausedTrack();
+
+            musicService.playNowFromUrl(fixture.getGuild(), fixture.getMember(), url,
+                    fixture.getTextChannel(), output);
+            captureLoadHandler(url).trackLoaded(track);
+
+            verify(fixture.getAudioPlayer()).setPaused(false);
+        }
+
+        @Test
+        @DisplayName("playNowFromUrl() cancels any open yt-dlp prompt for the track it's replacing")
+        void playNowFromUrl_cancelsOpenYtDlpPrompt()
+        {
+            String url = "https://example.com/track";
+            AudioTrack track = loadedTrack();
+            fixture.withPlayingTrack();
+
+            musicService.playNowFromUrl(fixture.getGuild(), fixture.getMember(), url,
+                    fixture.getTextChannel(), output);
+            captureLoadHandler(url).trackLoaded(track);
+
+            verify(fixture.getAudioHandler()).cancelCurrentTrackYtDlpPrompt();
         }
     }
 
@@ -292,7 +408,7 @@ public class MusicServiceTest
 
             // Then
             verify(fixture.getQueue()).removeFromHistoryAt(0);
-            verify(fixture.getAudioPlayer()).playTrack(prevAudioTrack);
+            verify(fixture.getAudioHandler()).playPrepared(prevAudioTrack);
             output.assertSuccessMessageContains("Went back to");
         }
 
@@ -1256,6 +1372,40 @@ public class MusicServiceTest
         }
 
         @Test
+        @DisplayName("queuePlaylist() never offers a queue-time library suggestion (playlist loads don't post one per song)")
+        void queuePlaylist_neverOffersQueueTimeSuggestion()
+        {
+            com.jagrosh.jmusicbot.playlist.PlaylistLoader.Playlist playlist = mock(com.jagrosh.jmusicbot.playlist.PlaylistLoader.Playlist.class);
+            AudioTrack first = mock(AudioTrack.class);
+            when(first.getInfo()).thenReturn(new AudioTrackInfo("First", "Author", 180000L, "id1", false, "https://example.com/1"));
+            AudioTrack second = mock(AudioTrack.class);
+            when(second.getInfo()).thenReturn(new AudioTrackInfo("Second", "Author", 180000L, "id2", false, "https://example.com/2"));
+            when(fixture.getPlaylistLoader().getPlaylistResult("favorite"))
+                    .thenReturn(com.jagrosh.jmusicbot.playlist.PlaylistLoader.PlaylistResult.success(playlist));
+            when(playlist.getName()).thenReturn("favorite");
+            when(playlist.getTracks()).thenReturn(List.of(first, second));
+            when(playlist.getErrors()).thenReturn(List.of());
+
+            doAnswer(invocation ->
+            {
+                // Mirror the real Playlist.loadTracks: feed each loaded track to the per-track
+                // consumer (which calls AudioHandler#addTrack directly, not the single-track funnel).
+                java.util.function.Consumer<AudioTrack> consumer = invocation.getArgument(1);
+                consumer.accept(first);
+                consumer.accept(second);
+                Runnable callback = invocation.getArgument(2);
+                callback.run();
+                return null;
+            }).when(playlist).loadTracks(eq(fixture.getPlayerManager()), any(), any());
+
+            musicService.queuePlaylist(fixture.getGuild(), fixture.getMember(), "favorite",
+                    fixture.getTextChannel(), output);
+
+            verify(fixture.getAudioHandler(), times(2)).addTrack(any());
+            verify(fixture.getAudioHandler(), never()).considerQueuedSuggestion(any());
+        }
+
+        @Test
         @DisplayName("queuePlaylist() skips now playing refresh when tracks loaded but player still inactive")
         void queuePlaylist_skipsRefresh_whenTracksLoadedButPlayerInactive()
         {
@@ -1328,11 +1478,266 @@ public class MusicServiceTest
             musicService.playPlaylistNow(fixture.getGuild(), fixture.getMember(), "mix",
                     fixture.getTextChannel(), output);
 
-            verify(fixture.getAudioHandler()).stopAndClearQueuePreserveHistory();
+            verify(fixture.getAudioHandler()).beginQueueReplacement();
+            verify(fixture.getAudioHandler(), never()).stopAndClearQueuePreserveHistory();
+            verify(fixture.getAudioHandler()).endQueueReplacement(any());
             verify(fixture.getNowPlayingHandler()).requestReconcile(eq(fixture.getGuild().getIdLong()), anyString());
             output.assertSuccessMessageContains("Now playing playlist `mix` (queue replaced)");
         }
 
+        @Test
+        @DisplayName("playPlaylistNow() queues each loaded track, then asks AudioHandler to replace the captured original track")
+        void playPlaylistNow_whileSomethingPlaying_queuesThenAsksHandlerToReplaceByIdentity()
+        {
+            com.jagrosh.jmusicbot.playlist.PlaylistLoader.Playlist playlist = mock(com.jagrosh.jmusicbot.playlist.PlaylistLoader.Playlist.class);
+            AudioTrack firstTrack = mock(AudioTrack.class);
+            when(firstTrack.getInfo()).thenReturn(new AudioTrackInfo("First", "Author", 180000L, "id", false, "https://example.com/1"));
+            AudioTrack originalTrack = mock(AudioTrack.class);
+            when(fixture.getPlaylistLoader().getPlaylistResult("mix"))
+                    .thenReturn(com.jagrosh.jmusicbot.playlist.PlaylistLoader.PlaylistResult.success(playlist));
+            when(playlist.getName()).thenReturn("mix");
+            when(playlist.getTracks()).thenReturn(List.of(firstTrack));
+            when(playlist.getErrors()).thenReturn(List.of());
+            when(fixture.getAudioPlayer().getPlayingTrack()).thenReturn(originalTrack);
+
+            doAnswer(invocation ->
+            {
+                // Mirror the real Playlist.loadTracks: feed each loaded track to the per-track
+                // consumer (which calls AudioHandler#addTrack) before running the done callback.
+                java.util.function.Consumer<AudioTrack> consumer = invocation.getArgument(1);
+                consumer.accept(firstTrack);
+                Runnable callback = invocation.getArgument(2);
+                callback.run();
+                return null;
+            }).when(playlist).loadTracks(eq(fixture.getPlayerManager()), any(), any());
+
+            musicService.playPlaylistNow(fixture.getGuild(), fixture.getMember(), "mix",
+                    fixture.getTextChannel(), output);
+
+            // The queue must be loaded (addTrack) before AudioHandler is asked to replace the
+            // original track, and beginQueueReplacement() must run first of all, or the "replace"
+            // call would have nothing queued to pull from.
+            InOrder inOrder = inOrder(fixture.getAudioHandler());
+            inOrder.verify(fixture.getAudioHandler()).beginQueueReplacement();
+            inOrder.verify(fixture.getAudioHandler()).addTrack(any());
+            inOrder.verify(fixture.getAudioHandler()).replaceCurrentTrackIfStillPlaying(any(), same(originalTrack));
+            inOrder.verify(fixture.getAudioHandler()).endQueueReplacement(any());
+            verify(fixture.getAudioHandler(), never()).stopAndClear();
+            verify(fixture.getAudioHandler(), never()).stopAndClearQueuePreserveHistory();
+            verify(fixture.getAudioPlayer(), never()).stopTrack();
+        }
+
+        @Test
+        @DisplayName("playPlaylistNow() asks AudioHandler to replace with a null original when nothing was playing")
+        void playPlaylistNow_whileIdle_asksHandlerToReplaceWithNullOriginal()
+        {
+            com.jagrosh.jmusicbot.playlist.PlaylistLoader.Playlist playlist = mock(com.jagrosh.jmusicbot.playlist.PlaylistLoader.Playlist.class);
+            when(fixture.getPlaylistLoader().getPlaylistResult("mix"))
+                    .thenReturn(com.jagrosh.jmusicbot.playlist.PlaylistLoader.PlaylistResult.success(playlist));
+            when(playlist.getName()).thenReturn("mix");
+            when(playlist.getTracks()).thenReturn(List.of(mock(AudioTrack.class)));
+            when(playlist.getErrors()).thenReturn(List.of());
+            when(fixture.getAudioPlayer().getPlayingTrack()).thenReturn(null);
+
+            doAnswer(invocation ->
+            {
+                Runnable callback = invocation.getArgument(2);
+                callback.run();
+                return null;
+            }).when(playlist).loadTracks(eq(fixture.getPlayerManager()), any(), any());
+
+            musicService.playPlaylistNow(fixture.getGuild(), fixture.getMember(), "mix",
+                    fixture.getTextChannel(), output);
+
+            verify(fixture.getAudioPlayer(), never()).stopTrack();
+            output.assertSuccessMessageContains("Now playing playlist `mix` (queue replaced)");
+        }
+
+        @Test
+        @DisplayName("playPlaylistNow() with zero tracks loaded warns, ends the replacement, and never does a full stop")
+        void playPlaylistNow_withZeroTracksLoaded_warnsAndEndsReplacementWithoutFullStop()
+        {
+            com.jagrosh.jmusicbot.playlist.PlaylistLoader.Playlist playlist = mock(com.jagrosh.jmusicbot.playlist.PlaylistLoader.Playlist.class);
+            when(fixture.getPlaylistLoader().getPlaylistResult("empty"))
+                    .thenReturn(com.jagrosh.jmusicbot.playlist.PlaylistLoader.PlaylistResult.success(playlist));
+            when(playlist.getName()).thenReturn("empty");
+            when(playlist.getTracks()).thenReturn(List.of());
+            when(playlist.getErrors()).thenReturn(List.of(mock(com.jagrosh.jmusicbot.playlist.PlaylistLoader.PlaylistLoadError.class)));
+            when(fixture.getAudioPlayer().getPlayingTrack()).thenReturn(mock(AudioTrack.class));
+
+            doAnswer(invocation ->
+            {
+                Runnable callback = invocation.getArgument(2);
+                callback.run();
+                return null;
+            }).when(playlist).loadTracks(eq(fixture.getPlayerManager()), any(), any());
+
+            musicService.playPlaylistNow(fixture.getGuild(), fixture.getMember(), "empty",
+                    fixture.getTextChannel(), output);
+
+            output.assertWarningMessageContains("No tracks were loaded");
+            verify(fixture.getAudioHandler()).endQueueReplacement(any());
+            verify(fixture.getAudioHandler(), never()).replaceCurrentTrackIfStillPlaying(any(), any());
+            verify(fixture.getAudioPlayer(), never()).stopTrack();
+            verify(fixture.getAudioHandler(), never()).stopAndClear();
+            verify(fixture.getAudioHandler(), never()).stopAndClearQueuePreserveHistory();
+        }
+
+        @Test
+        @DisplayName("playPlaylistNow() still resolves the replacement when the per-track consumer throws (N3)")
+        void playPlaylistNow_consumerThrows_stillResolvesReplacement()
+        {
+            com.jagrosh.jmusicbot.playlist.PlaylistLoader.Playlist playlist = mock(com.jagrosh.jmusicbot.playlist.PlaylistLoader.Playlist.class);
+            AudioTrack firstTrack = mock(AudioTrack.class);
+            when(firstTrack.getInfo()).thenReturn(new AudioTrackInfo("First", "Author", 180000L, "id", false, "https://example.com/1"));
+            when(fixture.getPlaylistLoader().getPlaylistResult("mix"))
+                    .thenReturn(com.jagrosh.jmusicbot.playlist.PlaylistLoader.PlaylistResult.success(playlist));
+            when(playlist.getName()).thenReturn("mix");
+            when(playlist.getTracks()).thenReturn(List.of(firstTrack));
+            when(playlist.getErrors()).thenReturn(List.of());
+            when(fixture.getAudioPlayer().getPlayingTrack()).thenReturn(mock(AudioTrack.class));
+            doThrow(new RuntimeException("boom")).when(fixture.getAudioHandler()).addTrack(any());
+
+            doAnswer(invocation ->
+            {
+                java.util.function.Consumer<AudioTrack> consumer = invocation.getArgument(1);
+                consumer.accept(firstTrack);
+                Runnable callback = invocation.getArgument(2);
+                callback.run();
+                return null;
+            }).when(playlist).loadTracks(eq(fixture.getPlayerManager()), any(), any());
+
+            musicService.playPlaylistNow(fixture.getGuild(), fixture.getMember(), "mix",
+                    fixture.getTextChannel(), output);
+
+            // The consumer's own try/finally must still resolve the replacement even though
+            // addTrack() threw, so a later natural track end isn't left permanently deferred.
+            verify(fixture.getAudioHandler()).replaceCurrentTrackIfStillPlaying(any(), any());
+        }
+
+        @Test
+        @DisplayName("playPlaylistNow() ends the replacement when loadTracks itself throws synchronously (N3)")
+        void playPlaylistNow_loadTracksThrowsSynchronously_endsReplacement()
+        {
+            com.jagrosh.jmusicbot.playlist.PlaylistLoader.Playlist playlist = mock(com.jagrosh.jmusicbot.playlist.PlaylistLoader.Playlist.class);
+            when(fixture.getPlaylistLoader().getPlaylistResult("mix"))
+                    .thenReturn(com.jagrosh.jmusicbot.playlist.PlaylistLoader.PlaylistResult.success(playlist));
+            when(playlist.getName()).thenReturn("mix");
+            when(fixture.getAudioPlayer().getPlayingTrack()).thenReturn(mock(AudioTrack.class));
+            doThrow(new RuntimeException("loader exploded"))
+                    .when(playlist).loadTracks(eq(fixture.getPlayerManager()), any(), any());
+
+            musicService.playPlaylistNow(fixture.getGuild(), fixture.getMember(), "mix",
+                    fixture.getTextChannel(), output);
+
+            verify(fixture.getAudioHandler()).endQueueReplacement(any());
+            output.assertErrorMessageContains("Failed to load playlist");
+        }
+
+    }
+
+    @Nested
+    @DisplayName("yt-dlp library files show the library's details")
+    class LibraryFileDisplayTests
+    {
+        private static final String FILE = "C:/lib/Name [x1Xd0m2OdcU].webm";
+
+        private AudioTrack localTrack;
+        private AudioTrack libraryTrack;
+
+        @BeforeEach
+        void setUpLibrary()
+        {
+            localTrack = mock(AudioTrack.class);
+            when(localTrack.getInfo()).thenReturn(new AudioTrackInfo(
+                    "Name [x1Xd0m2OdcU].webm", "Unknown artist", 61_000L, FILE, false, FILE));
+            when(localTrack.getDuration()).thenReturn(61_000L);
+            libraryTrack = mock(AudioTrack.class);
+            when(libraryTrack.getInfo()).thenReturn(new AudioTrackInfo(
+                    "Indexed Title", "Indexed Author", 123_000L, "x1Xd0m2OdcU", false,
+                    "https://www.youtube.com/watch?v=x1Xd0m2OdcU"));
+            when(libraryTrack.getDuration()).thenReturn(123_000L);
+            com.jagrosh.jmusicbot.ytdlp.YtDlpService ytDlp = mock(com.jagrosh.jmusicbot.ytdlp.YtDlpService.class);
+            when(ytDlp.wrapLibraryFile(any())).thenAnswer(inv -> inv.getArgument(0) == localTrack
+                    ? libraryTrack : inv.getArgument(0));
+            when(fixture.getBot().getYtDlp()).thenReturn(ytDlp);
+        }
+
+        @Test
+        @DisplayName("addTrackToQueue() confirms and queues a library file under its library title")
+        void addTrackToQueue_libraryFile_usesLibraryTitle()
+        {
+            MusicService.TrackAddResult result = musicService.addTrackToQueue(fixture.getGuild(), fixture.getMember(),
+                    localTrack, FILE, fixture.getTextChannel());
+
+            assertNotNull(result);
+            assertTrue(result.formattedMessage.contains("Indexed Title"), result.formattedMessage);
+            assertFalse(result.formattedMessage.contains(".webm"), result.formattedMessage);
+            assertTrue(result.formattedMessage.contains("02:03"), result.formattedMessage);
+            assertEquals("Indexed Title", result.trackTitle);
+            org.mockito.ArgumentCaptor<QueuedTrack> queued = org.mockito.ArgumentCaptor.forClass(QueuedTrack.class);
+            verify(fixture.getAudioHandler()).addTrack(queued.capture());
+            assertSame(libraryTrack, queued.getValue().getTrack());
+            // The request still records what was actually asked for.
+            assertEquals(FILE, queued.getValue().getRequestMetadata().requestInfo.url);
+        }
+
+        @Test
+        @DisplayName("addTrackToQueue() leaves a track unchanged when the bot has no yt-dlp service")
+        void addTrackToQueue_noYtDlpService_unchanged()
+        {
+            when(fixture.getBot().getYtDlp()).thenReturn(null);
+
+            MusicService.TrackAddResult result = musicService.addTrackToQueue(fixture.getGuild(), fixture.getMember(),
+                    localTrack, FILE, fixture.getTextChannel());
+
+            assertEquals("Name [x1Xd0m2OdcU].webm", result.trackTitle);
+        }
+
+        private List<String> loadPlaylistLines(java.util.function.Consumer<com.sedmelluq.discord.lavaplayer.player.AudioLoadResultHandler> respond)
+        {
+            com.jagrosh.jmusicbot.playlist.PlaylistLoader.Playlist playlist =
+                    mock(com.jagrosh.jmusicbot.playlist.PlaylistLoader.Playlist.class);
+            when(playlist.getName()).thenReturn("ytdlp-library");
+            when(playlist.getItems()).thenReturn(List.of(FILE));
+            when(fixture.getPlaylistLoader().getPlaylistResult("ytdlp-library"))
+                    .thenReturn(com.jagrosh.jmusicbot.playlist.PlaylistLoader.PlaylistResult.success(playlist));
+            doAnswer(invocation ->
+            {
+                respond.accept(invocation.getArgument(2));
+                return null;
+            }).when(fixture.getPlayerManager()).loadItemOrdered(any(), eq(FILE),
+                    any(com.sedmelluq.discord.lavaplayer.player.AudioLoadResultHandler.class));
+
+            List<String> lines = new ArrayList<>();
+            musicService.loadPlaylistPageWithTracks("ytdlp-library", 1, 10, page -> lines.addAll(page.formattedLines));
+            return lines;
+        }
+
+        @Test
+        @DisplayName("Playlists details view lists a library file (track loaded) under its library title")
+        void playlistDetails_trackLoaded_usesLibraryTitle()
+        {
+            List<String> lines = loadPlaylistLines(handler -> handler.trackLoaded(localTrack));
+
+            assertEquals(1, lines.size());
+            assertTrue(lines.get(0).contains("Indexed Title"), lines.get(0));
+            assertFalse(lines.get(0).contains(".webm"), lines.get(0));
+        }
+
+        @Test
+        @DisplayName("Playlists details view lists a library file (playlist loaded) under its library title")
+        void playlistDetails_playlistLoaded_usesLibraryTitle()
+        {
+            com.sedmelluq.discord.lavaplayer.track.AudioPlaylist loaded =
+                    mock(com.sedmelluq.discord.lavaplayer.track.AudioPlaylist.class);
+            when(loaded.getTracks()).thenReturn(List.of(localTrack));
+
+            List<String> lines = loadPlaylistLines(handler -> handler.playlistLoaded(loaded));
+
+            assertEquals(1, lines.size());
+            assertTrue(lines.get(0).contains("Indexed Title"), lines.get(0));
+        }
     }
 
     @Nested
@@ -1727,6 +2132,95 @@ public class MusicServiceTest
                     fixture.getTextChannel(), output);
 
             output.assertErrorMessageContains("empty");
+        }
+
+        private QueuedTrack historyEntryAt(int position)
+        {
+            QueuedTrack qt = mock(QueuedTrack.class);
+            AudioTrack track = mock(AudioTrack.class);
+            AudioTrackInfo info = new AudioTrackInfo("History Track", "Author", 180000L, "id",
+                    false, "https://example.com/history-" + position);
+            when(track.getInfo()).thenReturn(info);
+            when(track.getDuration()).thenReturn(180000L);
+            when(track.makeClone()).thenReturn(track);
+            when(qt.getTrack()).thenReturn(track);
+            return qt;
+        }
+
+        private void setUpHistoryWithOneEntry(QueuedTrack qt)
+        {
+            PlaybackHistory<QueuedTrack> history = mock(PlaybackHistory.class);
+            when(history.getMaxSize()).thenReturn(40);
+            when(history.isEmpty()).thenReturn(false);
+            when(history.size()).thenReturn(1);
+            when(history.get(0)).thenReturn(qt);
+            when(fixture.getQueue().getHistory()).thenReturn(history);
+            when(fixture.getAudioHandler().getQueue()).thenReturn(fixture.getQueue());
+        }
+
+        @Test
+        @DisplayName("playFromHistoryNow() does not stop the track it just started when nothing was playing")
+        void playFromHistoryNow_doesNotStopFreshlyStartedTrack_whenIdle()
+        {
+            setUpHistoryWithOneEntry(historyEntryAt(1));
+
+            // Nothing is playing before the add; addTrackToFront would start it immediately,
+            // the same way the real AudioHandler does.
+            when(fixture.getAudioPlayer().getPlayingTrack()).thenReturn(null);
+            doAnswer(invocation ->
+            {
+                when(fixture.getAudioPlayer().getPlayingTrack()).thenReturn(mock(AudioTrack.class));
+                return -1;
+            }).when(fixture.getAudioHandler()).addTrackToFront(any(QueuedTrack.class));
+
+            musicService.playFromHistoryNow(fixture.getGuild(), fixture.getMember(), 1,
+                    fixture.getTextChannel(), output);
+
+            verify(fixture.getAudioPlayer(), never()).stopTrack();
+            output.assertSuccessMessageContains("Now playing");
+        }
+
+        @Test
+        @DisplayName("playFromHistoryNow() replaces the previous track directly (not via addTrackToFront+stopTrack) when something was already playing")
+        void playFromHistoryNow_replacesPreviousTrackDirectly_whenSomethingWasPlaying()
+        {
+            setUpHistoryWithOneEntry(historyEntryAt(1));
+            fixture.withPlayingTrack();
+
+            musicService.playFromHistoryNow(fixture.getGuild(), fixture.getMember(), 1,
+                    fixture.getTextChannel(), output);
+
+            // N2: addTrackToFront + a later stopTrack() would race a prompt-cancel-triggered end
+            // of the old track; playNowReplacingCurrent starts the new track directly instead.
+            verify(fixture.getAudioHandler()).playNowReplacingCurrent(any());
+            verify(fixture.getAudioHandler(), never()).addTrackToFront(any());
+            verify(fixture.getAudioPlayer(), never()).stopTrack();
+        }
+
+        @Test
+        @DisplayName("playFromHistoryNow() unpauses the player: Play now means play")
+        void playFromHistoryNow_unpausesPlayer()
+        {
+            setUpHistoryWithOneEntry(historyEntryAt(1));
+            fixture.withPausedTrack();
+
+            musicService.playFromHistoryNow(fixture.getGuild(), fixture.getMember(), 1,
+                    fixture.getTextChannel(), output);
+
+            verify(fixture.getAudioPlayer()).setPaused(false);
+        }
+
+        @Test
+        @DisplayName("playFromHistoryNow() cancels any open yt-dlp prompt for the track it's replacing")
+        void playFromHistoryNow_cancelsOpenYtDlpPrompt()
+        {
+            setUpHistoryWithOneEntry(historyEntryAt(1));
+            fixture.withPlayingTrack();
+
+            musicService.playFromHistoryNow(fixture.getGuild(), fixture.getMember(), 1,
+                    fixture.getTextChannel(), output);
+
+            verify(fixture.getAudioHandler()).cancelCurrentTrackYtDlpPrompt();
         }
 
         @Test

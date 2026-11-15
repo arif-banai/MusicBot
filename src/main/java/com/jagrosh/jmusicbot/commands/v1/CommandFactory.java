@@ -29,6 +29,8 @@ import com.jagrosh.jmusicbot.commands.v2.dj.PauseSlashCmd;
 import com.jagrosh.jmusicbot.commands.v2.dj.PlaynextSlashCmd;
 import com.jagrosh.jmusicbot.commands.v2.dj.RepeatSlashCmd;
 import com.jagrosh.jmusicbot.commands.v2.dj.SkiptoSlashCmd;
+import com.jagrosh.jmusicbot.commands.v1.dj.LibraryCmd;
+import com.jagrosh.jmusicbot.commands.v2.dj.LibrarySlashCmd;
 import com.jagrosh.jmusicbot.commands.v2.dj.StopSlashCmd;
 import com.jagrosh.jmusicbot.commands.v2.dj.VolumeSlashCmd;
 import com.jagrosh.jmusicbot.commands.v2.music.HistorySlashCmd;
@@ -43,6 +45,7 @@ import com.jagrosh.jmusicbot.commands.v2.music.SeekSlashCmd;
 import com.jagrosh.jmusicbot.commands.v2.music.ShuffleSlashCmd;
 import com.jagrosh.jmusicbot.commands.v2.music.SkipSlashCmd;
 import com.jagrosh.jmusicbot.settings.SettingsManager;
+import com.jagrosh.jmusicbot.ytdlp.YtDlpSettings;
 import com.jagrosh.jmusicbot.utils.OtherUtil;
 import net.dv8tion.jda.api.OnlineStatus;
 import org.jetbrains.annotations.NotNull;
@@ -147,6 +150,12 @@ public class CommandFactory {
                     new ClearchannelSlashCmd(bot)
             ).setManualUpsert(true);
 
+        if (hasYtDlpCommands(config))
+        {
+            cb.addCommand(new LibraryCmd(bot));
+            cb.addSlashCommand(new LibrarySlashCmd(bot));
+        }
+
         if (config.useEval())
             cb.addCommand(new EvalCmd(bot));
 
@@ -161,6 +170,12 @@ public class CommandFactory {
             cb.setActivity(config.getGame());
 
         return cb.build();
+    }
+
+    /** Whether the yt-dlp library commands are registered: only when {@code ytdlp.path} is set. */
+    public static boolean hasYtDlpCommands(BotConfig config) {
+        YtDlpSettings settings = config == null ? null : config.getYtDlpSettings();
+        return settings != null && settings.enabled();
     }
 
     private static @NotNull AboutCommand createAboutCommand() {

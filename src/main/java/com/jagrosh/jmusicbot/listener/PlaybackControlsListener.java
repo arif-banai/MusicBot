@@ -15,18 +15,38 @@
  */
 package com.jagrosh.jmusicbot.listener;
 
+import java.util.Optional;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+
 import com.jagrosh.jmusicbot.Bot;
 import com.jagrosh.jmusicbot.audio.AudioHandler;
+import com.jagrosh.jmusicbot.commands.v1.DJCommand;
 import com.jagrosh.jmusicbot.listener.interaction.ComponentIdParsers;
+import com.jagrosh.jmusicbot.listener.interaction.InteractionGuards;
 import com.jagrosh.jmusicbot.listener.interaction.OutputAdapters;
 import com.jagrosh.jmusicbot.service.MusicService;
+import com.jagrosh.jmusicbot.utils.FormatUtil;
+import com.jagrosh.jmusicbot.ytdlp.LibraryAudioTrack;
+import com.jagrosh.jmusicbot.ytdlp.LibraryEntry;
+import com.jagrosh.jmusicbot.ytdlp.LibraryKeys;
+import com.jagrosh.jmusicbot.ytdlp.YtDlpService;
+import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
 import net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
+import net.dv8tion.jda.api.interactions.InteractionHook;
+import net.dv8tion.jda.api.utils.MarkdownSanitizer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
- * Handles playback control button interactions (stop, pause, skip, previous, shuffle, repeat, favorite, volume).
+ * Handles playback control button interactions (stop, pause, skip, previous, shuffle, repeat, favorite, volume)
+ * and the yt-dlp "Download" button ({@code np_ytdlp_save}).
  */
 public class PlaybackControlsListener extends ListenerAdapter {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(PlaybackControlsListener.class);
 
     private final Bot bot;
 
@@ -36,6 +56,11 @@ public class PlaybackControlsListener extends ListenerAdapter {
 
     @Override
     public void onButtonInteraction(ButtonInteractionEvent event) {
+        if (ComponentIdParsers.NOW_PLAYING_YTDLP_SAVE.equals(event.getComponentId())) {
+            handleDownloadButton(event);
+            return;
+        }
+
         var parsedId = ComponentIdParsers.parseNowPlayingButtonId(event.getComponentId());
         if (parsedId.isEmpty()) {
             return;
@@ -136,5 +161,72 @@ public class PlaybackControlsListener extends ListenerAdapter {
                 delegate.onShowHelp();
             }
         };
+    }
+
+    /**
+     * Handles the yt-dlp "Download" ({@code np_ytdlp_save}) button: a DJ-only action that saves
+     * the currently playing song into the yt-dlp library without touching playback. Acknowledges
+     * the interaction exactly once with an ephemeral {@code deferReply}, then edits that reply's
+     * hook as the download progresses. Never cancels or completes the downloader's shared future;
+     * every Discord call is {@code .queue()}d, never awaited.
+     */
+    private void handleDownloadButton(ButtonInteractionEvent event) {
+        if (!InteractionGuards.requireGuildAndMember(event)) {
+            return;
+        }
+        if (!DJCommand.checkDJPermission(bot, event.getGuild(), event.getMember())) {
+            event.reply("Only a DJ can use this button.").setEphemeral(true).queue();
+            return;
+        }
+
+        YtDlpService ytDlp = bot.getYtDlp();
+        AudioHandler handler = (AudioHandler) event.getGuild().getAudioManager().getSendingHandler();
+        AudioTrack track = handler == null ? null : handler.getPlayer().getPlayingTrack();
+        Optional<String> key = track == null ? Optional.empty() : LibraryKeys.of(track);
+        boolean downloadable = ytDlp != null && ytDlp.isEnabled() && track != null
+                && !(track instanceof LibraryAudioTrack) && key.isPresent()
+                && ytDlp.library().resolve(key.get()).isEmpty();
+        if (!downloadable) {
+            event.reply("This song can't be downloaded.").setEphemeral(true).queue();
+            return;
+        }
+
+        long guildId = event.getGuild().getIdLong();
+        String title = MarkdownSanitizer.escape(FormatUtil.filter(FormatUtil.getTrackTitle(track)));
+
+        event.deferReply(true).queue(hook -> {
+            CompletableFuture<LibraryEntry> download = ytDlp.requestDownload(track, guildId, false);
+            hook.editOriginal("⏳ Downloading **" + title + "**…").queue(null, error -> { });
+            download.whenComplete((entry, error) -> onDownloadComplete(hook, guildId, title, error));
+        }, error -> LOGGER.debug("Couldn't acknowledge the yt-dlp download button: {}", error.toString()));
+    }
+
+    private void onDownloadComplete(InteractionHook hook, long guildId, String title, Throwable error) {
+        if (error == null) {
+            hook.editOriginal("✅ Saved **" + title + "** to the library").queue(null, err -> { });
+            try {
+                bot.getNowplayingHandler().refreshNowPlaying(guildId);
+            } catch (RuntimeException ex) {
+                LOGGER.warn("Couldn't refresh now-playing after a yt-dlp download in guild {}: {}", guildId,
+                        ex.toString());
+            }
+        } else if (unwrap(error) instanceof CancellationException) {
+            // Withdrawn by /stop, Play now or leaving voice (YtDlpDownloader.cancelGuild).
+            hook.editOriginal("Download cancelled.").queue(null, err -> { });
+        } else {
+            hook.editOriginal("❌ yt-dlp failed: " + failureReason(error)).queue(null, err -> { });
+        }
+    }
+
+    /** The failure itself, unwrapping a {@link CompletionException} if present. */
+    private static Throwable unwrap(Throwable error) {
+        return error instanceof CompletionException && error.getCause() != null ? error.getCause() : error;
+    }
+
+    /** The yt-dlp failure's own message, unwrapping a {@link CompletionException} if present. */
+    private static String failureReason(Throwable error) {
+        Throwable cause = unwrap(error);
+        String reason = cause.getMessage() != null ? cause.getMessage() : cause.toString();
+        return FormatUtil.filter(reason.strip());
     }
 }

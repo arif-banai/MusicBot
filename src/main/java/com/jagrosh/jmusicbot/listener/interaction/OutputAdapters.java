@@ -17,6 +17,7 @@ package com.jagrosh.jmusicbot.listener.interaction;
 
 import com.jagrosh.jmusicbot.audio.AudioHandler;
 import com.jagrosh.jmusicbot.service.MusicService;
+import net.dv8tion.jda.api.interactions.callbacks.IReplyCallback;
 import net.dv8tion.jda.api.utils.messages.MessageCreateData;
 import net.dv8tion.jda.api.utils.messages.MessageEditBuilder;
 import net.dv8tion.jda.api.utils.messages.MessageEditData;
@@ -183,23 +184,25 @@ public final class OutputAdapters {
     }
 
     /**
-     * Adapter for history embed actions: all feedback via ephemeral reply.
+     * Adapter for history embed actions: all feedback is ephemeral. It is a reply while the
+     * interaction is unacknowledged, otherwise a follow-up through the interaction hook (the
+     * listener defers the button before running the action, then refreshes the embed via the hook).
      */
     public static MusicService.OutputAdapter forHistoryReply(net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent event) {
         return new MusicService.OutputAdapter() {
             @Override
             public void replySuccess(String content) {
-                event.reply(content).setEphemeral(true).queue();
+                sendEphemeral(event, content);
             }
 
             @Override
             public void replyError(String content) {
-                event.reply(content).setEphemeral(true).queue();
+                sendEphemeral(event, content);
             }
 
             @Override
             public void replyWarning(String content) {
-                event.reply(content).setEphemeral(true).queue();
+                sendEphemeral(event, content);
             }
 
             @Override
@@ -225,23 +228,25 @@ public final class OutputAdapters {
     }
 
     /**
-     * Adapter for playlists embed actions: all feedback via ephemeral reply.
+     * Adapter for playlists embed actions: all feedback is ephemeral. It is a reply while the
+     * interaction is unacknowledged, otherwise a follow-up through the interaction hook, so a
+     * playlist that finishes loading after the view was re-rendered does not reply a second time.
      */
     public static MusicService.OutputAdapter forPlaylistsReply(net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent event) {
         return new MusicService.OutputAdapter() {
             @Override
             public void replySuccess(String content) {
-                event.reply(content).setEphemeral(true).queue();
+                sendEphemeral(event, content);
             }
 
             @Override
             public void replyError(String content) {
-                event.reply(content).setEphemeral(true).queue();
+                sendEphemeral(event, content);
             }
 
             @Override
             public void replyWarning(String content) {
-                event.reply(content).setEphemeral(true).queue();
+                sendEphemeral(event, content);
             }
 
             @Override
@@ -250,6 +255,58 @@ public final class OutputAdapters {
 
             @Override
             public void editMessage(String content, Consumer<net.dv8tion.jda.api.entities.Message> onSuccess) {
+            }
+
+            @Override
+            public void editNowPlaying(AudioHandler handler) {
+            }
+
+            @Override
+            public void editNoMusic(AudioHandler handler) {
+            }
+
+            @Override
+            public void onShowHelp() {
+            }
+        };
+    }
+
+    /**
+     * Adapter for the library panel's Play/Queue buttons: all feedback is ephemeral. It is a
+     * reply while the interaction is unacknowledged, otherwise a follow-up through the
+     * interaction hook (the listener defers the button before running the action). The load
+     * handlers report through {@code editMessage} ("Added ... to the queue", "No results"), so
+     * those become ephemeral follow-ups too, leaving the panel message itself alone.
+     */
+    public static MusicService.OutputAdapter forLibraryReply(net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent event) {
+        return new MusicService.OutputAdapter() {
+            @Override
+            public void replySuccess(String content) {
+                sendEphemeral(event, content);
+            }
+
+            @Override
+            public void replyError(String content) {
+                sendEphemeral(event, content);
+            }
+
+            @Override
+            public void replyWarning(String content) {
+                sendEphemeral(event, content);
+            }
+
+            @Override
+            public void editMessage(String content) {
+                sendEphemeral(event, content);
+            }
+
+            @Override
+            public void editMessage(String content, Consumer<net.dv8tion.jda.api.entities.Message> onSuccess) {
+                if (event.isAcknowledged()) {
+                    event.getHook().sendMessage(content).setEphemeral(true).queue(onSuccess);
+                    return;
+                }
+                event.reply(content).setEphemeral(true).queue(hook -> hook.retrieveOriginal().queue(onSuccess));
             }
 
             @Override
@@ -347,6 +404,19 @@ public final class OutputAdapters {
             public void onShowHelp() {
             }
         };
+    }
+
+    /**
+     * Sends ephemeral feedback for an interaction: replies while the interaction is
+     * unacknowledged, otherwise sends a follow-up through its hook (an interaction can only be
+     * acknowledged once; a second reply fails with IllegalStateException).
+     */
+    private static void sendEphemeral(IReplyCallback event, String content) {
+        if (event.isAcknowledged()) {
+            event.getHook().sendMessage(content).setEphemeral(true).queue();
+            return;
+        }
+        event.reply(content).setEphemeral(true).queue();
     }
 
     private static MessageEditData asEditData(MessageCreateData source) {

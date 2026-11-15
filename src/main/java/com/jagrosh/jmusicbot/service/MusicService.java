@@ -28,7 +28,9 @@ import com.jagrosh.jmusicbot.settings.QueueType;
 import com.jagrosh.jmusicbot.settings.RepeatMode;
 import com.jagrosh.jmusicbot.settings.Settings;
 import com.jagrosh.jmusicbot.utils.FormatUtil;
+import com.jagrosh.jmusicbot.utils.QueryNormalizer;
 import com.jagrosh.jmusicbot.utils.TimeUtil;
+import com.jagrosh.jmusicbot.ytdlp.YtDlpService;
 import com.sedmelluq.discord.lavaplayer.player.AudioLoadResultHandler;
 import com.sedmelluq.discord.lavaplayer.track.AudioPlaylist;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
@@ -38,7 +40,7 @@ import net.dv8tion.jda.api.entities.Guild;
 import net.dv8tion.jda.api.entities.Member;
 import net.dv8tion.jda.api.entities.Message;
 import net.dv8tion.jda.api.entities.User;
-import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
+import net.dv8tion.jda.api.entities.channel.middleman.GuildMessageChannel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -177,14 +179,14 @@ public class MusicService
      * @param member      The member adding the track
      * @param track       The track to add
      * @param queryArgs   The original query/args used to find this track
-     * @param channel     The text channel for request metadata
+     * @param channel     The message-capable channel for request metadata
      * @param adder       The strategy for adding the track to the queue
      * @param reason      The reason to log (e.g., "added to the queue")
      * @param logLocation Description for logging (e.g., "queue" or "front of queue")
      * @return TrackAddResult containing position and formatted message, or null if track is too long
      */
     private TrackAddResult addTrackInternal(Guild guild, Member member, AudioTrack track,
-                                            String queryArgs, TextChannel channel,
+                                            String queryArgs, GuildMessageChannel channel,
                                             TrackAdder adder, String reason, String logLocation)
     {
         LOG.debug("Adding track to {}: guild={}, user={}, track={}",
@@ -199,19 +201,52 @@ public class MusicService
 
         AudioHandler handler = getHandler(guild);
         handler.setLastReason(member.getUser().getName() + " " + reason);
-        QueuedTrack queuedTrack = new QueuedTrack(track,
-                new RequestMetadata(member.getUser(),
-                        new RequestMetadata.RequestInfo(queryArgs, track.getInfo().uri),
-                        channel.getIdLong()));
-        int position = adder.add(handler, queuedTrack) + 1;
+        // The request records what was asked for (the original track's URL); the queue and the
+        // confirmation show the library's title and length for a yt-dlp library file.
+        RequestMetadata requestMetadata = new RequestMetadata(member.getUser(),
+                new RequestMetadata.RequestInfo(queryArgs, track.getInfo().uri),
+                channel.getIdLong());
+        AudioTrack shown = wrapLibraryFile(track);
+        QueuedTrack queuedTrack = new QueuedTrack(shown, requestMetadata);
+        int rawPosition = adder.add(handler, queuedTrack);
+        if (rawPosition >= 0)
+        {
+            // Queued behind something else (not started immediately): offer a library copy now,
+            // not just once it starts. Never for a playlist load (those don't go through here).
+            handler.considerQueuedSuggestion(queuedTrack);
+        }
+        int position = rawPosition + 1;
 
-        String title = FormatUtil.getTrackTitle(track);
-        String message = formatTrackAddedMessage(title, track.getDuration(), position);
+        String title = FormatUtil.getTrackTitle(shown);
+        String message = formatTrackAddedMessage(title, shown.getDuration(), position);
 
         LOG.info("Track added to {}: guild={}, user={}, track=\"{}\", position={}",
                 logLocation, guild.getId(), member.getUser().getName(), title, position);
 
         return new TrackAddResult(position, message, title);
+    }
+
+    /**
+     * Swaps in the yt-dlp library's track for a local file that is in the library index, so it
+     * shows the library's title, length and URL instead of its filename. Returns the track
+     * unchanged when the bot has no yt-dlp service, the file isn't in the library, or the lookup
+     * fails.
+     */
+    private AudioTrack wrapLibraryFile(AudioTrack track)
+    {
+        YtDlpService ytDlp = bot.getYtDlp();
+        if (ytDlp == null || track == null)
+            return track;
+        try
+        {
+            return ytDlp.wrapLibraryFile(track);
+        }
+        catch (RuntimeException ex)
+        {
+            LOG.warn("yt-dlp library couldn't check track {} against the library index: {}",
+                    track.getIdentifier(), ex.toString());
+            return track;
+        }
     }
 
     /**
@@ -221,11 +256,11 @@ public class MusicService
      * @param member    The member adding the track
      * @param track     The track to add
      * @param queryArgs The original query/args used to find this track
-     * @param channel   The text channel for request metadata
+     * @param channel   The message-capable channel for request metadata
      * @return TrackAddResult containing position and formatted message, or null if track is too long
      */
     public TrackAddResult addTrackToQueue(Guild guild, Member member, AudioTrack track,
-                                          String queryArgs, TextChannel channel)
+                                          String queryArgs, GuildMessageChannel channel)
     {
         return addTrackInternal(guild, member, track, queryArgs, channel,
                 AudioHandler::addTrack, "added to the queue.", "queue");
@@ -238,11 +273,11 @@ public class MusicService
      * @param member    The member adding the track
      * @param track     The track to add
      * @param queryArgs The original query/args used to find this track
-     * @param channel   The text channel for request metadata
+     * @param channel   The message-capable channel for request metadata
      * @return TrackAddResult containing position and formatted message, or null if track is too long
      */
     public TrackAddResult addTrackToFront(Guild guild, Member member, AudioTrack track,
-                                          String queryArgs, TextChannel channel)
+                                          String queryArgs, GuildMessageChannel channel)
     {
         return addTrackInternal(guild, member, track, queryArgs, channel,
                 AudioHandler::addTrackToFront, "added to the front of the queue.", "front of queue");
@@ -250,7 +285,7 @@ public class MusicService
 
     // ========== Player Operations ==========
 
-    public void playNext(Guild guild, Member member, String args, TextChannel channel, OutputAdapter output)
+    public void playNext(Guild guild, Member member, String args, GuildMessageChannel channel, OutputAdapter output)
     {
         LOG.debug("PlayNext requested: guild={}, user={}, query={}",
                 guild.getId(), member.getUser().getName(), args);
@@ -265,6 +300,8 @@ public class MusicService
         if (args.startsWith("<") && args.endsWith(">"))
             args = args.substring(1, args.length() - 1);
 
+        args = QueryNormalizer.normalize(args);
+
         LOG.info("Loading track for playNext: guild={}, user={}, query=\"{}\"",
                 guild.getId(), member.getUser().getName(), args);
 
@@ -272,7 +309,7 @@ public class MusicService
                 bot.getAudioLoadWrapper().wrap(args, new AudioLoadResultHandlers.PlayNextResultHandler(this, bot, output, guild, member, args, false, channel)));
     }
 
-    public void play(Guild guild, Member member, String args, TextChannel channel, OutputAdapter output)
+    public void play(Guild guild, Member member, String args, GuildMessageChannel channel, OutputAdapter output)
     {
         LOG.debug("Play requested: guild={}, user={}, args={}",
                 guild.getId(), member.getUser().getName(), args);
@@ -303,6 +340,8 @@ public class MusicService
             output.onShowHelp();
             return;
         }
+
+        args = QueryNormalizer.normalize(args);
 
         LOG.info("Loading track: guild={}, user={}, query=\"{}\"",
                 guild.getId(), member.getUser().getName(), args);
@@ -362,7 +401,7 @@ public class MusicService
         QueuedTrack previous = handler.getQueue().rewind(currentQueued);
         if (previous != null)
         {
-            handler.getPlayer().playTrack(previous.getTrack());
+            handler.playPrepared(previous.getTrack());
             LOG.info("Went to previous track: guild={}, track=\"{}\"",
                     guild.getId(), previous.getTrack().getInfo().title);
             output.replySuccess("Went back to **" + FormatUtil.getTrackTitle(previous.getTrack()) + "**");
@@ -1305,10 +1344,10 @@ public class MusicService
      * @param guild           The guild
      * @param member          The member adding the track
      * @param historyPosition 1-based position (1 = most recent)
-     * @param channel         The text channel for request metadata
+     * @param channel         The message-capable channel for request metadata
      * @param output          The output adapter
      */
-    public void queueFromHistory(Guild guild, Member member, int historyPosition, TextChannel channel, OutputAdapter output)
+    public void queueFromHistory(Guild guild, Member member, int historyPosition, GuildMessageChannel channel, OutputAdapter output)
     {
         AudioHandler handler = getHandler(guild);
         if (handler == null)
@@ -1349,7 +1388,12 @@ public class MusicService
                 channel.getIdLong());
         QueuedTrack newQt = new QueuedTrack(track, rm);
         handler.setLastReason(member.getUser().getName() + " added from history.");
-        int position = handler.addTrack(newQt) + 1;
+        int rawPosition = handler.addTrack(newQt);
+        if (rawPosition >= 0)
+        {
+            handler.considerQueuedSuggestion(newQt);
+        }
+        int position = rawPosition + 1;
         String title = FormatUtil.getTrackTitle(track);
         output.replySuccess(formatTrackAddedMessage(title, track.getDuration(), position));
     }
@@ -1360,10 +1404,10 @@ public class MusicService
      *
      * @param guild   The guild
      * @param member  The member adding the tracks
-     * @param channel The text channel for request metadata
+     * @param channel The message-capable channel for request metadata
      * @param output  The output adapter
      */
-    public void queueAllFromHistory(Guild guild, Member member, TextChannel channel, OutputAdapter output)
+    public void queueAllFromHistory(Guild guild, Member member, GuildMessageChannel channel, OutputAdapter output)
     {
         AudioHandler handler = getHandler(guild);
         if (handler == null)
@@ -1431,10 +1475,10 @@ public class MusicService
      * @param guild           The guild
      * @param member          The member
      * @param historyPosition 1-based position (1 = most recent)
-     * @param channel         The text channel for request metadata
+     * @param channel         The message-capable channel for request metadata
      * @param output          The output adapter
      */
-    public void playFromHistoryNow(Guild guild, Member member, int historyPosition, TextChannel channel, OutputAdapter output)
+    public void playFromHistoryNow(Guild guild, Member member, int historyPosition, GuildMessageChannel channel, OutputAdapter output)
     {
         AudioHandler handler = getHandler(guild);
         if (handler == null)
@@ -1475,11 +1519,22 @@ public class MusicService
                 channel.getIdLong());
         QueuedTrack newQt = new QueuedTrack(track, rm);
         handler.setLastReason(member.getUser().getName() + " playing from history.");
-        handler.addTrackToFront(newQt);
+        // "Play now" is about to replace the current track outside of a full stop: cancel any
+        // open yt-dlp prompt/handoff for it first, the same way a full stop would. This can make
+        // a gated hold end on its own within milliseconds, so the "is something playing" check
+        // right below is made fresh, after cancelling, and acted on immediately — never captured
+        // earlier and acted on later (a stale check could otherwise race a stopTrack() against a
+        // track that's already gone, or against the new track itself).
+        handler.cancelCurrentTrackYtDlpPrompt();
         if (handler.getPlayer().getPlayingTrack() != null)
         {
-            handler.getPlayer().stopTrack();
+            handler.playNowReplacingCurrent(newQt);
         }
+        else
+        {
+            handler.addTrackToFront(newQt);
+        }
+        handler.getPlayer().setPaused(false); // "Play now" means play, even if the player was paused
         String title = FormatUtil.getTrackTitle(track);
         output.replySuccess("Now playing **" + FormatUtil.filter(title) + "**");
     }
@@ -1517,10 +1572,10 @@ public class MusicService
      * @param guild        The guild
      * @param member       The member requesting playback
      * @param playlistName The saved playlist name
-     * @param channel      The text channel for request metadata
+     * @param channel      The message-capable channel for request metadata
      * @param output       The output adapter
      */
-    public void queuePlaylist(Guild guild, Member member, String playlistName, TextChannel channel, OutputAdapter output)
+    public void queuePlaylist(Guild guild, Member member, String playlistName, GuildMessageChannel channel, OutputAdapter output)
     {
         PlaylistLoader.PlaylistResult<Playlist> playlistResult = bot.getPlaylistLoader().getPlaylistResult(playlistName);
         if (!playlistResult.isSuccess())
@@ -1579,10 +1634,10 @@ public class MusicService
      * @param guild        The guild
      * @param member       The member requesting playback
      * @param playlistName The saved playlist name
-     * @param channel      The text channel for request metadata
+     * @param channel      The message-capable channel for request metadata
      * @param output       The output adapter
      */
-    public void playPlaylistNow(Guild guild, Member member, String playlistName, TextChannel channel, OutputAdapter output)
+    public void playPlaylistNow(Guild guild, Member member, String playlistName, GuildMessageChannel channel, OutputAdapter output)
     {
         PlaylistLoader.PlaylistResult<Playlist> playlistResult = bot.getPlaylistLoader().getPlaylistResult(playlistName);
         if (!playlistResult.isSuccess())
@@ -1590,6 +1645,7 @@ public class MusicService
             output.replyError(mapPlaylistErrorToMessage(playlistResult.getError()));
             return;
         }
+        Playlist playlist = playlistResult.getValue();
 
         AudioHandler handler = getHandler(guild);
         if (handler == null)
@@ -1602,52 +1658,75 @@ public class MusicService
             return;
         }
 
-        handler.stopAndClearQueuePreserveHistory();
-        queuePlaylist(guild, member, playlistName, channel, new OutputAdapter()
+        AudioHandler finalHandler = handler;
+        // Captured before the queue is touched: the track (if any) "Play now" is replacing.
+        // AudioHandler decides what to do with this by identity, not a stale boolean, since the
+        // load happens over the network and this track can end on its own (skip, finish, repeat)
+        // before any replacement track is ready.
+        AudioTrack originalTrack = finalHandler.getPlayer().getPlayingTrack();
+        // The token ties every follow-up call to THIS replacement specifically, so a track that
+        // loads (or a loadTracks failure) after a second, newer "Play now" has already begun
+        // can't disarm or otherwise affect that newer one.
+        Object replacementToken = finalHandler.beginQueueReplacement();
+
+        try
         {
-            @Override
-            public void replySuccess(String content)
-            {
-                output.replySuccess("Now playing playlist `" + playlistName + "` (queue replaced). " + content);
-            }
+            playlist.loadTracks(bot.getPlayerManager(), at -> {
+                try
+                {
+                    RequestMetadata metadata = new RequestMetadata(member.getUser(),
+                            new RequestMetadata.RequestInfo("playlist " + playlist.getName(), at.getInfo().uri),
+                            channel.getIdLong());
+                    finalHandler.addTrack(new QueuedTrack(at, metadata));
+                }
+                finally
+                {
+                    // Always attempted, even if addTrack above threw: only the first call
+                    // (chronologically) that still finds this token active does anything; later
+                    // calls for the rest of the playlist are harmless no-ops.
+                    finalHandler.replaceCurrentTrackIfStillPlaying(replacementToken, originalTrack);
+                }
+            }, () -> {
+                try
+                {
+                    int loadedCount = playlist.getTracks().size();
+                    int errorCount = playlist.getErrors().size();
+                    if (loadedCount == 0)
+                    {
+                        output.replyWarning("No tracks were loaded from playlist `" + playlist.getName() + "`!");
+                        return;
+                    }
 
-            @Override
-            public void replyError(String content)
-            {
-                output.replyError(content);
-            }
+                    StringBuilder msg = new StringBuilder("Queued **")
+                            .append(loadedCount)
+                            .append("** track(s) from playlist `")
+                            .append(playlist.getName())
+                            .append("`.");
+                    if (errorCount > 0)
+                    {
+                        msg.append(" Failed to load ").append(errorCount).append(" item(s).");
+                    }
 
-            @Override
-            public void replyWarning(String content)
-            {
-                output.replyWarning(content);
-            }
-
-            @Override
-            public void editMessage(String content)
-            {
-            }
-
-            @Override
-            public void editMessage(String content, Consumer<Message> onSuccess)
-            {
-            }
-
-            @Override
-            public void editNowPlaying(AudioHandler handler)
-            {
-            }
-
-            @Override
-            public void editNoMusic(AudioHandler handler)
-            {
-            }
-
-            @Override
-            public void onShowHelp()
-            {
-            }
-        });
+                    output.replySuccess("Now playing playlist `" + playlist.getName() + "` (queue replaced). " + msg);
+                    bot.getNowplayingHandler().requestReconcile(guild.getIdLong(), "playlist-loaded");
+                }
+                finally
+                {
+                    // No-op if replaceCurrentTrackIfStillPlaying already resolved this token.
+                    // Otherwise (e.g. zero tracks loaded, or the block above threw), applies the
+                    // normal empty-queue behaviour if nothing is playing, now that the guard
+                    // that deferred it is being lifted.
+                    finalHandler.endQueueReplacement(replacementToken);
+                }
+            });
+        }
+        catch (RuntimeException ex)
+        {
+            LOG.warn("Playlist `{}` failed to load for \"Play now\": guild={}, error={}",
+                    playlistName, guild.getId(), ex.toString());
+            finalHandler.endQueueReplacement(replacementToken);
+            output.replyError("Failed to load playlist `" + playlistName + "`.");
+        }
     }
 
     /**
@@ -1915,7 +1994,7 @@ public class MusicService
     /**
      * Loads a URL and adds it to the front of queue, then starts it immediately.
      */
-    public void playNowFromUrl(Guild guild, Member member, String url, TextChannel channel, OutputAdapter output)
+    public void playNowFromUrl(Guild guild, Member member, String url, GuildMessageChannel channel, OutputAdapter output)
     {
         if (url == null || url.isBlank())
         {
@@ -1926,17 +2005,42 @@ public class MusicService
         {
             private void loadSingle(AudioTrack track)
             {
-                TrackAddResult result = addTrackToFront(guild, member, track, url, channel);
-                if (result == null)
+                if (isTooLong(track))
                 {
                     output.replyError(formatTooLongError(track));
                     return;
                 }
+
                 AudioHandler handler = getHandler(guild);
-                if (handler != null && handler.getPlayer().getPlayingTrack() != null)
+                if (handler == null)
                 {
-                    handler.getPlayer().stopTrack();
+                    output.replyError("There is no player in this server!");
+                    return;
                 }
+
+                handler.setLastReason(member.getUser().getName() + " added to the front of the queue.");
+                RequestMetadata requestMetadata = new RequestMetadata(member.getUser(),
+                        new RequestMetadata.RequestInfo(url, track.getInfo().uri),
+                        channel.getIdLong());
+                QueuedTrack queuedTrack = new QueuedTrack(track, requestMetadata);
+
+                // "Play now" is about to replace the current track outside of a full stop:
+                // cancel any open yt-dlp prompt/handoff for it first, the same way a full stop
+                // would. This can make a gated hold end on its own within milliseconds, so "is
+                // something playing" is checked fresh, right after cancelling, and acted on
+                // immediately — never captured earlier and acted on later (a stale check could
+                // otherwise race a stopTrack() against a track that's already gone, or against
+                // the new track itself).
+                handler.cancelCurrentTrackYtDlpPrompt();
+                if (handler.getPlayer().getPlayingTrack() != null)
+                {
+                    handler.playNowReplacingCurrent(queuedTrack);
+                }
+                else
+                {
+                    handler.addTrackToFront(queuedTrack);
+                }
+                handler.getPlayer().setPaused(false); // "Play now" means play, even if the player was paused
                 output.replySuccess("Now playing **" + FormatUtil.filter(FormatUtil.getTrackTitle(track)) + "**");
             }
 
@@ -2044,7 +2148,7 @@ public class MusicService
                 @Override
                 public void trackLoaded(AudioTrack track)
                 {
-                    lines[index] = FormatUtil.formatTrackLineForEmbed(track);
+                    lines[index] = FormatUtil.formatTrackLineForEmbed(wrapLibraryFile(track));
                     maybeDone.run();
                 }
 
@@ -2070,7 +2174,7 @@ public class MusicService
                         maybeDone.run();
                         return;
                     }
-                    lines[index] = FormatUtil.formatTrackLineForEmbed(single);
+                    lines[index] = FormatUtil.formatTrackLineForEmbed(wrapLibraryFile(single));
                     maybeDone.run();
                 }
 

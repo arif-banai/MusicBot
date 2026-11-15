@@ -19,6 +19,7 @@ import com.jagrosh.jmusicbot.audio.QueuedTrack;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Predicate;
+import java.util.function.UnaryOperator;
 
 /**
  *
@@ -147,6 +148,14 @@ public abstract class AbstractQueue<T extends Queueable>
 
     public T get(int index) {
         return list.get(index);
+    }
+
+    /**
+     * Replaces every queued item with {@code op}'s result, in queue order, keeping positions.
+     */
+    public void replaceAll(UnaryOperator<T> op)
+    {
+        list.replaceAll(op);
     }
 
     public T remove(int index)

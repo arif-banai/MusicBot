@@ -6,6 +6,7 @@ import com.jagrosh.jmusicbot.commands.v2.MusicSlashCommand;
 import com.jagrosh.jmusicbot.commands.v2.SlashOutputAdapters.InteractionHookOutputAdapter;
 import com.jagrosh.jmusicbot.commands.v2.SlashOutputAdapters.SlashEventOutputAdapter;
 import com.jagrosh.jmusicbot.service.MusicService;
+import com.jagrosh.jmusicbot.utils.QueryNormalizer;
 import com.sedmelluq.discord.lavaplayer.player.AudioLoadResultHandler;
 import com.sedmelluq.discord.lavaplayer.tools.FriendlyException;
 import com.sedmelluq.discord.lavaplayer.track.AudioPlaylist;
@@ -18,9 +19,23 @@ import net.dv8tion.jda.api.interactions.commands.build.OptionData;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 
 public class PlaySlashCmd extends MusicSlashCommand
 {
+    /**
+     * How long autocomplete waits for search results before answering with no choices. Discord
+     * allows 3 seconds from the interaction's creation, which also covers gateway delivery and
+     * the round trip of the answer itself.
+     */
+    static final long AUTOCOMPLETE_DEADLINE_MS = 2000;
+
+    /** Discord's limit for an autocomplete choice's name and string value. */
+    private static final int MAX_CHOICE_LENGTH = 100;
+
     private final String loadingEmoji;
     private final MusicService musicService;
 
@@ -42,14 +57,14 @@ public class PlaySlashCmd extends MusicSlashCommand
     {
         if (event.getOption("query") == null)
         {
-            musicService.play(event.getGuild(), event.getMember(), "", event.getTextChannel(),
+            musicService.play(event.getGuild(), event.getMember(), "", event.getGuildChannel(),
                     new SlashEventOutputAdapter(event));
             return;
         }
 
         String args = event.getOption("query").getAsString();
         event.reply(loadingEmoji + " Loading... `[" + args + "]`").queue(hook -> {
-            musicService.play(event.getGuild(), event.getMember(), args, event.getTextChannel(),
+            musicService.play(event.getGuild(), event.getMember(), args, event.getGuildChannel(),
                     new InteractionHookOutputAdapter(hook, event.getJDA(), event.getClient().getWarning()));
         });
     }
@@ -64,38 +79,69 @@ public class PlaySlashCmd extends MusicSlashCommand
             return;
         }
 
-        if(isUrlOrPath(input))
+        String normalized = QueryNormalizer.normalize(input);
+        if(isUrlOrPath(normalized))
         {
-            event.replyChoices(new Command.Choice(input, input)).queue();
+            // Discord rejects a choice value over 100 characters, and normalization can add
+            // "https://" to one that fit; offer no choice then (the typed text can still be sent).
+            if(normalized.length() > MAX_CHOICE_LENGTH)
+                event.replyChoices().queue();
+            else
+                event.replyChoices(new Command.Choice(truncateTitle(normalized), normalized)).queue();
             return;
         }
 
-        bot.getPlayerManager().loadItemOrdered(event.getGuild(), "ytsearch:" + input,
+        // Autocomplete cannot be deferred: Discord drops it (10062 Unknown interaction) unless the
+        // choices arrive within 3 seconds. A YouTube search can take longer, so answer with no
+        // choices at the deadline and drop a result that arrives after it.
+        AtomicBoolean answered = new AtomicBoolean(false);
+        ScheduledFuture<?> fallback = bot.getThreadpool().schedule(() ->
+        {
+            if (answered.compareAndSet(false, true))
+            {
+                event.replyChoices().queue();
+            }
+        }, AUTOCOMPLETE_DEADLINE_MS, TimeUnit.MILLISECONDS);
+        Consumer<Runnable> answerOnce = reply ->
+        {
+            if (answered.compareAndSet(false, true))
+            {
+                if (fallback != null)
+                {
+                    fallback.cancel(false);
+                }
+                reply.run();
+            }
+        };
+
+        // Unordered: on the guild's ordering key (MusicService.play's) every keystroke's search would
+        // run one after another, and a real /play would wait behind all the abandoned ones.
+        bot.getPlayerManager().loadItem("ytsearch:" + input,
                 bot.getAudioLoadWrapper().wrap("ytsearch:" + input, new AudioLoadResultHandler()
         {
             @Override
             public void trackLoaded(AudioTrack track)
             {
                 String title = track.getInfo().title;
-                event.replyChoices(new Command.Choice(truncateTitle(title), track.getInfo().uri)).queue();
+                answerOnce.accept(() -> event.replyChoices(new Command.Choice(truncateTitle(title), track.getInfo().uri)).queue());
             }
 
             @Override
             public void playlistLoaded(AudioPlaylist playlist)
             {
-                event.replyChoices(buildChoicesFromPlaylist(playlist)).queue();
+                answerOnce.accept(() -> event.replyChoices(buildChoicesFromPlaylist(playlist)).queue());
             }
 
             @Override
             public void noMatches()
             {
-                event.replyChoices().queue();
+                answerOnce.accept(() -> event.replyChoices().queue());
             }
 
             @Override
             public void loadFailed(FriendlyException exception)
             {
-                event.replyChoices().queue();
+                answerOnce.accept(() -> event.replyChoices().queue());
             }
         }));
     }

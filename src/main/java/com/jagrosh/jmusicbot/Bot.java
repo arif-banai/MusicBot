@@ -31,6 +31,7 @@ import com.jagrosh.jmusicbot.service.MusicService;
 import com.jagrosh.jmusicbot.service.SearchService;
 import com.jagrosh.jmusicbot.utils.InstanceLock;
 import com.jagrosh.jmusicbot.utils.YoutubeOauth2TokenHandler;
+import com.jagrosh.jmusicbot.ytdlp.YtDlpService;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.entities.Activity;
 import net.dv8tion.jda.api.entities.Guild;
@@ -60,6 +61,7 @@ public class Bot
     private final UserInteraction userInteraction;
     private final Instant startTime;
     private final AudioLoadWrapper audioLoadWrapper;
+    private final YtDlpService ytDlp;
     
     private boolean shuttingDown = false;
     private JDA jda;
@@ -78,6 +80,9 @@ public class Bot
         this.youTubeOauth2TokenHandler = new YoutubeOauth2TokenHandler();
         this.youTubeOauth2TokenHandler.init();
         this.players = new PlayerManager(this);
+        // Optional yt-dlp library: loads its index if the folder exists; does nothing more unless ytdlp.path is set
+        this.ytDlp = YtDlpService.create(this);
+        this.ytDlp.start();
         // Delay init of the PlayerManager until the GUI has started
         // this.players.init();
         this.nowplaying = new NowPlayingHandler(this);
@@ -141,6 +146,11 @@ public class Bot
     public SearchService getSearchService()
     {
         return searchService;
+    }
+
+    public YtDlpService getYtDlp()
+    {
+        return ytDlp;
     }
 
     /**
@@ -232,6 +242,7 @@ public class Bot
 
         // Shut down thread pool after audio cleanup to avoid RejectedExecutionException
         threadpool.shutdownNow();
+        ytDlp.shutdown();
 
         if (gui != null)
             gui.dispose();

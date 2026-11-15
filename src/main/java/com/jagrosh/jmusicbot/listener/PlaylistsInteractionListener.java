@@ -24,7 +24,7 @@ import com.jagrosh.jmusicbot.service.MusicService;
 import net.dv8tion.jda.api.components.actionrow.ActionRow;
 import net.dv8tion.jda.api.components.selections.StringSelectMenu;
 import net.dv8tion.jda.api.entities.MessageEmbed;
-import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
+import net.dv8tion.jda.api.entities.channel.middleman.GuildMessageChannel;
 import net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.component.StringSelectInteractionEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
@@ -207,17 +207,20 @@ public class PlaylistsInteractionListener extends ListenerAdapter
                 return;
             }
 
-            TextChannel channel = event.getChannel().asTextChannel();
+            GuildMessageChannel channel = event.getChannel().asGuildMessageChannel();
+            // Acknowledge once, up front: the playlist loads and the view re-render both finish
+            // asynchronously, so both must answer through the hook rather than race to reply/edit.
+            event.deferEdit().queue();
             MusicService.OutputAdapter output = OutputAdapters.forPlaylistsReply(event);
             if (action.equals("queueall"))
             {
                 musicService.queuePlaylist(event.getGuild(), event.getMember(), playlistName, channel, output);
-                renderPlaylistDetailsView(event, id.playlistIndex(), id.listPage(), page, 0, id.userId(), playlistName, draftContext);
+                renderPlaylistDetailsView(event.getHook(), event, id.playlistIndex(), id.listPage(), page, 0, id.userId(), playlistName, draftContext);
             }
             else
             {
                 musicService.playPlaylistNow(event.getGuild(), event.getMember(), playlistName, channel, output);
-                renderPlaylistDetailsView(event, id.playlistIndex(), id.listPage(), 1, 0, id.userId(), playlistName, draftContext);
+                renderPlaylistDetailsView(event.getHook(), event, id.playlistIndex(), id.listPage(), 1, 0, id.userId(), playlistName, draftContext);
             }
             return;
         }
@@ -325,7 +328,7 @@ public class PlaylistsInteractionListener extends ListenerAdapter
             return;
         }
 
-        TextChannel channel = event.getChannel().asTextChannel();
+        GuildMessageChannel channel = event.getChannel().asGuildMessageChannel();
         MusicService.OutputAdapter output = OutputAdapters.forPlaylistsReply(event);
         String selectedTrackUrl = musicService.getPlaylistTrackUrlAtPosition(draftContext, selectedTrack);
         if (selectedTrackUrl == null || selectedTrackUrl.isBlank())
@@ -334,23 +337,21 @@ public class PlaylistsInteractionListener extends ListenerAdapter
             return;
         }
 
-        if (action.equals("queue"))
+        if (!action.equals("queue") && !action.equals("playnext") && !action.equals("playnow"))
         {
-            musicService.play(event.getGuild(), event.getMember(), selectedTrackUrl, channel, output);
-            renderPlaylistDetailsView(event, id.playlistIndex(), id.listPage(), page, selectedTrack, id.userId(), playlistName, draftContext);
             return;
         }
-        if (action.equals("playnext"))
+
+        // Acknowledge once, up front: the track load and the view re-render both finish
+        // asynchronously, so both answer through the hook.
+        event.deferEdit().queue();
+        switch (action)
         {
-            musicService.playNext(event.getGuild(), event.getMember(), selectedTrackUrl, channel, output);
-            renderPlaylistDetailsView(event, id.playlistIndex(), id.listPage(), page, selectedTrack, id.userId(), playlistName, draftContext);
-            return;
+            case "queue" -> musicService.play(event.getGuild(), event.getMember(), selectedTrackUrl, channel, output);
+            case "playnext" -> musicService.playNext(event.getGuild(), event.getMember(), selectedTrackUrl, channel, output);
+            default -> musicService.playNowFromUrl(event.getGuild(), event.getMember(), selectedTrackUrl, channel, output);
         }
-        if (action.equals("playnow"))
-        {
-            musicService.playNowFromUrl(event.getGuild(), event.getMember(), selectedTrackUrl, channel, output);
-            renderPlaylistDetailsView(event, id.playlistIndex(), id.listPage(), page, selectedTrack, id.userId(), playlistName, draftContext);
-        }
+        renderPlaylistDetailsView(event.getHook(), event, id.playlistIndex(), id.listPage(), page, selectedTrack, id.userId(), playlistName, draftContext);
     }
 
     private void handlePlaylistDetailsMoveSelect(StringSelectInteractionEvent event)
@@ -545,19 +546,26 @@ public class PlaylistsInteractionListener extends ListenerAdapter
             return;
         }
 
-        TextChannel channel = event.getChannel().asTextChannel();
+        if (!action.equals("queue") && !action.equals("playnow"))
+        {
+            return;
+        }
+
+        GuildMessageChannel channel = event.getChannel().asGuildMessageChannel();
+        // Acknowledge once, up front: the playlist reply may come before or after the embed
+        // refresh, so both go through the hook.
+        event.deferEdit().queue();
         MusicService.OutputAdapter output = OutputAdapters.forPlaylistsReply(event);
         if (action.equals("queue"))
         {
             musicService.queuePlaylist(event.getGuild(), event.getMember(), selectedPlaylist, channel, output);
-            updatePlaylistsEmbed(event, playlists, page, totalPages, 0, userId);
-            return;
         }
-        if (action.equals("playnow"))
+        else
         {
             musicService.playPlaylistNow(event.getGuild(), event.getMember(), selectedPlaylist, channel, output);
-            updatePlaylistsEmbed(event, playlists, page, totalPages, 0, userId);
         }
+        PlaylistsListView view = buildPlaylistsListView(event, playlists, page, totalPages, 0, userId);
+        event.getHook().editOriginalEmbeds(view.embed()).setComponents(view.components()).queue();
     }
 
     private MusicService.PlaylistNamesInfo loadPlaylistNames()
@@ -568,11 +576,18 @@ public class PlaylistsInteractionListener extends ListenerAdapter
     private void updatePlaylistsEmbed(ButtonInteractionEvent event, List<String> playlists,
                                       int page, int totalPages, int selectedIndex, long userId)
     {
+        PlaylistsListView view = buildPlaylistsListView(event, playlists, page, totalPages, selectedIndex, userId);
+        event.editMessageEmbeds(view.embed()).setComponents(view.components()).queue();
+    }
+
+    private PlaylistsListView buildPlaylistsListView(ButtonInteractionEvent event, List<String> playlists,
+                                                     int page, int totalPages, int selectedIndex, long userId)
+    {
         int playlistsOnPage = PlaylistsSlashCmd.getPlaylistsOnPage(page, playlists.size());
         MessageEmbed embed = PlaylistsSlashCmd.buildPlaylistsEmbed(playlists, page, totalPages, selectedIndex,
                 event.getMember().getColor());
         List<ActionRow> components = PlaylistsSlashCmd.buildPlaylistsComponents(page, totalPages, playlistsOnPage, selectedIndex, userId);
-        event.editMessageEmbeds(embed).setComponents(components).queue();
+        return new PlaylistsListView(embed, components);
     }
 
     private void renderPlaylistListView(ButtonInteractionEvent event, int listPage, int listSelectedIndex, long userId)
@@ -603,30 +618,38 @@ public class PlaylistsInteractionListener extends ListenerAdapter
         updatePlaylistsEmbed(event, playlists, safePage, totalPages, safeSelected, userId);
     }
 
+    /**
+     * Re-renders the details view for an unacknowledged button interaction. Rendering loads the page's
+     * tracks (network work that can exceed Discord's 3-second acknowledgement window), so the
+     * interaction is deferred first and the view is written through the hook.
+     */
     private void renderPlaylistDetailsView(ButtonInteractionEvent event, int playlistIndex, int listPage,
                                            int detailsPage, int selectedTrack, long userId, String playlistName,
                                            MusicService.PlaylistDraftContext draftContext)
     {
-        renderPlaylistDetailsView(result ->
-                        event.editMessageEmbeds(result.embed()).setComponents(result.components()).queue(),
-                message -> event.editMessage(message).setEmbeds().setComponents().queue(),
-                event.getGuild(), event.getMember(), playlistIndex, listPage, detailsPage, selectedTrack, userId,
-                playlistName, draftContext);
+        event.deferEdit().queue();
+        renderPlaylistDetailsView(event.getHook(), event, playlistIndex, listPage, detailsPage, selectedTrack,
+                userId, playlistName, draftContext);
     }
 
+    /**
+     * Same as the button variant, for the move-position select menu.
+     */
     private void renderPlaylistDetailsView(StringSelectInteractionEvent event, int playlistIndex, int listPage,
                                            int detailsPage, int selectedTrack, long userId, String playlistName,
                                            MusicService.PlaylistDraftContext draftContext)
     {
-        renderPlaylistDetailsView(result ->
-                        event.editMessageEmbeds(result.embed()).setComponents(result.components()).queue(),
-                message -> event.editMessage(message).setEmbeds().setComponents().queue(),
-                event.getGuild(), event.getMember(), playlistIndex, listPage, detailsPage, selectedTrack, userId,
-                playlistName, draftContext);
+        event.deferEdit().queue();
+        renderPlaylistDetailsView(event.getHook(), event, playlistIndex, listPage, detailsPage, selectedTrack,
+                userId, playlistName, draftContext);
     }
 
+    /**
+     * Renders the details view through {@code hook}, whose interaction has already been acknowledged
+     * with {@code deferEdit()} (so the hook's original message is the playlists message).
+     */
     private void renderPlaylistDetailsView(net.dv8tion.jda.api.interactions.InteractionHook hook,
-                                           ButtonInteractionEvent event,
+                                           net.dv8tion.jda.api.interactions.Interaction event,
                                            int playlistIndex, int listPage, int detailsPage,
                                            int selectedTrack, long userId, String playlistName,
                                            MusicService.PlaylistDraftContext draftContext)
@@ -682,12 +705,16 @@ public class PlaylistsInteractionListener extends ListenerAdapter
                                         int playlistIndex, int listPage, int detailsPage, int selectedTrack,
                                         long userId)
     {
+        // Loading the page's tracks can take longer than Discord's 3-second window, so acknowledge
+        // first and render through the hook.
+        event.deferEdit().queue();
+        net.dv8tion.jda.api.interactions.InteractionHook hook = event.getHook();
         bot.getMusicService().loadPlaylistPageWithTracks(
                 draftContext, detailsPage, PlaylistsSlashCmd.PLAYLIST_TRACKS_PER_PAGE, result ->
                 {
                     if (result == null)
                     {
-                        event.reply("Playlist no longer exists. Click Back and Refresh.").setEphemeral(true).queue();
+                        hook.sendMessage("Playlist no longer exists. Click Back and Refresh.").setEphemeral(true).queue();
                         return;
                     }
                     int totalPages = Math.max(1, PlaylistsSlashCmd.getPlaylistTrackTotalPages(result.totalItems));
@@ -724,11 +751,11 @@ public class PlaylistsInteractionListener extends ListenerAdapter
                     }
                     String cancelMoveId = "playlistdetails_" + playlistIndex + "_" + listPage + "_cancelmove_"
                             + safePage + "_" + safeSelected + "_" + userId;
-                    event.editMessageEmbeds(embed)
-                            .setComponents(
+                    hook.editOriginalEmbeds(embed)
+                            .setComponents(List.of(
                                     ActionRow.of(menuBuilder.build()),
                                     ActionRow.of(net.dv8tion.jda.api.components.buttons.Button.secondary(cancelMoveId, "Back"))
-                            )
+                            ))
                             .queue();
                 });
     }
@@ -756,6 +783,10 @@ public class PlaylistsInteractionListener extends ListenerAdapter
     }
 
     private record PlaylistDetailsRenderResult(MessageEmbed embed, List<ActionRow> components)
+    {
+    }
+
+    private record PlaylistsListView(MessageEmbed embed, List<ActionRow> components)
     {
     }
 }

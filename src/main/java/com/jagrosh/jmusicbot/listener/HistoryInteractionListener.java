@@ -26,13 +26,15 @@ import net.dv8tion.jda.api.components.label.Label;
 import net.dv8tion.jda.api.components.textinput.TextInput;
 import net.dv8tion.jda.api.components.textinput.TextInputStyle;
 import net.dv8tion.jda.api.entities.MessageEmbed;
-import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
+import net.dv8tion.jda.api.entities.channel.middleman.GuildMessageChannel;
 import net.dv8tion.jda.api.events.interaction.ModalInteractionEvent;
 import net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
+import net.dv8tion.jda.api.interactions.InteractionHook;
 import net.dv8tion.jda.api.modals.Modal;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -141,21 +143,13 @@ public class HistoryInteractionListener extends ListenerAdapter {
             if (!InteractionGuards.ensureBotInUserVoiceChannel(event, bot)) {
                 return;
             }
+            GuildMessageChannel channel = event.getChannel().asGuildMessageChannel();
+            // Acknowledge once, up front: the action's reply goes out as a follow-up and the
+            // embed refresh edits the message, both through the hook.
+            event.deferEdit().queue();
             MusicService.OutputAdapter adapter = OutputAdapters.forHistoryReply(event);
-            TextChannel channel = event.getChannel().asTextChannel();
             musicService.queueFromHistory(event.getGuild(), event.getMember(), selectedTrack, channel, adapter);
-            MusicService.HistoryInfo newInfo = musicService.getHistoryInfo(event.getGuild(), event.getJDA());
-            if (newInfo == null) {
-                event.editMessage("Playback history is now empty!").setEmbeds().setComponents().queue();
-            } else if (newInfo.isDisabled()) {
-                event.editMessage(MusicService.HISTORY_DISABLED_MESSAGE).setEmbeds().setComponents().queue();
-            } else if (newInfo.isEmpty()) {
-                event.editMessage("Playback history is now empty!").setEmbeds().setComponents().queue();
-            } else {
-                int newTotalPages = HistorySlashCmd.getTotalPages(newInfo.tracks.length);
-                int safePage = Math.min(page, newTotalPages);
-                updateHistoryEmbed(event, newInfo, safePage, newTotalPages, 0, userId);
-            }
+            refreshHistoryViaHook(event, page, userId);
         } else if (action.equals("playnow")) {
             if (selectedTrack <= 0 || selectedTrack > historyInfo.tracks.length) {
                 event.reply("No track selected!").setEphemeral(true).queue();
@@ -164,39 +158,24 @@ public class HistoryInteractionListener extends ListenerAdapter {
             if (!InteractionGuards.ensureBotInUserVoiceChannel(event, bot)) {
                 return;
             }
+            GuildMessageChannel channel = event.getChannel().asGuildMessageChannel();
+            // Acknowledge once, up front: the action's reply goes out as a follow-up and the
+            // embed refresh edits the message, both through the hook.
+            event.deferEdit().queue();
             MusicService.OutputAdapter adapter = OutputAdapters.forHistoryReply(event);
-            TextChannel channel = event.getChannel().asTextChannel();
             musicService.playFromHistoryNow(event.getGuild(), event.getMember(), selectedTrack, channel, adapter);
-            MusicService.HistoryInfo newInfo = musicService.getHistoryInfo(event.getGuild(), event.getJDA());
-            if (newInfo == null) {
-                event.editMessage("Playback history is now empty!").setEmbeds().setComponents().queue();
-            } else if (newInfo.isDisabled()) {
-                event.editMessage(MusicService.HISTORY_DISABLED_MESSAGE).setEmbeds().setComponents().queue();
-            } else if (newInfo.isEmpty()) {
-                event.editMessage("Playback history is now empty!").setEmbeds().setComponents().queue();
-            } else {
-                int newTotalPages = HistorySlashCmd.getTotalPages(newInfo.tracks.length);
-                updateHistoryEmbed(event, newInfo, 1, newTotalPages, 0, userId);
-            }
+            refreshHistoryViaHook(event, 1, userId);
         } else if (action.equals("queueall")) {
             if (!InteractionGuards.ensureBotInUserVoiceChannel(event, bot)) {
                 return;
             }
+            GuildMessageChannel channel = event.getChannel().asGuildMessageChannel();
+            // Acknowledge once, up front: the action's reply goes out as a follow-up and the
+            // embed refresh edits the message, both through the hook.
+            event.deferEdit().queue();
             MusicService.OutputAdapter adapter = OutputAdapters.forHistoryReply(event);
-            TextChannel channel = event.getChannel().asTextChannel();
             musicService.queueAllFromHistory(event.getGuild(), event.getMember(), channel, adapter);
-            MusicService.HistoryInfo newInfo = musicService.getHistoryInfo(event.getGuild(), event.getJDA());
-            if (newInfo == null) {
-                event.editMessage("Playback history is now empty!").setEmbeds().setComponents().queue();
-            } else if (newInfo.isDisabled()) {
-                event.editMessage(MusicService.HISTORY_DISABLED_MESSAGE).setEmbeds().setComponents().queue();
-            } else if (newInfo.isEmpty()) {
-                event.editMessage("Playback history is now empty!").setEmbeds().setComponents().queue();
-            } else {
-                int newTotalPages = HistorySlashCmd.getTotalPages(newInfo.tracks.length);
-                int safePage = Math.min(page, newTotalPages);
-                updateHistoryEmbed(event, newInfo, safePage, newTotalPages, 0, userId);
-            }
+            refreshHistoryViaHook(event, page, userId);
         } else if (action.equals("save")) {
             TextInput input = TextInput.create("playlist_name", TextInputStyle.SHORT)
                     .setPlaceholder("e.g. my-history")
@@ -252,5 +231,34 @@ public class HistoryInteractionListener extends ListenerAdapter {
                 event.getMember().getColor());
         List<ActionRow> components = HistorySlashCmd.buildHistoryComponents(page, totalPages, tracksOnPage, selectedTrack, userId);
         event.editMessageEmbeds(embed).setComponents(components).queue();
+    }
+
+    /**
+     * Refreshes the history message through the hook of an interaction already acknowledged with
+     * {@code deferEdit()}, after a queue/play action changed playback.
+     */
+    private void refreshHistoryViaHook(ButtonInteractionEvent event, int page, long userId) {
+        InteractionHook hook = event.getHook();
+        MusicService.HistoryInfo newInfo = bot.getMusicService().getHistoryInfo(event.getGuild(), event.getJDA());
+        String replacement = null;
+        if (newInfo == null) {
+            replacement = "Playback history is now empty!";
+        } else if (newInfo.isDisabled()) {
+            replacement = MusicService.HISTORY_DISABLED_MESSAGE;
+        } else if (newInfo.isEmpty()) {
+            replacement = "Playback history is now empty!";
+        }
+        if (replacement != null) {
+            hook.editOriginal(replacement)
+                    .setEmbeds(Collections.emptyList()).setComponents(Collections.emptyList()).queue();
+            return;
+        }
+        int newTotalPages = HistorySlashCmd.getTotalPages(newInfo.tracks.length);
+        int safePage = Math.min(page, newTotalPages);
+        int tracksOnPage = HistorySlashCmd.getTracksOnPage(safePage, newInfo.tracks.length);
+        MessageEmbed embed = HistorySlashCmd.buildHistoryEmbed(newInfo, safePage, newTotalPages, 0,
+                event.getMember().getColor());
+        List<ActionRow> components = HistorySlashCmd.buildHistoryComponents(safePage, newTotalPages, tracksOnPage, 0, userId);
+        hook.editOriginalEmbeds(embed).setComponents(components).queue();
     }
 }

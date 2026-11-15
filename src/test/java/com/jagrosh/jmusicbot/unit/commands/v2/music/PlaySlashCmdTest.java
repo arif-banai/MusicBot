@@ -107,7 +107,7 @@ public class PlaySlashCmdTest
         // Then
         verify(fixture.getAutoCompleteEvent()).replyChoices();
         verify(fixture.getAutoCompleteCallback()).queue();
-        verify(fixture.getPlayerManager(), never()).loadItemOrdered(any(), anyString(), any());
+        verify(fixture.getPlayerManager(), never()).loadItem(anyString(), any());
     }
 
     @Test
@@ -128,7 +128,29 @@ public class PlaySlashCmdTest
         Command.Choice capturedChoice = choiceCaptor.getValue();
         assertEquals(url, capturedChoice.getName());
         assertEquals(url, capturedChoice.getAsString());
-        verify(fixture.getPlayerManager(), never()).loadItemOrdered(any(), anyString(), any());
+        verify(fixture.getPlayerManager(), never()).loadItem(anyString(), any());
+    }
+
+    @Test
+    void testOnAutoComplete_SchemeLessYoutubeLink_RepliesWithHttpsLinkAsChoice()
+    {
+        // Given
+        String input = "youtube.com/watch?v=IY1oU1G2DA0";
+        when(fixture.getFocusedOption().getValue()).thenReturn(input);
+        when(fixture.getAutoCompleteEvent().replyChoices(any(Command.Choice.class)))
+                .thenReturn(fixture.getAutoCompleteCallback());
+
+        // When
+        command.onAutoComplete(fixture.getAutoCompleteEvent());
+
+        // Then
+        ArgumentCaptor<Command.Choice> choiceCaptor = ArgumentCaptor.forClass(Command.Choice.class);
+        verify(fixture.getAutoCompleteEvent()).replyChoices(choiceCaptor.capture());
+        Command.Choice capturedChoice = choiceCaptor.getValue();
+        String expected = "https://youtube.com/watch?v=IY1oU1G2DA0";
+        assertEquals(expected, capturedChoice.getName());
+        assertEquals(expected, capturedChoice.getAsString());
+        verify(fixture.getPlayerManager(), never()).loadItem(anyString(), any());
     }
 
     @Test
@@ -189,8 +211,7 @@ public class PlaySlashCmdTest
         command.onAutoComplete(fixture.getAutoCompleteEvent());
 
         // Then
-        verify(fixture.getPlayerManager()).loadItemOrdered(
-                eq(fixture.getGuild()), eq("ytsearch:" + query), handlerCaptor.capture());
+        verify(fixture.getPlayerManager()).loadItem(eq("ytsearch:" + query), handlerCaptor.capture());
 
         // Simulate track loaded
         AudioTrack track = mock(AudioTrack.class);
@@ -224,8 +245,7 @@ public class PlaySlashCmdTest
         command.onAutoComplete(fixture.getAutoCompleteEvent());
 
         // Then
-        verify(fixture.getPlayerManager()).loadItemOrdered(
-                eq(fixture.getGuild()), eq("ytsearch:" + query), handlerCaptor.capture());
+        verify(fixture.getPlayerManager()).loadItem(eq("ytsearch:" + query), handlerCaptor.capture());
 
         // Simulate playlist loaded
         AudioPlaylist playlist = mock(AudioPlaylist.class);
@@ -266,8 +286,7 @@ public class PlaySlashCmdTest
         command.onAutoComplete(fixture.getAutoCompleteEvent());
 
         // Then
-        verify(fixture.getPlayerManager()).loadItemOrdered(
-                eq(fixture.getGuild()), eq("ytsearch:" + query), handlerCaptor.capture());
+        verify(fixture.getPlayerManager()).loadItem(eq("ytsearch:" + query), handlerCaptor.capture());
 
         handlerCaptor.getValue().noMatches();
         verify(fixture.getAutoCompleteEvent()).replyChoices();
@@ -287,12 +306,155 @@ public class PlaySlashCmdTest
         command.onAutoComplete(fixture.getAutoCompleteEvent());
 
         // Then
-        verify(fixture.getPlayerManager()).loadItemOrdered(
-                eq(fixture.getGuild()), eq("ytsearch:" + query), handlerCaptor.capture());
+        verify(fixture.getPlayerManager()).loadItem(eq("ytsearch:" + query), handlerCaptor.capture());
 
         com.sedmelluq.discord.lavaplayer.tools.FriendlyException exception = 
                 mock(com.sedmelluq.discord.lavaplayer.tools.FriendlyException.class);
         handlerCaptor.getValue().loadFailed(exception);
         verify(fixture.getAutoCompleteEvent()).replyChoices();
+    }
+
+    @Test
+    void testOnAutoComplete_Search_DoesNotQueueBehindTheGuildsPlayLoads()
+    {
+        // Given: MusicService.play loads in order on the guild key; autocomplete searches on that key
+        // would run one after another, so a real /play would wait behind every abandoned keystroke.
+        when(fixture.getFocusedOption().getValue()).thenReturn("some song");
+
+        // When
+        command.onAutoComplete(fixture.getAutoCompleteEvent());
+
+        // Then: an unordered load
+        verify(fixture.getPlayerManager()).loadItem(eq("ytsearch:some song"), any(AudioLoadResultHandler.class));
+        verify(fixture.getPlayerManager(), never()).loadItemOrdered(any(), anyString(), any());
+    }
+
+    @Test
+    void testOnAutoComplete_LinkLongerThanAChoiceValue_RepliesEmptyChoices()
+    {
+        // Given: a scheme-less link that normalization ("https://" prefix) pushes past Discord's
+        // 100-character limit for a choice value
+        String input = "youtube.com/watch?v=IY1oU1G2DA0&list=" + "a".repeat(58);
+        assertTrue(input.length() <= 100 && input.length() + "https://".length() > 100);
+        when(fixture.getFocusedOption().getValue()).thenReturn(input);
+
+        // When
+        assertDoesNotThrow(() -> command.onAutoComplete(fixture.getAutoCompleteEvent()));
+
+        // Then: no direct-link choice (it would be rejected), but the interaction is still answered
+        verify(fixture.getAutoCompleteEvent(), never()).replyChoices(any(Command.Choice.class));
+        verify(fixture.getAutoCompleteEvent()).replyChoices();
+        verify(fixture.getAutoCompleteCallback()).queue();
+        verify(fixture.getPlayerManager(), never()).loadItem(anyString(), any());
+    }
+
+    @Test
+    void testOnAutoComplete_LinkOfExactlyOneHundredChars_RepliesWithIt()
+    {
+        // Given
+        String prefix = "https://www.youtube.com/watch?v=IY1oU1G2DA0&list=";
+        String url = prefix + "b".repeat(100 - prefix.length());
+        assertEquals(100, url.length());
+        when(fixture.getFocusedOption().getValue()).thenReturn(url);
+        when(fixture.getAutoCompleteEvent().replyChoices(any(Command.Choice.class)))
+                .thenReturn(fixture.getAutoCompleteCallback());
+
+        // When
+        command.onAutoComplete(fixture.getAutoCompleteEvent());
+
+        // Then
+        ArgumentCaptor<Command.Choice> choiceCaptor = ArgumentCaptor.forClass(Command.Choice.class);
+        verify(fixture.getAutoCompleteEvent()).replyChoices(choiceCaptor.capture());
+        assertEquals(url, choiceCaptor.getValue().getName());
+        assertEquals(url, choiceCaptor.getValue().getAsString());
+    }
+
+    // ==================== Acknowledgement deadlines ====================
+
+    @Test
+    void testOnAutoComplete_SlowSearch_RepliesEmptyChoicesBeforeTheThreeSecondDeadline()
+    {
+        // Given: a search that has not finished when the fallback fires (E6)
+        String query = "slow search";
+        when(fixture.getFocusedOption().getValue()).thenReturn(query);
+        when(fixture.getAutoCompleteEvent().replyChoices(any(Command.Choice.class)))
+                .thenReturn(fixture.getAutoCompleteCallback());
+        ArgumentCaptor<AudioLoadResultHandler> handlerCaptor =
+                ArgumentCaptor.forClass(AudioLoadResultHandler.class);
+        ArgumentCaptor<Runnable> fallbackCaptor = ArgumentCaptor.forClass(Runnable.class);
+        ArgumentCaptor<Long> delayCaptor = ArgumentCaptor.forClass(Long.class);
+        ArgumentCaptor<java.util.concurrent.TimeUnit> unitCaptor =
+                ArgumentCaptor.forClass(java.util.concurrent.TimeUnit.class);
+
+        // When
+        command.onAutoComplete(fixture.getAutoCompleteEvent());
+
+        // Then: a fallback is scheduled well inside Discord's 3-second window
+        verify(fixture.getPlayerManager()).loadItem(eq("ytsearch:" + query), handlerCaptor.capture());
+        verify(fixture.getThreadpool()).schedule(fallbackCaptor.capture(), delayCaptor.capture(), unitCaptor.capture());
+        long delayMs = unitCaptor.getValue().toMillis(delayCaptor.getValue());
+        assertTrue(delayMs > 0 && delayMs <= 2500, "fallback delay was " + delayMs + " ms");
+        verify(fixture.getAutoCompleteEvent(), never()).replyChoices();
+
+        // When the deadline passes first, then the search finishes
+        fallbackCaptor.getValue().run();
+        AudioTrack track = mock(AudioTrack.class);
+        when(track.getInfo()).thenReturn(new AudioTrackInfo(
+                "Late Song", "Author", 1000, "identifier", false, "https://www.youtube.com/watch?v=late"));
+        handlerCaptor.getValue().trackLoaded(track);
+
+        // Then: exactly one acknowledgement, the empty fallback
+        verify(fixture.getAutoCompleteEvent()).replyChoices();
+        verify(fixture.getAutoCompleteEvent(), never()).replyChoices(any(Command.Choice.class));
+        verify(fixture.getAutoCompleteCallback(), times(1)).queue();
+    }
+
+    @Test
+    void testOnAutoComplete_FastSearch_RepliesOnceAndCancelsTheFallback()
+    {
+        // Given
+        String query = "fast search";
+        when(fixture.getFocusedOption().getValue()).thenReturn(query);
+        when(fixture.getAutoCompleteEvent().replyChoices(any(Command.Choice.class)))
+                .thenReturn(fixture.getAutoCompleteCallback());
+        ArgumentCaptor<AudioLoadResultHandler> handlerCaptor =
+                ArgumentCaptor.forClass(AudioLoadResultHandler.class);
+        ArgumentCaptor<Runnable> fallbackCaptor = ArgumentCaptor.forClass(Runnable.class);
+
+        // When: the search finishes, then the (already cancelled) fallback still runs
+        command.onAutoComplete(fixture.getAutoCompleteEvent());
+        verify(fixture.getPlayerManager()).loadItem(eq("ytsearch:" + query), handlerCaptor.capture());
+        verify(fixture.getThreadpool()).schedule(fallbackCaptor.capture(), anyLong(), any());
+        AudioTrack track = mock(AudioTrack.class);
+        when(track.getInfo()).thenReturn(new AudioTrackInfo(
+                "Fast Song", "Author", 1000, "identifier", false, "https://www.youtube.com/watch?v=fast"));
+        handlerCaptor.getValue().trackLoaded(track);
+        fallbackCaptor.getValue().run();
+
+        // Then
+        verify(fixture.getScheduledFuture()).cancel(false);
+        verify(fixture.getAutoCompleteEvent()).replyChoices(any(Command.Choice.class));
+        verify(fixture.getAutoCompleteEvent(), never()).replyChoices();
+        verify(fixture.getAutoCompleteCallback(), times(1)).queue();
+    }
+
+    @Test
+    void testDoCommand_WithQuery_AcknowledgesBeforeLoadingAndLoadsThroughTheHook()
+    {
+        // Given
+        String query = "test song";
+        when(fixture.getEvent().getOption("query")).thenReturn(queryOption);
+        when(queryOption.getAsString()).thenReturn(query);
+
+        // When
+        command.doCommand(fixture.getEvent());
+
+        // Then: the "Loading..." reply is queued before any load starts, and output goes via the hook
+        org.mockito.InOrder inOrder = inOrder(fixture.getEvent(), fixture.getReplyAction(), fixture.getMusicService());
+        inOrder.verify(fixture.getEvent()).reply("⏳ Loading... `[" + query + "]`");
+        inOrder.verify(fixture.getReplyAction()).queue(any());
+        inOrder.verify(fixture.getMusicService()).play(any(), any(), eq(query), any(),
+                any(com.jagrosh.jmusicbot.commands.v2.SlashOutputAdapters.InteractionHookOutputAdapter.class));
+        verify(fixture.getEvent(), times(1)).reply(anyString());
     }
 }

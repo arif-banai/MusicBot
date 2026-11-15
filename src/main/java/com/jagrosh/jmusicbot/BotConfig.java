@@ -44,6 +44,7 @@ import com.jagrosh.jmusicbot.entities.UserInteraction;
 import com.jagrosh.jmusicbot.entities.UserInteraction.Level;
 import com.jagrosh.jmusicbot.utils.OtherUtil;
 import com.jagrosh.jmusicbot.utils.TimeUtil;
+import com.jagrosh.jmusicbot.ytdlp.YtDlpSettings;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -72,6 +73,7 @@ public class BotConfig {
     private Activity game;
     private Config aliases, transforms;
     private Set<AudioSource> enabledAudioSources;
+    private YtDlpSettings ytDlpSettings;
 
     private boolean valid = false;
 
@@ -273,7 +275,8 @@ public class BotConfig {
         playlistsFolder = PLAYLISTS_FOLDER.getString(config);
         aliases = ALIASES.getConfig(config);
         transforms = TRANSFORMS.getConfig(config);
-        
+        ytDlpSettings = YtDlpSettings.fromConfig(config);
+
         // Handle audiosources - pass migrated user config to check which sources were explicitly set
         loadAudioSources(config, migratedUserConfig);
         
@@ -604,5 +607,9 @@ public class BotConfig {
     
     public boolean proxyGithub() {
         return proxyGithub;
+    }
+
+    public YtDlpSettings getYtDlpSettings() {
+        return ytDlpSettings;
     }
 }

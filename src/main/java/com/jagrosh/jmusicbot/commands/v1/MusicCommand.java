@@ -50,7 +50,7 @@ public abstract class MusicCommand extends Command
         boolean valid = MusicCommandValidator.validate(
                 event.getGuild(),
                 event.getMember(),
-                event.getTextChannel(),
+                event.getGuildChannel(),
                 settings,
                 bot,
                 event.getJDA(),

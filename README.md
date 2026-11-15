@@ -276,6 +276,76 @@ proxy {
 - Each component can be independently enabled/disabled
 - HTTP proxies are supported (SOCKS proxies are not currently supported)
 
+## yt-dlp Library (optional)
+
+When a YouTube song won't play, the bot can fall back to downloading it with the operator's own [yt-dlp](https://github.com/yt-dlp/yt-dlp) install, saving it into a permanent library folder and playing it from disk instead. Downloaded songs are tracked in a special playlist alongside the library.
+
+### Requirements
+
+- You install yt-dlp yourself, and keep it updated. The bot never installs or updates it.
+- yt-dlp needs a JavaScript runtime (e.g. [Deno](https://deno.com/)) on `PATH` to download from YouTube; install that yourself too.
+- ffmpeg is not required.
+- On Linux, run the bot with a UTF-8 locale (for example `LANG=C.UTF-8`). Without one, Java can't open files whose names have accented or non-Latin characters, and the bot logs a warning at startup. The Docker image already sets it.
+- The Docker image doesn't include yt-dlp or Deno. Add them in a derived image or mount them into the container (for example the standalone `yt-dlp_linux` build), put Deno on the container's `PATH`, and set `ytdlp.path` to the path inside the container.
+
+### Enabling it
+
+Set `ytdlp.path` in `config.txt` to your yt-dlp executable. Leave it blank (the default) to keep this feature off.
+
+```hocon
+ytdlp {
+  path = "/usr/local/bin/yt-dlp"
+  mode = "prompt"
+}
+```
+
+On Windows, write the path with forward slashes or doubled backslashes. A single backslash is an escape character in `config.txt`: `"C:\Users\..."` fails to load, and `"C:\tools\yt-dlp.exe"` silently turns `\t` into a tab.
+
+```hocon
+ytdlp {
+  path = "C:/tools/yt-dlp.exe"    # or "C:\\tools\\yt-dlp.exe"
+}
+```
+
+The path must point at the yt-dlp executable itself (such as `yt-dlp.exe`), not at a `.cmd` or `.bat` wrapper. `cmd.exe` would expand the `%(title)s`-style parts of the bot's output template and break downloads.
+
+At startup the bot runs `yt-dlp --version`. If that fails, it logs a warning and keeps the feature off until the next restart. Songs already in the library still play from disk while the feature is off.
+
+### Modes
+
+- **`prompt` (default):** when a YouTube song is blocked, the bot pauses it and posts "Download & play" and "Download all YouTube songs in queue" buttons in the request's channel. Only the requester or a DJ can press them. If nobody responds within `promptTimeoutSeconds`, the song is skipped. Live streams never get a prompt. Prompt buttons stop working when the bot restarts.
+- **`always`:** every YouTube song is downloaded and played through yt-dlp, with no buttons.
+
+### Other settings
+
+| Setting | Default | Description |
+|---|---|---|
+| `libraryFolder` | `"ytdlp-library"` | Folder where downloaded songs are kept |
+| `libraryPlaylist` | `"ytdlp-library"` | Playlist (in `Playlists/`) listing every downloaded song |
+| `delaySeconds` | `5` | Seconds to wait between downloads |
+| `timeoutSeconds` | `300` | Seconds before a single download is cancelled |
+| `extraArgs` | `[]` | Extra arguments passed to yt-dlp. They come after the bot's own arguments |
+| `promptTimeoutSeconds` | `120` | Seconds to wait for a button press in `prompt` mode before skipping |
+| `downloadButton` | `true` | Show a Download button on now-playing that saves the current song (DJs only) |
+| `matching.enabled` | `true` | Offer a similar song from the library when a song is queued or starts playing |
+| `matching.durationToleranceSeconds` | `10` | Allowed difference in length, in seconds (at least this; widens to 10% of the shorter song); 0-60 |
+| `matching.minScore` | `0.85` | How similar the cleaned-up titles and artists must be, 0.0-1.0 (higher is stricter) |
+| `matching.alignSwitch` | `true` | Line up a mid-song Switch with the stream; when off, Switch starts the library copy from the beginning |
+
+### Similar songs
+
+When a requested song is queued or starts playing, the bot may post "Looks like **X** by Y from your library" with **Switch to library copy** and **Not the same** buttons. The requester or a DJ can press them. On a queued song, **Switch** swaps the queue entry for the library copy. On a playing song, it continues the library copy at the matching point in the music when it can find it, and from the beginning otherwise. Either way it remembers the link, so later requests for that upload play the library copy directly. **Not the same** is remembered too, and that pair isn't suggested again. `/library unlink` (or `library unlink`, DJs only) removes the link for the song now playing.
+
+### Managing the library
+
+`/library panel` (DJs only) opens a private panel with the library's size and buttons to show the current song's library details (and unlink it), search the library and play, queue or remove a song, and rescan the folder. Removing can keep the file (index only; a rescan brings it back) or delete it.
+
+See [docs/ytdlp-library.md](docs/ytdlp-library.md) for how the library, matching and Switch work.
+
+### Adding songs you downloaded earlier
+
+Copy the files (any format the bot can play) into `libraryFolder` and restart the bot. It reads each new file's details from a yt-dlp `.info.json` file with the same name if there is one (`yt-dlp --write-info-json`), otherwise from a YouTube `[id]` at the end of the filename, otherwise from the file's tags and length, otherwise from the filename. Files are never moved, renamed or changed. Only new files are read, so later restarts stay fast.
+
 ## Development Workflow
 
 This project follows a **trunk-based development** workflow. The `master` branch is always releasable, and all work happens in short-lived branches:
