@@ -89,7 +89,7 @@ import static org.mockito.Mockito.when;
 /**
  * Queue-time suggestions: posted while a song is still waiting behind others, and what Switch
  * does to the queue slot (as opposed to the current track; see {@code MatchSuggestionsTest}).
- * See the 0.8.0 addendum design's "Queue-time suggestions" section.
+ * See docs/ytdlp-library.md, "When suggestions are posted".
  */
 @DisplayName("Queued suggestion Tests")
 class QueuedSuggestionTest {

@@ -75,7 +75,7 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
     private final AudioMetricsListener metricsListener;
     /**
      * The last 30 s of Opus frames sent to Discord, used to line up "Switch to library copy"
-     * with the stream (see {@code research_notes/2026-11-14-switch-alignment.md}). Only filled
+     * with the stream (see docs/ytdlp-library.md, "Switch alignment"). Only filled
      * in while yt-dlp matching and alignment are both on.
      */
     private final RecentFrames recentFrames = new RecentFrames(1500);

@@ -33,8 +33,7 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * Decides whether two songs are probably the same track, from their cleaned-up title and
- * artist words plus their lengths. Pure and stateless; see the v2 design's "Similar-song
- * matching" section.
+ * artist words plus their lengths. Pure and stateless; see docs/ytdlp-library.md, "Matching".
  * <ul>
  *   <li>Titles are lower-cased, accents are stripped, and upload noise ("Official Video",
  *       "Lyrics", "Remastered 2011", "[HD]", featured artists, catalogue codes) is removed.</li>

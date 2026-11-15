@@ -73,7 +73,7 @@ public final class SystemProcessRunner implements ProcessRunner {
         try {
             finished = process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS);
         } catch (InterruptedException ex) {
-            // Being interrupted (e.g. a shutdown, or Task 4 cancelling this job) must not
+            // Being interrupted (e.g. a shutdown, or the downloader cancelling this job) must not
             // leak the child process; kill it, then let the caller see the interrupt.
             killTree(process);
             stdoutThread.join(shutdownGrace.toMillis());

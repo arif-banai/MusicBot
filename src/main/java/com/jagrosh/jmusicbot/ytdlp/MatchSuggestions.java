@@ -65,8 +65,8 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Suggests a library song that is probably the same as a song now playing, or queued behind
- * others, and handles the "Switch to library copy" and "Not the same" buttons. See the v2
- * design's "Similar-song matching" section and the 0.8.0 addendum's "Queue-time suggestions".
+ * others, and handles the "Switch to library copy" and "Not the same" buttons. See
+ * docs/ytdlp-library.md, "Matching".
  * <p>
  * Threading: {@link #consider}, {@link #considerQueued} and {@link #onTrackEnded} are called
  * from player events (which lavaplayer delivers while holding its track-switch lock), so they
@@ -148,7 +148,7 @@ public final class MatchSuggestions {
     }
 
     /**
-     * Seam for the Switch alignment job (see {@code research_notes/2026-11-14-switch-alignment.md}),
+     * Seam for the Switch alignment job (see docs/ytdlp-library.md, "Switch alignment"),
      * so tests can stub it without touching the real decode. The default just calls
      * {@link AlignmentJob#run}.
      */

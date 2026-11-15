@@ -131,7 +131,7 @@ class PendingPromptsTest {
 
         assertEquals(PressOutcome.ACCEPTED, prompts.press(GUILD, VIDEO_ID));
 
-        // Task 7 still needs to update the message after acceptance.
+        // The prompt stays so the listener can still update its message after acceptance.
         Optional<Pending> stillThere = prompts.get(GUILD);
         assertTrue(stillThere.isPresent());
         assertEquals(VIDEO_ID, stillThere.get().videoId());

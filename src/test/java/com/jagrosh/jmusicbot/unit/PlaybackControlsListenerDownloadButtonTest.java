@@ -319,7 +319,7 @@ class PlaybackControlsListenerDownloadButtonTest {
     }
 
     @Test
-    @DisplayName("sanity: the button id this test drives is the one the spec fixes")
+    @DisplayName("sanity: the button id this test drives is the one the listener handles")
     void usesTheSpecifiedComponentId() {
         assertTrue(ComponentIdParsers.NOW_PLAYING_YTDLP_SAVE.equals("np_ytdlp_save"));
     }

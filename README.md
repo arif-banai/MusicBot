@@ -278,7 +278,7 @@ proxy {
 
 ## yt-dlp Library (optional)
 
-When YouTube refuses to play a song without signing in, the bot can fall back to downloading it with the operator's own [yt-dlp](https://github.com/yt-dlp/yt-dlp) install, saving it into a permanent library folder and playing it from disk instead. Downloaded songs are tracked in a special playlist alongside the library.
+When a YouTube song won't play, the bot can fall back to downloading it with the operator's own [yt-dlp](https://github.com/yt-dlp/yt-dlp) install, saving it into a permanent library folder and playing it from disk instead. Downloaded songs are tracked in a special playlist alongside the library.
 
 ### Requirements
 
@@ -322,16 +322,23 @@ At startup the bot runs `yt-dlp --version`. If that fails, it logs a warning and
 | `libraryPlaylist` | `"ytdlp-library"` | Playlist (in `Playlists/`) listing every downloaded song |
 | `delaySeconds` | `5` | Seconds to wait between downloads |
 | `timeoutSeconds` | `300` | Seconds before a single download is cancelled |
-| `extraArgs` | `[]` | Extra arguments passed to yt-dlp, e.g. cookies or PO-token provider options. They come after the bot's own arguments |
+| `extraArgs` | `[]` | Extra arguments passed to yt-dlp. They come after the bot's own arguments |
 | `promptTimeoutSeconds` | `120` | Seconds to wait for a button press in `prompt` mode before skipping |
 | `downloadButton` | `true` | Show a Download button on now-playing that saves the current song (DJs only) |
 | `matching.enabled` | `true` | Offer a similar song from the library when a song is queued or starts playing |
 | `matching.durationToleranceSeconds` | `10` | Allowed difference in length, in seconds (at least this; widens to 10% of the shorter song); 0-60 |
 | `matching.minScore` | `0.85` | How similar the cleaned-up titles and artists must be, 0.0-1.0 (higher is stricter) |
+| `matching.alignSwitch` | `true` | Line up a mid-song Switch with the stream; when off, Switch starts the library copy from the beginning |
 
 ### Similar songs
 
-While a requested song plays, the bot may post "Looks like **X** by Y from your library" with **Switch to library copy** and **Not the same** buttons. The requester or a DJ can press them. **Switch** plays the library copy from the same point and remembers the link, so later requests for that upload play the library copy directly. **Not the same** is remembered too, and that pair isn't suggested again. `/library unlink` (or `library unlink`, DJs only) removes the link for the song now playing.
+When a requested song is queued or starts playing, the bot may post "Looks like **X** by Y from your library" with **Switch to library copy** and **Not the same** buttons. The requester or a DJ can press them. On a queued song, **Switch** swaps the queue entry for the library copy. On a playing song, it continues the library copy at the matching point in the music when it can find it, and from the beginning otherwise. Either way it remembers the link, so later requests for that upload play the library copy directly. **Not the same** is remembered too, and that pair isn't suggested again. `/library unlink` (or `library unlink`, DJs only) removes the link for the song now playing.
+
+### Managing the library
+
+`/library panel` (DJs only) opens a private panel with the library's size and buttons to show the current song's library details (and unlink it), search the library and play, queue or remove a song, and rescan the folder. Removing can keep the file (index only; a rescan brings it back) or delete it.
+
+See [docs/ytdlp-library.md](docs/ytdlp-library.md) for how the library, matching and Switch work.
 
 ### Adding songs you downloaded earlier
 

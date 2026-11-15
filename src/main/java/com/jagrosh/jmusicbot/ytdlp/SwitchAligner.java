@@ -22,8 +22,8 @@ import java.util.Optional;
  * (512-point FFT, 20 ms hop, 12 log-spaced bands from 80 to 3800 Hz, at 8 kHz) matched by the
  * mean per-band Pearson correlation over every lag. A match is accepted only when it is both
  * strong ({@code r >= 0.80}) and unambiguous ({@code margin >= 0.20}, where the margin is
- * {@code r} minus the best score more than 1 s away). See
- * {@code research_notes/2026-11-14-switch-alignment.md} for the calibration.
+ * {@code r} minus the best score more than 1 s away). See docs/ytdlp-library.md,
+ * "Switch alignment".
  *
  * @author Arif Banai (arif-banai)
  */

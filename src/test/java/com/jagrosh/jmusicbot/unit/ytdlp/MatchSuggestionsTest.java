@@ -582,7 +582,7 @@ class MatchSuggestionsTest {
         assertEquals(LIB_ID, copy.getKey());
         assertEquals(REQ_ID, copy.getLinkedFrom());
         // No real ring/alignment data is available in this test (the handler is a bare mock), so
-        // the alignment job is rejected and the spec default (0:00) applies (controller ruling R2).
+        // the alignment job is rejected and the default (0:00) applies.
         assertEquals(0L, copy.getPosition());
         assertEquals(requestMetadata().getOwner(), copy.getUserData(RequestMetadata.class).getOwner());
         verify(event, times(1)).deferEdit();
