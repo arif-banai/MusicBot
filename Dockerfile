@@ -73,6 +73,8 @@ LABEL org.opencontainers.image.title="JMusicBot" \
 # Copy custom JRE from jre-builder stage
 ENV JAVA_HOME=/opt/java/openjdk
 ENV PATH="${JAVA_HOME}/bin:${PATH}"
+# A UTF-8 locale, so Java can open files with non-ASCII names (e.g. downloaded songs).
+ENV LANG=C.UTF-8
 COPY --from=jre-builder /javaruntime $JAVA_HOME
 
 # Create non-root user and application directories in single layer

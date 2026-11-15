@@ -285,6 +285,8 @@ When a YouTube song won't play, the bot can fall back to downloading it with the
 - You install yt-dlp yourself, and keep it updated. The bot never installs or updates it.
 - yt-dlp needs a JavaScript runtime (e.g. [Deno](https://deno.com/)) on `PATH` to download from YouTube; install that yourself too.
 - ffmpeg is not required.
+- On Linux, run the bot with a UTF-8 locale (for example `LANG=C.UTF-8`). Without one, Java can't open files whose names have accented or non-Latin characters, and the bot logs a warning at startup. The Docker image already sets it.
+- The Docker image doesn't include yt-dlp or Deno. Add them in a derived image or mount them into the container (for example the standalone `yt-dlp_linux` build), put Deno on the container's `PATH`, and set `ytdlp.path` to the path inside the container.
 
 ### Enabling it
 

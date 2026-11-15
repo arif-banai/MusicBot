@@ -178,6 +178,27 @@ public final class YtDlpService {
     }
 
     /**
+     * The startup warning for a JVM that can't use non-ASCII file names, or empty. On Linux and
+     * macOS, Java encodes file names with the locale's charset; without a UTF-8 locale (e.g. a
+     * container or service with no {@code LANG}) a song file named after an accented or
+     * non-Latin title can't be opened. Windows file names don't depend on it.
+     *
+     * @param osName      the {@code os.name} system property
+     * @param jnuEncoding the {@code sun.jnu.encoding} system property
+     */
+    public static Optional<String> filenameEncodingWarning(@Nullable String osName, @Nullable String jnuEncoding) {
+        if (osName != null && osName.startsWith("Windows")) {
+            return Optional.empty();
+        }
+        if (jnuEncoding != null && (jnuEncoding.equalsIgnoreCase("UTF-8") || jnuEncoding.equalsIgnoreCase("UTF8"))) {
+            return Optional.empty();
+        }
+        return Optional.of("Java can't use non-ASCII file names here (file name encoding " + jnuEncoding
+                + "), so songs with accented or non-Latin titles won't download or play from the library. "
+                + "Start the bot with a UTF-8 locale, e.g. LANG=C.UTF-8.");
+    }
+
+    /**
      * Loads the library index whenever the library folder exists. If the feature is on,
      * checks {@code yt-dlp --version}: logs the version, or warns and turns the feature off
      * for this run. Then starts the download worker.
@@ -199,6 +220,8 @@ public final class YtDlpService {
                 String version = result.stdout() == null ? "" : result.stdout().strip();
                 LOGGER.info("yt-dlp {} found at {} ({} mode); library folder {}", version, settings.path(),
                         settings.mode().name().toLowerCase(), settings.libraryFolder());
+                filenameEncodingWarning(System.getProperty("os.name"), System.getProperty("sun.jnu.encoding"))
+                        .ifPresent(LOGGER::warn);
                 downloader.start();
                 return;
             }
