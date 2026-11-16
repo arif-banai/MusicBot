@@ -345,6 +345,16 @@
             <groupId>com.formdev</groupId>
             <artifactId>flatlaf-extras</artifactId>
             <version>${flatlaf.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.github.weisj.jsvg</groupId>
+                    <artifactId>jsvg-javafx</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.openjfx</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <!-- Testing Dependencies -->
