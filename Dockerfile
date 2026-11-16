@@ -15,7 +15,7 @@ COPY --link pom.xml .
 # Download dependencies with BuildKit cache mount for Maven repository
 # This significantly speeds up builds by persisting dependencies between builds
 RUN --mount=type=cache,target=/root/.m2/repository \
-    mvn dependency:go-offline -B -Pdocker
+    mvn dependency:resolve dependency:resolve-plugins -B -Pdocker
 
 # Copy source code
 COPY --link src ./src

@@ -345,6 +345,14 @@
             <groupId>com.formdev</groupId>
             <artifactId>flatlaf-extras</artifactId>
             <version>${flatlaf.version}</version>
+            <exclusions>
+                <!-- jsvg's JavaFX bridge pulls in JavaFX, which the Swing GUI doesn't use and which
+                     has no linux-aarch64 build at this version (breaks the arm64 Docker image). -->
+                <exclusion>
+                    <groupId>com.github.weisj.jsvg</groupId>
+                    <artifactId>jsvg-javafx</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
 
         <!-- Testing Dependencies -->
