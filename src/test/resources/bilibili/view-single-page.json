@@ -1,0 +1,280 @@
+{
+  "code": 0,
+  "message": "OK",
+  "ttl": 1,
+  "data": {
+    "bvid": "BV1DTbv6xEHK",
+    "aid": 117109883406111,
+    "videos": 1,
+    "tid": 17,
+    "tid_v2": 2005,
+    "tname": "",
+    "tname_v2": "",
+    "copyright": 3,
+    "pic": "http://i1.hdslb.com/bfs/archive/68e421d35236db6313e7b50b0611fd9d959e3b51.jpg",
+    "title": "地球毁灭后，人类只剩四条路｜你会把文明带向哪里？",
+    "pubdate": 1786966200,
+    "ctime": 1786955074,
+    "desc": "1.提前说明：本剧情结合NASA等科学资料进行创作，【不代表符合真实情况，有艺术加工成分】\n2.事件背景：一颗约12公里级天体撞击地球。人类并非临时造出四个超级避难所，而是把撞击前已经存在的四套大型人类设施全面转入“文明保存模式”：金星高空浮城“曙星”、日地L1观测站“天穹”、火星殖民地“极乐原”、月球地下工业基地“诺亚”。四条路线剧情截然不同，存在关联。\n3.参考资料:\n①路线1曙星参考资料：NASA的HAVOC概念把约50 km高度视为适合飞艇/浮空平台研究的区域，温度和压力比金星地面温和得多，但硫酸云具有强腐蚀性。 因此曙星是“高空浮城”，不是轨道站；居民仍接近金星0.9g重力，不会失重。\n②路线2天穹参考资料：L1约在地球朝太阳方向150万公里量级；DSCOVR从附近轨道能长期看到地球日照面。天穹应处于L1附近的halo/Lissajous类轨道并进行微量站位维护，而不是静止钉在一个几何点上。\n③路线3极乐原参考资料：MOXIE已经实证可从火星CO₂大气制取氧气；NASA也把辐射屏蔽视为载人火星任务核心问题。因此参照“地表工业+地下/覆土生活区+ISRU”来设立总体架构。\n④路线4诺亚参考资料：NASA已确认月球永久阴影区存在水冰，并推进从月壤提取氧/金属与月面裂变电源技术。 因此诺亚拥有冰矿、月壤处理、制造与稳定电源具有工程依据，但先进芯片/药品/精密器件并未构成完全闭环，更加依赖地球的供给。短期内可稳定运行，长期运行资源会出现危机。 项目中诺亚已经是成熟的地月系统中转基地，物资储量丰富。",
+    "desc_v2": [
+      {
+        "raw_text": "1.提前说明：本剧情结合NASA等科学资料进行创作，【不代表符合真实情况，有艺术加工成分】\n2.事件背景：一颗约12公里级天体撞击地球。人类并非临时造出四个超级避难所，而是把撞击前已经存在的四套大型人类设施全面转入“文明保存模式”：金星高空浮城“曙星”、日地L1观测站“天穹”、火星殖民地“极乐原”、月球地下工业基地“诺亚”。四条路线剧情截然不同，存在关联。\n3.参考资料:\n①路线1曙星参考资料：NASA的HAVOC概念把约50 km高度视为适合飞艇/浮空平台研究的区域，温度和压力比金星地面温和得多，但硫酸云具有强腐蚀性。 因此曙星是“高空浮城”，不是轨道站；居民仍接近金星0.9g重力，不会失重。\n②路线2天穹参考资料：L1约在地球朝太阳方向150万公里量级；DSCOVR从附近轨道能长期看到地球日照面。天穹应处于L1附近的halo/Lissajous类轨道并进行微量站位维护，而不是静止钉在一个几何点上。\n③路线3极乐原参考资料：MOXIE已经实证可从火星CO₂大气制取氧气；NASA也把辐射屏蔽视为载人火星任务核心问题。因此参照“地表工业+地下/覆土生活区+ISRU”来设立总体架构。\n④路线4诺亚参考资料：NASA已确认月球永久阴影区存在水冰，并推进从月壤提取氧/金属与月面裂变电源技术。 因此诺亚拥有冰矿、月壤处理、制造与稳定电源具有工程依据，但先进芯片/药品/精密器件并未构成完全闭环，更加依赖地球的供给。短期内可稳定运行，长期运行资源会出现危机。 项目中诺亚已经是成熟的地月系统中转基地，物资储量丰富。",
+        "type": 1,
+        "biz_id": 0
+      }
+    ],
+    "state": 0,
+    "duration": 897,
+    "rights": {
+      "bp": 0,
+      "elec": 0,
+      "download": 1,
+      "movie": 0,
+      "pay": 0,
+      "hd5": 0,
+      "no_reprint": 0,
+      "autoplay": 1,
+      "ugc_pay": 0,
+      "is_cooperation": 0,
+      "ugc_pay_preview": 0,
+      "no_background": 0,
+      "clean_mode": 0,
+      "is_stein_gate": 0,
+      "is_360": 0,
+      "no_share": 0,
+      "arc_pay": 0,
+      "free_watch": 0
+    },
+    "owner": {
+      "mid": 606225108,
+      "name": "丁达尔的梦-",
+      "face": "https://i0.hdslb.com/bfs/face/35fe46b7d7f988372ef07a15193f349ad2c05eee.jpg"
+    },
+    "stat": {
+      "aid": 117109883406111,
+      "view": 1050073,
+      "danmaku": 1006,
+      "reply": 1108,
+      "favorite": 13491,
+      "coin": 5933,
+      "share": 1161,
+      "now_rank": 0,
+      "his_rank": 0,
+      "like": 53404,
+      "dislike": 0,
+      "evaluation": "",
+      "vt": 0
+    },
+    "argue_info": {
+      "argue_msg": "含AI生成内容",
+      "argue_type": 0,
+      "argue_link": ""
+    },
+    "dynamic": "",
+    "cid": 40990605342,
+    "dimension": {
+      "width": 2160,
+      "height": 3840,
+      "rotate": 0
+    },
+    "season_id": 8858931,
+    "premiere": null,
+    "teenage_mode": 1,
+    "is_chargeable_season": false,
+    "is_story": true,
+    "is_upower_exclusive": false,
+    "is_upower_play": false,
+    "is_upower_preview": false,
+    "enable_vt": 0,
+    "vt_display": "",
+    "is_upower_exclusive_with_qa": false,
+    "is_hua_sheng": false,
+    "no_cache": false,
+    "pages": [
+      {
+        "cid": 40990605342,
+        "page": 1,
+        "from": "vupload",
+        "part": "地球毁灭后，人类只剩四条路｜你会把文明带向哪里？",
+        "duration": 897,
+        "vid": "",
+        "weblink": "",
+        "dimension": {
+          "width": 2160,
+          "height": 3840,
+          "rotate": 0
+        },
+        "first_frame": "http://i0.hdslb.com/bfs/storyff/_00003bqqzpjh0w7yx2s9axtvpnskr4b_firsti.jpg",
+        "ctime": 1786955074
+      }
+    ],
+    "subtitle": {
+      "allow_submit": false,
+      "list": []
+    },
+    "label": {
+      "type": 1
+    },
+    "ugc_season": {
+      "id": 8858931,
+      "title": "深度剧情互动类",
+      "cover": "https://archive.biliimg.com/bfs/archive/89d9bfa966686cef07216f64820e6a27477099b7.jpg",
+      "mid": 606225108,
+      "intro": "",
+      "sign_state": 0,
+      "attribute": 140,
+      "sections": [
+        {
+          "season_id": 8858931,
+          "id": 9877475,
+          "title": "正片",
+          "type": 1,
+          "episodes": [
+            {
+              "season_id": 8858931,
+              "section_id": 9877475,
+              "id": 216823850,
+              "aid": 117109883406111,
+              "cid": 40990605342,
+              "title": "地球毁灭后，人类只剩四条路｜你会把文明带向哪里？",
+              "attribute": 0,
+              "arc": {
+                "aid": 117109883406111,
+                "videos": 0,
+                "type_id": 0,
+                "type_name": "",
+                "copyright": 0,
+                "pic": "http://i1.hdslb.com/bfs/archive/68e421d35236db6313e7b50b0611fd9d959e3b51.jpg",
+                "title": "地球毁灭后，人类只剩四条路｜你会把文明带向哪里？",
+                "pubdate": 1786966200,
+                "ctime": 1786966200,
+                "desc": "",
+                "state": 0,
+                "duration": 897,
+                "rights": {
+                  "bp": 0,
+                  "elec": 0,
+                  "download": 0,
+                  "movie": 0,
+                  "pay": 0,
+                  "hd5": 0,
+                  "no_reprint": 0,
+                  "autoplay": 0,
+                  "ugc_pay": 0,
+                  "is_cooperation": 0,
+                  "ugc_pay_preview": 0,
+                  "arc_pay": 0,
+                  "free_watch": 0
+                },
+                "author": {
+                  "mid": 606225108,
+                  "name": "丁达尔的梦-",
+                  "face": "https://i0.hdslb.com/bfs/face/35fe46b7d7f988372ef07a15193f349ad2c05eee.jpg"
+                },
+                "stat": {
+                  "aid": 117109883406111,
+                  "view": 1050073,
+                  "danmaku": 1006,
+                  "reply": 1108,
+                  "fav": 13491,
+                  "coin": 5933,
+                  "share": 1161,
+                  "now_rank": 0,
+                  "his_rank": 0,
+                  "like": 53404,
+                  "dislike": 0,
+                  "evaluation": "",
+                  "argue_msg": "",
+                  "vt": 0,
+                  "vv": 1050073
+                },
+                "dynamic": "",
+                "dimension": {
+                  "width": 0,
+                  "height": 0,
+                  "rotate": 0
+                },
+                "desc_v2": null,
+                "is_chargeable_season": false,
+                "is_blooper": false,
+                "enable_vt": 0,
+                "vt_display": "",
+                "type_id_v2": 0,
+                "type_name_v2": "",
+                "is_lesson_video": 0
+              },
+              "page": {
+                "cid": 40990605342,
+                "page": 1,
+                "from": "vupload",
+                "part": "地球毁灭后，人类只剩四条路｜你会把文明带向哪里？",
+                "duration": 897,
+                "vid": "",
+                "weblink": "",
+                "dimension": {
+                  "width": 2160,
+                  "height": 3840,
+                  "rotate": 0
+                }
+              },
+              "bvid": "BV1DTbv6xEHK",
+              "pages": [
+                {
+                  "cid": 40990605342,
+                  "page": 1,
+                  "from": "vupload",
+                  "part": "地球毁灭后，人类只剩四条路｜你会把文明带向哪里？",
+                  "duration": 897,
+                  "vid": "",
+                  "weblink": "",
+                  "dimension": {
+                    "width": 2160,
+                    "height": 3840,
+                    "rotate": 0
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "stat": {
+        "season_id": 8858931,
+        "view": 1050073,
+        "danmaku": 1006,
+        "reply": 1108,
+        "fav": 13491,
+        "coin": 5933,
+        "share": 1161,
+        "now_rank": 0,
+        "his_rank": 0,
+        "like": 53404,
+        "vt": 0,
+        "vv": 0
+      },
+      "ep_count": 1,
+      "season_type": 1,
+      "is_pay_season": false,
+      "enable_vt": 0
+    },
+    "is_season_display": true,
+    "user_garb": {
+      "url_image_ani_cut": ""
+    },
+    "honor_reply": {
+      "honor": [
+        {
+          "aid": 117109883406111,
+          "type": 7,
+          "desc": "热门收录",
+          "weekly_recommend_num": 0
+        }
+      ]
+    },
+    "like_icon": "",
+    "need_jump_bv": false,
+    "disable_show_up_info": false,
+    "is_story_play": 1,
+    "is_view_self": false
+  }
+}
