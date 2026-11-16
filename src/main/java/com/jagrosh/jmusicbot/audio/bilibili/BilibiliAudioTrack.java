@@ -20,7 +20,6 @@ import java.net.URI;
 import com.sedmelluq.discord.lavaplayer.container.mpeg.MpegAudioTrack;
 import com.sedmelluq.discord.lavaplayer.source.AudioSourceManager;
 import com.sedmelluq.discord.lavaplayer.tools.io.HttpInterface;
-import com.sedmelluq.discord.lavaplayer.tools.io.PersistentHttpStream;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrack;
 import com.sedmelluq.discord.lavaplayer.track.AudioTrackInfo;
 import com.sedmelluq.discord.lavaplayer.track.DelegatedAudioTrack;
@@ -81,8 +80,8 @@ public class BilibiliAudioTrack extends DelegatedAudioTrack
 
             LOGGER.debug("Streaming Bilibili {} at {} bps", trackInfo.identifier, stream.bandwidth());
 
-            try(PersistentHttpStream inputStream =
-                        new PersistentHttpStream(httpInterface, new URI(stream.url()), null))
+            try(BilibiliHttpStream inputStream =
+                        new BilibiliHttpStream(httpInterface, new URI(stream.url()), null))
             {
                 processDelegate(new MpegAudioTrack(trackInfo, inputStream), executor);
             }
