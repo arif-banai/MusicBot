@@ -18,9 +18,10 @@ package com.jagrosh.jmusicbot.integration;
 import com.jagrosh.jmusicbot.audio.bilibili.BilibiliApiClient;
 import com.jagrosh.jmusicbot.audio.bilibili.BilibiliAudioSourceManager;
 import com.jagrosh.jmusicbot.audio.bilibili.BilibiliAudioStream;
+import com.jagrosh.jmusicbot.audio.bilibili.BilibiliHttpStream;
 import com.jagrosh.jmusicbot.audio.bilibili.BilibiliVideo;
+import com.sedmelluq.discord.lavaplayer.tools.FriendlyException;
 import com.sedmelluq.discord.lavaplayer.tools.io.HttpInterface;
-import com.sedmelluq.discord.lavaplayer.tools.io.PersistentHttpStream;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
@@ -56,7 +57,7 @@ class BilibiliLiveIntegrationTest
             assertFalse(results.isEmpty(), "search should return playable results");
             assertTrue(results.stream().allMatch(v -> !v.bvid().isBlank()));
 
-            BilibiliVideo video = client.loadVideo(http, results.get(0).bvid(), 1);
+            BilibiliVideo video = firstLoadable(client, http, results);
             assertTrue(video.cid() > 0, "view should yield a page id");
             assertTrue(video.durationMs() > 0, "view should yield a duration");
 
@@ -65,7 +66,7 @@ class BilibiliLiveIntegrationTest
 
             // Proves the Referer/User-Agent headers are actually reaching the CDN: without
             // them Bilibili answers 403 and no bytes arrive.
-            try(PersistentHttpStream input = new PersistentHttpStream(http, new URI(stream.url()), null))
+            try(BilibiliHttpStream input = new BilibiliHttpStream(http, new URI(stream.url()), null))
             {
                 byte[] header = new byte[12];
                 assertEquals(12, input.read(header, 0, 12), "should read the container header");
@@ -89,19 +90,63 @@ class BilibiliLiveIntegrationTest
         try(HttpInterface http = manager.getHttpInterface())
         {
             BilibiliApiClient client = manager.getApiClient();
-            List<BilibiliVideo> results = client.search(http, "纪录片", 10);
+            List<BilibiliVideo> results = client.search(http, "纪录片", 20);
             assertFalse(results.isEmpty());
 
-            // Any video resolves page 1; a video with several pages gives page 2 a distinct cid.
-            BilibiliVideo page1 = client.loadVideo(http, results.get(0).bvid(), 1);
-            BilibiliVideo page2 = client.loadVideo(http, results.get(0).bvid(), 2);
+            // Search mixes single-page and multi-page videos, and can list videos that no
+            // longer load (see firstLoadable), so look for the first one with a second page.
+            for(BilibiliVideo result : results)
+            {
+                BilibiliVideo page1;
+                BilibiliVideo page2;
+                try
+                {
+                    page1 = client.loadVideo(http, result.bvid(), 1);
+                    page2 = client.loadVideo(http, result.bvid(), 2);
+                }
+                catch(FriendlyException e)
+                {
+                    continue;
+                }
 
-            assertTrue(page1.cid() > 0);
-            assertTrue(page2.cid() > 0);
+                // An out-of-range page falls back to page 1, so equal cids mean a single-page video.
+                if(page1.cid() == page2.cid())
+                    continue;
+
+                assertTrue(page1.cid() > 0);
+                assertTrue(page2.cid() > 0);
+                return;
+            }
+            fail("no multi-page video among " + results.size() + " search results");
         }
         finally
         {
             manager.shutdown();
         }
+    }
+
+    /**
+     * Loads page 1 of the first search result whose metadata Bilibili still serves.
+     *
+     * <p>Bilibili's search index lags behind takedowns: a deleted or hidden video can keep
+     * appearing in results while {@code view} answers {@code -404 啥都木有} for it. In the bot
+     * that surfaces as a FriendlyException for that one track, which is the right outcome,
+     * but a live test should not hinge on whichever video happens to rank first.
+     */
+    private static BilibiliVideo firstLoadable(BilibiliApiClient client, HttpInterface http,
+                                               List<BilibiliVideo> results) throws Exception
+    {
+        for(BilibiliVideo result : results)
+        {
+            try
+            {
+                return client.loadVideo(http, result.bvid(), 1);
+            }
+            catch(FriendlyException e)
+            {
+                // Listed by search but no longer served by view; try the next one.
+            }
+        }
+        return fail("none of the " + results.size() + " search results could be loaded");
     }
 }
