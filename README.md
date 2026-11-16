@@ -37,7 +37,7 @@ This version of JMusicBot changes/updates various dependencies. To ensure your b
   * Smooth playback
   * Server-specific setup for the "DJ" role that can moderate the music
   * Clean and beautiful menus
-  * Supports many sites, including Youtube, Soundcloud, and more
+  * Supports many sites, including Youtube, Soundcloud, Bilibili, and more
   * Supports many online radio/streams
   * Supports local files
   * Playlist support (both web/youtube, and local)
@@ -50,8 +50,22 @@ JMusicBot supports all sources and formats supported by [lavaplayer](https://git
   * Bandcamp
   * Vimeo
   * Twitch streams
+  * Bilibili (哔哩哔哩)
   * Local files
   * HTTP URLs
+
+#### Bilibili
+Paste a Bilibili video link into `play` and the bot queues its audio. Video URLs,
+bare `BV` ids, and `b23.tv` short links all work, and no Bilibili account is needed.
+
+`bilisearch` (alias `bsearch`) searches Bilibili by keyword and offers the results
+for selection, the same way `scsearch` does for SoundCloud.
+
+A multi-page (分P) video always plays exactly one part: the one named by `?p=`, or
+part 1 when the link does not say. It is never expanded into the whole queue.
+
+To turn the source off, set `bilibili = false` under `playback.audioSources`.
+
 ### Formats
   * MP3
   * FLAC
