@@ -84,8 +84,8 @@ def test_commands_page_covers_every_command(site_dir):
     s = soup(built(site_dir, "reference/commands"))
     prefix_cells = {td.get_text(strip=True) for td in s.select(".md-content tr > td:nth-child(1)")}
     slash_cells = {td.get_text(strip=True) for td in s.select(".md-content tr > td:nth-child(2)")}
-    missing = [n for n in prefix_commands() if n not in prefix_cells] + \
-              [f"/{n}" for n in slash_commands() if f"/{n}" not in slash_cells]
+    prefix, slash = registered_commands()
+    missing = [n for n in prefix if n not in prefix_cells] + [f"/{n}" for n in slash if f"/{n}" not in slash_cells]
     assert missing == []
 
 
@@ -206,3 +206,120 @@ def test_migrating_page_covers_upgrade_steps(site_dir):
 
 def test_no_stub_pages_remain(site_dir):
     assert [str(p.relative_to(site_dir)) for p in html_pages(site_dir) if "Being written" in page_text(p)] == []
+
+
+# ---------- Review fixes (phase 2 final review) ----------
+
+LEVELS = {"OwnerCommand": "Owner", "AdminCommand": "Admin", "DJCommand": "DJ", "MusicCommand": "Music",
+          "OwnerSlashCommand": "Owner", "AdminSlashCommand": "Admin", "DJSlashCommand": "DJ",
+          "MusicSlashCommand": "Music"}
+
+
+def _class_files() -> dict[str, Path]:
+    return {f.stem: f for f in (JAVA / "commands").rglob("*.java")}
+
+
+def _level(cls: str, files: dict[str, Path]) -> str:
+    """Permission level from the class a command extends, following subclasses (e.g. NpSlashCmd)."""
+    while cls in files:
+        m = re.search(r"class\s+\w+\s+extends\s+(\w+)", files[cls].read_text(encoding="utf-8"))
+        if not m:
+            break
+        cls = m.group(1)
+        if cls in LEVELS:
+            return LEVELS[cls]
+    return "General"
+
+
+def registered_commands() -> tuple[dict[str, str], dict[str, str]]:
+    """(prefix name -> level, slash name -> level) for the commands CommandFactory actually registers."""
+    files = _class_files()
+    src = (JAVA / "commands/v1/CommandFactory.java").read_text(encoding="utf-8")
+    src = "\n".join(l for l in src.splitlines() if not l.strip().startswith("//"))
+    prefix, slash = {"about": "General", "ping": "General", "help": "General"}, {}
+    for cls in dict.fromkeys(re.findall(r"new\s+(\w+Cmd)\(", src)):
+        name = _first_name(files[cls])
+        level = _level(cls, files)
+        (slash if cls.endswith("SlashCmd") else prefix)[name] = level
+    if "library" in slash:
+        # /library is a parent command; its subcommands are DJ-only, so it is listed under DJ.
+        slash.update({"library": "DJ", "library panel": "DJ", "library unlink": "DJ"})
+    return prefix, slash
+
+
+def _rows_by_group(site_dir):
+    """{(column index, cell text): h2 group} for the commands page tables."""
+    out, group = {}, None
+    for el in soup(built(site_dir, "reference/commands")).select_one(".md-content article, .md-content").find_all(["h2", "tr"]):
+        if el.name == "h2":
+            group = el.get_text(strip=True).rstrip("¶")
+            continue
+        for i, td in enumerate(el.find_all("td")[:2]):
+            out[(i, td.get_text(strip=True))] = group
+    return out
+
+
+def test_registered_commands_listed_under_their_level(site_dir):
+    rows = _rows_by_group(site_dir)
+    prefix, slash = registered_commands()
+    wrong = [(n, lvl, rows.get((0, n))) for n, lvl in prefix.items() if rows.get((0, n)) != lvl] + \
+            [(f"/{n}", lvl, rows.get((1, f"/{n}"))) for n, lvl in slash.items() if rows.get((1, f"/{n}")) != lvl]
+    assert wrong == []
+
+
+def test_setup_order_is_consistent(site_dir):
+    order = ["setup/java", "setup/bot-token", "setup/user-id", "setup/first-run", "setup/invite"]
+    for here, nxt in zip(order, order[1:]):
+        links = [a["href"] for p in soup(built(site_dir, here)).select(".md-content p")
+                 if p.get_text(strip=True).startswith("Next:") for a in p.select("a")]
+        assert links and links[0].rstrip("/").endswith(nxt.split("/")[1]), (here, links)
+    nav = [a.get_text(strip=True) for a in soup(built(site_dir, "setup/index")).select(".md-nav--primary .md-nav__link")]
+    titles = ["Install Java 25", "Get a bot token", "Find your user ID", "First run", "Invite the bot"]
+    assert [t for t in nav if t in titles][:5] == titles
+
+
+def test_first_run_describes_empty_answers(site_dir):
+    t = page_text(built(site_dir, "setup/first-run"))
+    assert "Invalid User ID! Exiting." in t and "doesn't create the file" not in t
+
+
+def test_docker_moving_covers_folder_owner(site_dir):
+    s = soup(built(site_dir, "setup/docker"))
+    h = next(h for h in s.select(".md-content h2") if "Moving from the jar" in h.get_text())
+    section = " ".join(sib.get_text(" ") for sib in h.find_next_siblings() if sib.name != "h2")
+    assert "10001" in section or "--user" in section
+
+
+def test_docker_latest_tag_is_described_correctly(site_dir):
+    t = page_text(built(site_dir, "setup/docker"))
+    assert "the newest release" not in t and "master" in t
+
+
+def test_playlist_write_permissions(site_dir):
+    t = page_text(built(site_dir, "features/queue-history-playlists"))
+    assert "Creating and deleting playlist files: the bot owner" not in t
+    assert "DJs and the bot owner" in t
+
+
+def test_seek_permission_documented(site_dir):
+    rows = {tr.find("td").get_text(strip=True): tr.get_text(" ") for tr in
+            soup(built(site_dir, "reference/commands")).select(".md-content tr") if tr.find("td")}
+    assert "DJ" in rows["seek"]
+
+
+def test_slash_clear_options_not_none(site_dir):
+    assert "Use `NONE` with either" not in page_text(built(site_dir, "features/dj-role"))
+    assert "Use NONE with either" not in page_text(built(site_dir, "features/dj-role"))
+
+
+def test_slash_troubleshooting_mentions_hash_file(site_dir):
+    t = page_text(built(site_dir, "help/troubleshooting"))
+    assert ".slashcommands.hash" in t
+
+
+def test_no_false_eval_or_lyrics_claims(site_dir):
+    for slug in ["reference/config", "reference/commands", "migrating"]:
+        t = page_text(built(site_dir, slug))
+        assert "doesn't include Nashorn" not in t and "doesn't work out of the box" not in t, slug
+    t = page_text(built(site_dir, "migrating"))
+    assert "is still listed" not in t and "Skipping." not in t

@@ -23,7 +23,8 @@ Open the link, pick your server and select **Authorize**. The link already asks 
 
 1. Open your application in the [Developer Portal](https://discord.com/developers/applications) and go to
    **OAuth2**.
-2. In **OAuth2 URL Generator**, tick the scopes **bot** and **applications.commands**.
+2. In **OAuth2 URL Generator**, tick the scope **bot**. It includes `applications.commands`, which slash commands
+   need; ticking that as well does no harm.
 3. Under **Bot Permissions**, tick the permissions listed below.
 4. Copy the generated URL at the bottom, open it, pick your server and select **Authorize**.
 

@@ -61,8 +61,11 @@ Paste your ID from [Find your user ID](user-id.md) and press Enter. In the deskt
 as pop-up boxes instead.
 
 The bot then writes `config.txt` in the folder, with your answers and every other setting at its default, and
-connects to Discord. If you just press Enter without a token, it stops with `No token provided! Exiting.` and
-doesn't create the file.
+connects to Discord.
+
+If you leave an answer empty or paste something that isn't valid, the bot stops, for example with
+`Invalid User ID! Exiting.` Start it again; it asks for whatever is still missing. If the bot was started without
+a terminal to ask in (for example in the background), it stops with `No token provided! Exiting.`
 
 ## What you'll see
 

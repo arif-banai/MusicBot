@@ -9,7 +9,7 @@ It runs on x86 (amd64) and ARM64 machines, including a Raspberry Pi 4 or 5 with 
 
 The image is `ghcr.io/arif-banai/musicbot`. Tags:
 
-- `latest`: the newest release.
+- `latest`: the newest build of the `master` branch, which can be ahead of the last release.
 - A version, such as `0.8.0`: that release only. Pin a version for anything you rely on, and update on purpose.
 
 You still need a [bot token](bot-token.md) and [your user ID](user-id.md).
@@ -84,8 +84,12 @@ If you already run the jar, stop it and mount its folder (the one with `config.t
 
 ```bash
 cd /path/to/your/jmusicbot
-docker run --rm -it -v "$(pwd):/musicbot" ghcr.io/arif-banai/musicbot:latest
+docker run --rm -it --user "$(id -u):$(id -g)" -v "$(pwd):/musicbot" ghcr.io/arif-banai/musicbot:latest
 ```
+
+`--user` runs the container as you, so it can write to your existing files. Without it the container runs as user
+10001, can't write to the folder, and stops with "Another instance of JMusicBot is already running". Alternatively,
+give the folder to user 10001 with `sudo chown -R 10001:10001 /path/to/your/jmusicbot`.
 
 ## Updating
 

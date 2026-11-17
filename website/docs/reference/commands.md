@@ -4,7 +4,7 @@ description: Every JMusicBot command, prefix and slash, grouped by who can use i
 
 # Commands
 
-Every command works two ways:
+Most commands work two ways:
 
 - **Slash:** type `/` in Discord and pick the command from the list, for example `/play`.
 - **Prefix:** mention the bot, then the command, for example `@JMusicBot play never gonna give you up`. You can
@@ -28,6 +28,9 @@ when that's the case.
 | Command | Slash | What it does | Aliases |
 |---|---|---|---|
 | `settings` | — | Shows the bot's settings for this server. Admins get an interactive panel. `/settings` is in Admin. | `status` |
+| `help` | — | Lists the commands you can use. The word is set by `commands.help`. | — |
+| `about` | — | Shows information about the bot. | — |
+| `ping` | — | Checks that the bot is responding, and shows its latency. | — |
 
 ## Music
 
@@ -39,13 +42,12 @@ when that's the case.
 | `nowplaying` | `/nowplaying` | Shows the song that's playing, with the [now-playing panel](../features/now-playing.md). `/np` does the same. | `np`, `current` |
 | — | `/np` | Short form of `/nowplaying`. | — |
 | `queue` | `/queue` | Shows the queue, a page at a time. | `list` |
-| `history` | `/history` | Shows recently played songs, with buttons to play one again or save them as a playlist. | — |
+| `history` | `/history` | Shows recently played songs, with buttons to play one again. DJs and the bot owner can also save them as a playlist. | — |
 | `playlists` | `/playlists` | Lists the server's playlists. | `pls` |
 | `remove` | `/remove` | Removes a song from the queue by its position. `remove all` removes everything you added. | `delete` |
 | `shuffle` | `/shuffle` | Shuffles the songs you added. | — |
 | `skip` | `/skip` | Votes to skip the current song. The person who queued it skips right away. | `voteskip` |
-| `seek` | `/seek` | Jumps to a time in the song, such as `1:30`, `+30` or `1m30s`. | — |
-| `lyrics` | — | Not available in this version. The lyrics service it used was removed. | — |
+| `seek` | `/seek` | Jumps to a time in the song, such as `1:30`, `+30` or `1m30s`. Only a DJ or the person who added the song can seek. | — |
 
 ## DJ
 
@@ -69,11 +71,11 @@ when that's the case.
 | Command | Slash | What it does | Aliases |
 |---|---|---|---|
 | — | `/settings` | Opens the interactive settings panel for this server. | — |
-| `setdj` | `/setdj` | Sets the DJ role, or `NONE` to clear it. | — |
-| `settc` | `/settc` | Limits music commands to one text channel, or `NONE`. | — |
-| `setvc` | `/setvc` | Limits the bot to one voice channel, or `NONE`. | — |
+| `setdj` | `/setdj` | Sets the DJ role. To clear it, use `setdj NONE`, or `/setdj` with no role. | — |
+| `settc` | `/settc` | Limits music commands to one text channel. To clear it, use `settc NONE`, or `/settc` with no channel. | — |
+| `setvc` | `/setvc` | Limits the bot to one voice channel. To clear it, use `setvc NONE`, or `/setvc` with no channel. | — |
 | `setskip` | `/setskip` | Sets the percentage of listeners needed to vote-skip, from 0 to 100. | `setskippercent`, `skippercent`, `setskipratio` |
-| `prefix` | `/prefix` | Sets a prefix for this server, or `NONE` to use the default. | `setprefix` |
+| `prefix` | `/prefix` | Sets a prefix for this server. `prefix NONE`, or `/prefix` with no prefix, goes back to the default. | `setprefix` |
 | `queuetype` | `/queuetype` | Sets how the queue orders songs: `linear` (in the order added) or `fair` (takes turns between the people who added them). | — |
 | `nplayout` | `/nplayout` | Sets the now-playing layout for this server: `full`, `minimal`, or `inherit` from `config.txt`. | — |
 | `npbuttons` | `/npbuttons` | Turns now-playing buttons `on` or `off` for this server, or `inherit` from `config.txt`. | — |
@@ -91,7 +93,7 @@ when that's the case.
 | `setstatus` | — | Sets online, idle, do not disturb or invisible. | — |
 | `debug` | — | Shows debug information to paste into a bug report. | — |
 | `shutdown` | — | Shuts the bot down safely. | — |
-| `eval` | — | Runs code as the bot. Off unless `dangerous.eval = true`, and it needs a script engine that Java 25 doesn't include; see the warning below. | — |
+| `eval` | — | Runs code as the bot. Off unless `dangerous.eval = true`; see the warning below. | — |
 
 !!! danger "Leave `eval` off"
     `eval` runs any code you give it with full access to the bot and the computer it runs on. It's off by default

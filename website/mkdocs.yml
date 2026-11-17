@@ -71,8 +71,8 @@ nav:
       - Install Java 25: setup/java.md
       - Get a bot token: setup/bot-token.md
       - Find your user ID: setup/user-id.md
-      - Invite the bot: setup/invite.md
       - First run: setup/first-run.md
+      - Invite the bot: setup/invite.md
       - Run with Docker: setup/docker.md
       - Run as a service: setup/service.md
       - Hosting: setup/hosting.md

@@ -33,8 +33,7 @@ Almost every slash command also works as a text command, and most owner tools ar
 ## When commands appear
 
 The bot registers its slash commands with Discord when it starts, and only sends them again when they change
-after an update. New or changed commands can take a minute to show up. If they don't appear at all, the bot was
-probably invited without the `applications.commands` scope; see
+after an update. New or changed commands can take a minute to show up. If they don't appear at all, see
 [Troubleshooting](../help/troubleshooting.md#slash-commands-dont-show-up).
 
 ## Who can use them

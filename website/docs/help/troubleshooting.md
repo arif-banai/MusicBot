@@ -66,10 +66,15 @@ set, the bot only answers in that channel.
 
 ### Slash commands don't show up
 
-**Fix:** wait a minute after the bot starts; Discord can be slow to show new commands. If they still don't appear,
-the bot was invited without the `applications.commands` scope. Invite it again with a link that has both `bot` and
-`applications.commands` (see [Invite the bot](../setup/invite.md)); you don't need to remove it first. Restarting
-your Discord app also helps.
+**Fix:** try these in order:
+
+1. Wait a minute after the bot starts, then restart your Discord app. Discord can be slow to show new commands.
+2. If you reused the bot's folder with a **different** bot application (a new token from another application),
+   stop the bot, delete the hidden file `.slashcommands.hash` from its folder, and start it again. The bot uses
+   that file to skip re-sending unchanged commands, so a new application never gets them.
+3. If the bot was invited a long time ago, invite it again with a fresh link from
+   [Invite the bot](../setup/invite.md); you don't need to remove it first. Today's `bot` scope includes
+   `applications.commands`, but older invites may not have it.
 
 ### "You must be in the same voice channel to use this!"
 

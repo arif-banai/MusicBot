@@ -158,7 +158,7 @@ See [Proxy](proxy.md) for examples.
 | Setting | Default | What it does |
 |---|---|---|
 | `dangerous.eval` | `false` | Turns on the owner-only `eval` command, which runs any code. Leave it off. |
-| `dangerous.evalEngine` | `"Nashorn"` | The script engine `eval` uses. Java 25 doesn't include Nashorn, so `eval` reports that the engine doesn't exist unless you add one. |
+| `dangerous.evalEngine` | `"Nashorn"` | The script engine `eval` uses. |
 
 ## ytdlp
 

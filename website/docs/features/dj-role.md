@@ -19,7 +19,7 @@ An admin runs:
 /setdj role:@DJ
 ```
 
-Everyone with that role is now a DJ in this server. `setdj NONE` clears it. If you pick `@everyone`, everyone is a
+Everyone with that role is now a DJ in this server. To clear it, run `/setdj` with no role, or `setdj NONE`. If you pick `@everyone`, everyone is a
 DJ, which suits a small group of friends.
 
 People with the **Manage Server** permission are always DJs, whether or not they have the role. The bot owner can
@@ -49,7 +49,7 @@ all servers is `playback.skipRatio` in `config.txt`. DJs can always skip straigh
 - `/settc #music` makes the bot answer music commands only in that text channel.
 - `/setvc` limits the bot to one voice channel.
 
-Use `NONE` with either to remove the limit.
+To remove a limit, run the slash command with no channel, or use `settc NONE` / `setvc NONE`.
 
 ## Who can use it
 

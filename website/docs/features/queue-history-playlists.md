@@ -25,7 +25,7 @@ people who added songs, so one person can't fill it. `/queuetype linear` switche
 ## History
 
 The bot remembers the songs it played recently. `/history` lists them, with buttons to play one now, add it to the
-queue, add them all, or save them as a playlist. The Prev button on the [now-playing panel](now-playing.md) uses
+queue, or add them all. DJs and the bot owner also get a button to save them as a playlist. The Prev button on the [now-playing panel](now-playing.md) uses
 the same history.
 
 <figure class="oa-media oa-media--pending" markdown>
@@ -47,7 +47,8 @@ https://soundcloud.com/some-artist/some-track
 Daft Punk - Something About Us
 ```
 
-- `/playlists` lists the server's playlists, with buttons to play one now, queue it, or see what's in it.
+- `/playlists` lists the server's playlists, with buttons to play one now, queue it, or see what's in it. DJs and
+  the bot owner can also edit a playlist's songs from there.
 - `play playlist <name>` plays one with a text command.
 
 <figure class="oa-media oa-media--pending" markdown>
@@ -65,7 +66,9 @@ The ⭐ button on the now-playing panel adds the current song to a playlist call
 
 - Viewing the queue, history and playlists, and adding or removing your own songs: everyone.
 - Reordering, skipping to a position, and the Shuffle button: [DJs](dj-role.md).
-- Creating and deleting playlist files, and the auto-playlist: the bot owner.
+- Saving history as a playlist, editing playlists from `/playlists`, and the ⭐ Favorite button: DJs and the bot
+  owner.
+- The `playlist` command (make, append, delete) and the auto-playlist: the bot owner.
 
 ## Settings
 

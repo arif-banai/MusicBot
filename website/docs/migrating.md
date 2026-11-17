@@ -44,8 +44,9 @@ If you set a different folder with the old `playlistsfolder` setting, it's moved
 
 ## Re-invite for slash commands
 
-Slash commands need the `applications.commands` scope. If your bot was invited years ago, invite it again with a
-fresh link from [Invite the bot](setup/invite.md); you don't need to remove it first. Text commands like
+Slash commands need the `applications.commands` scope, which today's `bot` scope includes. If your bot was invited
+years ago and slash commands don't appear, invite it again with a fresh link from
+[Invite the bot](setup/invite.md); you don't need to remove it first. Text commands like
 `@JMusicBot play` keep working either way.
 
 ## New things to try
@@ -59,14 +60,11 @@ fresh link from [Invite the bot](setup/invite.md); you don't need to remove it f
   yt-dlp.
 - [Docker](setup/docker.md): ready-made images for amd64 and ARM64.
 - [Desktop app](features/gui.md): a window with the log, performance and settings.
-- New commands: `history`, `library`, `nplayout`, `npbuttons` and `clearchannel`. See [Commands](reference/commands.md).
+- New commands: `history`, `library`, `nplayout`, `npbuttons` and `clearchannel`; `lyrics` is gone. See [Commands](reference/commands.md).
 
 ## What's gone or different
 
-- **Lyrics.** `lyrics` is still listed, but it doesn't return lyrics any more; the service it used was removed.
-- **`eval`.** It needs a script engine, and Java 25 doesn't include Nashorn, so it doesn't work out of the box.
-  It's off by default anyway.
+- **Lyrics.** The `lyrics` command was removed; the lyrics service it used no longer exists.
 - **Default prefix.** Still a mention of the bot (`@JMusicBot play`); if you set your own prefix, it's kept.
-- **Skipping.** The person who asked for a song can skip it straight away; everyone else votes, as before.
 
 Questions? See the [FAQ](help/faq.md) or [Troubleshooting](help/troubleshooting.md).
