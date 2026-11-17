@@ -45,8 +45,9 @@ Screenshot: Privileged Gateway Intents with Message Content on
 
 ## Put it in config.txt
 
-Open `config.txt` (the bot creates it on its first run) and paste the token. Set `owner` to your own Discord user
-ID; [Find your user ID](user-id.md) shows where to get it.
+The first time the bot runs, it asks you for the token and saves it (see [First run](first-run.md)). If you already
+have a `config.txt`, paste the token there instead, and set `owner` to your own Discord user ID;
+[Find your user ID](user-id.md) shows where to get it.
 
 ```hocon
 discord {

@@ -103,3 +103,51 @@ def test_config_page_covers_every_key(site_dir):
                                   "reference/performance", "reference/wont-add"])
 def test_reference_pages_written(site_dir, slug):
     assert_written(site_dir, slug)
+
+
+# ---------- Task 2: setup pages ----------
+
+PERMISSION_NAMES = {
+    "VIEW_CHANNEL": "View Channels", "MESSAGE_SEND": "Send Messages", "MESSAGE_HISTORY": "Read Message History",
+    "MESSAGE_ADD_REACTION": "Add Reactions", "MESSAGE_EMBED_LINKS": "Embed Links",
+    "MESSAGE_ATTACH_FILES": "Attach Files", "MESSAGE_MANAGE": "Manage Messages",
+    "MESSAGE_EXT_EMOJI": "Use External Emojis", "VOICE_CONNECT": "Connect", "VOICE_SPEAK": "Speak",
+    "NICKNAME_CHANGE": "Change Nickname",
+}
+
+
+def recommended_permissions() -> list[str]:
+    text = (JAVA / "JMusicBot.java").read_text(encoding="utf-8")
+    block = re.search(r"RECOMMENDED_PERMS\s*=\s*\{([^}]*)\}", text).group(1)
+    return re.findall(r"Permission\.(\w+)", block)
+
+
+SETUP = ["setup/index", "setup/java", "setup/user-id", "setup/invite", "setup/first-run",
+         "setup/docker", "setup/service", "setup/hosting"]
+
+
+@pytest.mark.parametrize("slug", SETUP)
+def test_setup_pages_written(site_dir, slug):
+    assert_written(site_dir, slug)
+
+
+def test_java_page_states_requirements(site_dir):
+    t = page_text(built(site_dir, "setup/java"))
+    assert "Java 25" in t and "2.38" in t and "java -version" in t
+
+
+def test_invite_page_lists_scopes_and_permissions(site_dir):
+    t = page_text(built(site_dir, "setup/invite"))
+    assert "applications.commands" in t and "bot" in t
+    assert set(recommended_permissions()) <= PERMISSION_NAMES.keys()
+    assert [p for p in recommended_permissions() if PERMISSION_NAMES[p] not in t] == []
+
+
+def test_docker_page_uses_fork_image(site_dir):
+    t = page_text(built(site_dir, "setup/docker"))
+    assert "ghcr.io/arif-banai/musicbot" in t and "jagrosh" not in t.lower()
+
+
+def test_no_stale_jar_versions(site_dir):
+    for p in html_pages(site_dir):
+        assert "0.6.2" not in page_text(p), p
