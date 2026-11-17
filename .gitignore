@@ -32,3 +32,5 @@ Thumbs.db
 /website/.cache/
 /website/.venv/
 .superpowers/
+/website/**/__pycache__/
+/website/.pytest_cache/
