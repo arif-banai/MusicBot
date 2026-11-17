@@ -31,8 +31,9 @@
   --oa-on-fill: #1A1606;
 }
 
-/* ---------- Map tokens onto the theme ---------- */
-[data-md-color-scheme] {
+/* ---------- Map tokens onto the theme ----------
+   Two attributes, so this outranks the theme palette's [scheme][primary] rules. */
+[data-md-color-scheme][data-md-color-primary] {
   --md-default-bg-color: var(--oa-bg);
   --md-default-fg-color: var(--oa-text);
   --md-default-fg-color--light: var(--oa-text-muted);
@@ -106,9 +107,6 @@ body {
 .md-nav__link--active,
 .md-nav__item .md-nav__link--active {
   color: var(--oa-accent);
-  border-left: 2px solid var(--oa-accent);
-  padding-left: 0.6em;
-  margin-left: -0.6em;
 }
 
 /* ---------- Callouts ---------- */
@@ -169,6 +167,8 @@ body {
 
 /* ---------- Media frame for Discord screenshots and clips ---------- */
 .md-typeset .oa-media {
+  display: block;
+  width: 100%;
   margin: 1.5em 0;
   border-radius: 12px;
   overflow: hidden;

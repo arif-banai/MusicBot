@@ -54,6 +54,55 @@ def test_token_contrast(scheme):
     assert contrast(t["--oa-tip"], t["--oa-bg"]) >= 3.0
 
 
+MAPPED = ["--md-typeset-a-color", "--md-accent-fg-color", "--md-primary-fg-color", "--md-default-bg-color",
+          "--md-default-fg-color", "--md-code-bg-color", "--md-footer-bg-color"]
+
+
+def _rules(css: str):
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    for m in re.finditer(r"([^{}]+)\{([^{}]*)\}", css):
+        yield m.group(1), m.group(2)
+
+
+def _matches_body(selector: str, attrs: dict[str, str]) -> bool:
+    """True if a plain attribute selector on <body> matches; anything else is skipped."""
+    sel = selector.strip()
+    negated = re.findall(r":not\(\[([\w-]+)=\"?([\w-]+)\"?\]\)", sel)
+    sel = re.sub(r":not\([^)]*\)", "", sel)
+    if not re.fullmatch(r"(\[[\w-]+(=\"?[\w-]+\"?)?\])+", sel):
+        return False
+    for name, value in re.findall(r"\[([\w-]+)(?:=\"?([\w-]+)\"?)?\]", sel):
+        if name not in attrs or (value and attrs[name] != value):
+            return False
+    return all(attrs.get(n) != v for n, v in negated)
+
+
+def _specificity(selector: str) -> int:
+    return selector.count("[")
+
+
+@pytest.mark.parametrize("scheme", ["slate", "default"])
+def test_theme_mapping_outranks_palette(site_dir, scheme):
+    body = soup(site_dir / "index.html").body
+    attrs = {k: v for k, v in body.attrs.items() if k.startswith("data-md-color")}
+    attrs["data-md-color-scheme"] = scheme
+
+    def best(css_files, var):
+        top = -1
+        for f in css_files:
+            for sels, decls in _rules(f.read_text(encoding="utf-8")):
+                if re.search(re.escape(var) + r"\s*:", decls):
+                    for s in sels.split(","):
+                        if _matches_body(s, attrs):
+                            top = max(top, _specificity(s))
+        return top
+
+    theme_css = list((site_dir / "assets" / "stylesheets").rglob("*.css"))
+    ours = [site_dir / "stylesheets" / "on-air.css"]
+    for var in MAPPED:
+        assert best(ours, var) >= best(theme_css, var) >= -1, f"{var}: theme palette outranks on-air.css ({scheme})"
+
+
 def test_fonts_loaded_every_page(site_dir):
     for p in html_pages(site_dir):
         hrefs = " ".join(l.get("href", "") for l in soup(p).select("link[rel=stylesheet]"))
