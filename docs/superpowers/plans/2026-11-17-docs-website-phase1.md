@@ -217,8 +217,8 @@ Expected: FAIL (`on-air.css` doesn't exist).
 - `theme.custom_dir: overrides`, `font: false`
 - `logo: assets/images/logo.svg`, `favicon: assets/images/favicon.svg`
 - Palette:
-  - Entry 1: `media: "(prefers-color-scheme: dark)"`, `scheme: slate`, toggle "Switch to light mode".
-  - Entry 2: `scheme: default`, toggle "Switch to dark mode".
+  - Entry 1: `scheme: slate`, `primary: custom`, `accent: custom`, toggle "Switch to light mode". No `media` key on either entry, so a light-OS visitor still starts in dark.
+  - Entry 2: `scheme: default`, `primary: custom`, `accent: custom`, toggle "Switch to dark mode".
 - Features: `navigation.sections`, `navigation.top`, `navigation.footer`, `content.code.copy`, `search.highlight`.
 - `extra_css: [stylesheets/on-air.css]`
 - `markdown_extensions`: `admonition`, `attr_list`, `md_in_html`, `pymdownx.details`, `pymdownx.superfences`, `pymdownx.highlight`, `pymdownx.inlinehilite`, `toc` (with `permalink: true`).
@@ -280,15 +280,15 @@ git commit -m "feat(docs): on-air theme tokens, fonts and Material mapping"
 The replica copies the bot's full layout from `MessageFormatter.buildFullNowPlayingMessage`, with `nowPlaying.showProgressBar = true`:
 - Embed author: a server name ("Lounge Server")
 - Title: link-coloured "Daft Punk - Something About Us"
-- Description, line 1: `▶ ▬▬▬▬🔘▬▬▬▬▬▬▬ [1:23/3:51] 🔊`. The bar is 12 segments with `🔘` at `floor(pos/dur*12)`, as in `FormatUtil.progressBar`.
+- Description, line 1: `▶ ▬▬▬▬🔘▬▬▬▬▬▬▬ [01:23/03:51] 🔊`. The bar is 12 segments with `🔘` at `floor(pos/dur*12)`, as in `FormatUtil.progressBar`.
 - Description, line 2: `Source: youtube`
-- Fields: Author "Daft Punk"; Duration "3:51"; Queue "4"; Volume "70%"; Requester "@you"
+- Fields: Author "Daft Punk"; Duration "03:51"; Queue "4"; Volume "70%"; Requester "@you"
 - Button row 1: Prev, Pause (primary), Skip, Stop (danger)
 - Button row 2: Shuffle, Repeat, Favorite, Vol -, Vol +
 
 Each button keeps its emoji, as in `applyNowPlayingButtons`.
 
-`now-playing.js` advances the position one second per second from 1:23 to 3:51, then loops. It updates the time and the `🔘` position. It does nothing when `matchMedia('(prefers-reduced-motion: reduce)').matches`.
+`now-playing.js` advances the position one second per second from 01:23 to 03:51, zero-padding minutes like `TimeUtil.formatTime`, then loops. It updates the time and the `🔘` position. It does nothing when `matchMedia('(prefers-reduced-motion: reduce)').matches`.
 
 This replaces the mockup's smooth amber bar with the bot's real text bar, so the home page shows what users actually get. The amber accent goes on the stage and the primary path card instead. Flag this at checkpoint 1.
 
@@ -465,7 +465,7 @@ Sections of the bot-token page:
 1. **What the token is.** One paragraph: it's the password your copy of the bot uses to log in to Discord.
 2. **Create the application.** The Developer Portal (`https://discord.com/developers/applications`), New Application, name it, agree, Create. Placeholder: "Screenshot: Developer Portal, New Application dialog".
 3. **Copy the token.** Bot tab, then Reset Token, then Copy. The token is shown once. Placeholder: "Screenshot: Bot tab with Reset Token and Copy (token blurred)".
-4. **Turn on Message Content Intent.** Bot tab → Privileged Gateway Intents. A `!!! warning` (amber) explains that without it the bot can't read prefix commands like `@JMusicBot play`. It's the only privileged intent the bot needs (`JMusicBot.java` requests only `MESSAGE_CONTENT` among the privileged ones). Placeholder: "Screenshot: Privileged Gateway Intents with Message Content on".
+4. **Turn on Message Content Intent.** Bot tab → Privileged Gateway Intents. A `!!! warning` (amber) explains that if it's off, Discord refuses the bot's connection ("Your bot is missing required Discord intents!", `StartupLifecycleListener`), so no commands work. It's the only privileged intent the bot needs (`JMusicBot.java` requests only `MESSAGE_CONTENT` among the privileged ones). Placeholder: "Screenshot: Privileged Gateway Intents with Message Content on".
 5. **Put it in config.txt.** A `hocon` code block with `discord { token = "paste-your-token-here"  owner = 123456789012345678 }`. Link to Find your user ID.
 6. **Keep it secret.** A `!!! danger`: anyone with the token controls the bot; reset it if it leaks.
 
