@@ -60,6 +60,8 @@ The commands page is grouped by permission level, in this order: General, Music,
 | Command | Slash | What it does | Aliases |
 |---|---|---|---|
 
+Cells hold the bare name: `play` in the first column and `/play` in the second, with any arguments in "What it does". Use "—" for a command with no prefix or no slash form.
+
 Aliases come from `commands.aliases` in `reference.conf`. Owner-only commands are listed with a one-line warning for `eval`, which runs arbitrary code. Its "What it does" text quotes `dangerous.eval` being off by default. Prefix-only commands (e.g. `lyrics`, `scsearch`) show "—" in the Slash column.
 
 The config page follows `reference.conf`'s section order. It has one `##` per top-level block and one row per key: key path in code, default, and what it does, in plain words from the file's own comments. It links the YouTube keys to the Troubleshooting page using the symptom → setting style.
@@ -68,9 +70,11 @@ The config page follows `reference.conf`'s section order. It has one `##` per to
 
 ```python
 def test_commands_page_covers_every_command(site_dir):
-    text = page_text(built(site_dir, "reference/commands"))
-    missing = [n for n in prefix_commands() if n not in text] + \
-              [f"/{n}" for n in slash_commands() if f"/{n}" not in text]
+    s = soup(built(site_dir, "reference/commands"))
+    prefix_cells = {td.get_text(strip=True) for td in s.select(".md-content tr > td:nth-child(1)")}
+    slash_cells = {td.get_text(strip=True) for td in s.select(".md-content tr > td:nth-child(2)")}
+    missing = [n for n in prefix_commands() if n not in prefix_cells] + \
+              [f"/{n}" for n in slash_commands() if f"/{n}" not in slash_cells]
     assert missing == []
 
 def test_commands_grouped_by_permission(site_dir):
@@ -317,7 +321,7 @@ def test_migrating_page_covers_upgrade_steps(site_dir):
     t = page_text(built(site_dir, "migrating"))
     for needle in ("Java 25", "2.38", "Message Content Intent", "config.txt", "/play"):
         assert needle in t, needle
-    assert soup(built(site_dir, "migrating")).select_one('a[href="https://github.com/jagrosh/MusicBot"]')
+    assert soup(built(site_dir, "migrating")).select_one('.md-content a[href="https://github.com/jagrosh/MusicBot"]')
 ```
 
 Run: `.venv/Scripts/python -m pytest -q tests/test_content.py -k migrating`
