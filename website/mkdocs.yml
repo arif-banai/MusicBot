@@ -1,7 +1,60 @@
 site_name: JMusicBot
+site_description: A Discord music bot you host yourself. Play YouTube, SoundCloud, radio streams and your own files.
 site_url: https://arif-banai.github.io/MusicBot/
 docs_dir: docs
+repo_url: https://github.com/arif-banai/MusicBot
+repo_name: arif-banai/MusicBot
+edit_uri: edit/master/website/docs/
+copyright: >
+  JMusicBot by <a href="https://github.com/jagrosh/MusicBot">jagrosh</a>.
+  This fork is maintained by arif-banai. Apache 2.0.
+
 theme:
   name: material
+  custom_dir: overrides
+  font: false
+  logo: assets/images/logo.svg
+  favicon: assets/images/favicon.svg
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - content.code.copy
+    - search.highlight
+  palette:
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+
+extra_css:
+  - stylesheets/on-air.css
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/arif-banai/MusicBot
+      name: JMusicBot on GitHub
+    - icon: fontawesome/brands/discord
+      link: https://discord.gg/cyyUxNmmx6
+      name: Support server on Discord
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - toc:
+      permalink: true
+
 nav:
   - Home: index.md

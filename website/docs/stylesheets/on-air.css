@@ -1,0 +1,209 @@
+/* "On air" theme for the JMusicBot docs.
+   Tokens are the only colors later styles use. Each scheme defines the same names. */
+
+[data-md-color-scheme="slate"] {
+  --oa-bg: #171C33;
+  --oa-surface: #222A4A;
+  --oa-line: #313A60;
+  --oa-text: #F3F5FB;
+  --oa-text-muted: #A9B1D0;
+  --oa-accent: #F5B83D;
+  --oa-on-accent: #1A1606;
+  --oa-tip: #4CD6A0;
+  --oa-danger: #DA373C;
+  --oa-code-bg: #10142A;
+  --oa-fill: #F5B83D;
+  --oa-on-fill: #1A1606;
+}
+
+[data-md-color-scheme="default"] {
+  --oa-bg: #F5F6FA;
+  --oa-surface: #FFFFFF;
+  --oa-line: #D9DCE8;
+  --oa-text: #1C2238;
+  --oa-text-muted: #535B78;
+  --oa-accent: #8F5B00;
+  --oa-on-accent: #FFFFFF;
+  --oa-tip: #18875C;
+  --oa-danger: #C62D33;
+  --oa-code-bg: #ECEEF5;
+  --oa-fill: #F5B83D;
+  --oa-on-fill: #1A1606;
+}
+
+/* ---------- Map tokens onto the theme ---------- */
+[data-md-color-scheme] {
+  --md-default-bg-color: var(--oa-bg);
+  --md-default-fg-color: var(--oa-text);
+  --md-default-fg-color--light: var(--oa-text-muted);
+  --md-default-fg-color--lighter: var(--oa-line);
+  --md-default-fg-color--lightest: var(--oa-line);
+  --md-primary-fg-color: var(--oa-surface);
+  --md-primary-fg-color--light: var(--oa-surface);
+  --md-primary-fg-color--dark: var(--oa-surface);
+  --md-primary-bg-color: var(--oa-text);
+  --md-primary-bg-color--light: var(--oa-text-muted);
+  --md-accent-fg-color: var(--oa-accent);
+  --md-accent-fg-color--transparent: color-mix(in srgb, var(--oa-accent) 12%, transparent);
+  --md-accent-bg-color: var(--oa-on-accent);
+  --md-typeset-a-color: var(--oa-accent);
+  --md-code-bg-color: var(--oa-code-bg);
+  --md-code-fg-color: var(--oa-text);
+  --md-code-hl-keyword-color: var(--oa-accent);
+  --md-code-hl-comment-color: var(--oa-text-muted);
+  --md-footer-bg-color: var(--oa-surface);
+  --md-footer-bg-color--dark: var(--oa-bg);
+  --md-footer-fg-color: var(--oa-text);
+  --md-footer-fg-color--light: var(--oa-text-muted);
+  --md-footer-fg-color--lighter: var(--oa-text-muted);
+}
+
+:root {
+  --md-text-font: "Onest";
+  --md-code-font: "JetBrains Mono";
+  --oa-display-font: "Unbounded", "Onest", system-ui, sans-serif;
+}
+
+body {
+  background-color: var(--oa-bg);
+}
+
+.md-header,
+.md-tabs {
+  background-color: var(--oa-surface);
+  color: var(--oa-text);
+  border-bottom: 1px solid var(--oa-line);
+  box-shadow: none;
+}
+
+.md-header__topic:first-child,
+.md-typeset h1,
+.md-typeset h2 {
+  font-family: var(--oa-display-font);
+  letter-spacing: -0.02em;
+}
+
+.md-typeset h1 {
+  font-weight: 700;
+  color: var(--oa-text);
+}
+
+.md-typeset h2 {
+  font-weight: 500;
+}
+
+.md-typeset h3,
+.md-typeset h4 {
+  font-weight: 600;
+}
+
+/* Readable line length */
+.md-content__inner > :not(.oa-wide) {
+  max-width: 75ch;
+}
+
+/* ---------- Navigation ---------- */
+.md-nav__link--active,
+.md-nav__item .md-nav__link--active {
+  color: var(--oa-accent);
+  border-left: 2px solid var(--oa-accent);
+  padding-left: 0.6em;
+  margin-left: -0.6em;
+}
+
+/* ---------- Callouts ---------- */
+.md-typeset .admonition,
+.md-typeset details {
+  border-width: 0 0 0 3px;
+  border-radius: 0 8px 8px 0;
+  background: var(--oa-surface);
+  box-shadow: none;
+  font-size: 0.75rem;
+}
+
+.md-typeset :is(.admonition, details):is(.note, .tip, .info, .success) {
+  border-color: var(--oa-tip);
+}
+
+.md-typeset :is(.note, .tip, .info, .success) > :is(.admonition-title, summary) {
+  background: color-mix(in srgb, var(--oa-tip) 12%, transparent);
+}
+
+.md-typeset :is(.note, .tip, .info, .success) > :is(.admonition-title, summary)::before {
+  background-color: var(--oa-tip);
+}
+
+.md-typeset :is(.admonition, details):is(.warning, .caution, .attention) {
+  border-color: var(--oa-accent);
+}
+
+.md-typeset :is(.warning, .caution, .attention) > :is(.admonition-title, summary) {
+  background: color-mix(in srgb, var(--oa-accent) 12%, transparent);
+}
+
+.md-typeset :is(.warning, .caution, .attention) > :is(.admonition-title, summary)::before {
+  background-color: var(--oa-accent);
+}
+
+.md-typeset :is(.admonition, details):is(.danger, .error, .failure) {
+  border-color: var(--oa-danger);
+}
+
+.md-typeset :is(.danger, .error, .failure) > :is(.admonition-title, summary) {
+  background: color-mix(in srgb, var(--oa-danger) 12%, transparent);
+}
+
+.md-typeset :is(.danger, .error, .failure) > :is(.admonition-title, summary)::before {
+  background-color: var(--oa-danger);
+}
+
+/* ---------- Code ---------- */
+.md-typeset pre > code {
+  border: 1px solid var(--oa-line);
+  border-radius: 10px;
+}
+
+.md-typeset code {
+  border-radius: 4px;
+}
+
+/* ---------- Media frame for Discord screenshots and clips ---------- */
+.md-typeset .oa-media {
+  margin: 1.5em 0;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--oa-surface);
+  border: 1px solid var(--oa-line);
+  box-shadow: 0 18px 40px -24px rgba(0, 0, 0, 0.55);
+}
+
+.md-typeset .oa-media :is(img, video) {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+}
+
+.md-typeset .oa-media figcaption {
+  margin: 0;
+  padding: 0.6em 1em;
+  font-size: 0.7rem;
+  color: var(--oa-text-muted);
+}
+
+.md-typeset .oa-media--pending {
+  display: grid;
+  place-items: center;
+  min-height: 160px;
+  padding: 1.2em;
+  border: 1px dashed var(--oa-line);
+  background: var(--oa-code-bg);
+  box-shadow: none;
+  color: var(--oa-text-muted);
+  font-size: 0.7rem;
+  text-align: center;
+}
+
+.md-typeset .oa-media--pending p {
+  margin: 0;
+}
