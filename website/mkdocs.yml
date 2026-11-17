@@ -1,0 +1,7 @@
+site_name: JMusicBot
+site_url: https://arif-banai.github.io/MusicBot/
+docs_dir: docs
+theme:
+  name: material
+nav:
+  - Home: index.md

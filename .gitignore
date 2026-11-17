@@ -25,3 +25,10 @@ Thumbs.db
 
 # Other
 *.lock
+
+# Docs website
+!website/requirements.txt
+/website/site/
+/website/.cache/
+/website/.venv/
+.superpowers/
