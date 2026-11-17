@@ -1,0 +1,64 @@
+---
+description: Create a Discord application for your bot, copy its token and turn on the one intent it needs.
+---
+
+# Get a bot token
+
+The token is the password your copy of the bot uses to log in to Discord. You create it once, in the Discord
+Developer Portal, and paste it into `config.txt`.
+
+<!-- Portal button names below: verify against the live Developer Portal at capture time (phase 3). -->
+
+## Create the application
+
+1. Open the [Discord Developer Portal](https://discord.com/developers/applications) and sign in.
+2. Select **New Application**.
+3. Type the name you want people to see for the bot, agree to the terms, and select **Create**.
+
+<figure class="oa-media oa-media--pending" markdown>
+Screenshot: Developer Portal, New Application dialog
+</figure>
+
+## Copy the token
+
+1. In the menu on the left, open **Bot**.
+2. Select **Reset Token** and confirm. Discord shows the new token once.
+3. Select **Copy** and keep the token somewhere safe until you paste it into `config.txt`.
+
+<figure class="oa-media oa-media--pending" markdown>
+Screenshot: Bot tab with Reset Token and Copy (token blurred)
+</figure>
+
+## Turn on Message Content Intent
+
+Still on the **Bot** page, scroll to **Privileged Gateway Intents**, turn on **Message Content Intent**, and
+select **Save Changes**.
+
+!!! warning "Message Content Intent must be on"
+    Without it, the bot can't read prefix commands such as `@JMusicBot play`. Slash commands still work, but most
+    servers use both. It's the only privileged intent the bot needs, so leave the others off.
+
+<figure class="oa-media oa-media--pending" markdown>
+Screenshot: Privileged Gateway Intents with Message Content on
+</figure>
+
+## Put it in config.txt
+
+Open `config.txt` (the bot creates it on its first run) and paste the token. Set `owner` to your own Discord user
+ID; [Find your user ID](user-id.md) shows where to get it.
+
+```hocon
+discord {
+  token = "paste-your-token-here"
+  owner = 123456789012345678
+}
+```
+
+## Keep it secret
+
+!!! danger "Anyone with the token controls your bot"
+    Don't post it in Discord, in a screenshot, or in a GitHub issue. If it leaks, go back to the **Bot** page and
+    select **Reset Token**. The old token stops working right away; paste the new one into `config.txt` and restart
+    the bot.
+
+Next: [Invite the bot](invite.md) to your server.
