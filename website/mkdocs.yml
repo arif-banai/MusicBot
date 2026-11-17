@@ -35,6 +35,10 @@ theme:
 
 extra_css:
   - stylesheets/on-air.css
+  - stylesheets/home.css
+
+extra_javascript:
+  - javascripts/now-playing.js
 
 extra:
   social:
@@ -58,3 +62,9 @@ markdown_extensions:
 
 nav:
   - Home: index.md
+  - Setup:
+      - Overview: setup/index.md
+  - Features:
+      - Now-playing panel: features/now-playing.md
+      - yt-dlp library: features/ytdlp-library.md
+  - Coming from JMusicBot: migrating.md
