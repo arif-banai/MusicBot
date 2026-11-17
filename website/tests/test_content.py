@@ -151,3 +151,42 @@ def test_docker_page_uses_fork_image(site_dir):
 def test_no_stale_jar_versions(site_dir):
     for p in html_pages(site_dir):
         assert "0.6.2" not in page_text(p), p
+
+
+# ---------- Task 3: feature and help pages ----------
+
+FEATURES = ["features/slash-commands", "features/now-playing", "features/queue-history-playlists",
+            "features/ytdlp-library", "features/dj-role", "features/sources", "features/gui"]
+
+
+@pytest.mark.parametrize("slug", FEATURES + ["help/troubleshooting", "help/faq"])
+def test_feature_and_help_pages_written(site_dir, slug):
+    assert_written(site_dir, slug)
+
+
+@pytest.mark.parametrize("slug", FEATURES)
+def test_feature_pages_have_a_media_slot(site_dir, slug):
+    assert soup(built(site_dir, slug)).select(".oa-media")
+
+
+def test_ytdlp_page_documents_its_keys(site_dir):
+    t = page_text(built(site_dir, "features/ytdlp-library"))
+    assert [k for k in config_keys() if k.startswith("ytdlp.") and k.split(".")[-1] not in t] == []
+
+
+def test_youtube_settings_are_symptom_only(site_dir):
+    for slug in ["help/troubleshooting", "features/ytdlp-library", "reference/config", "reference/proxy"]:
+        t = page_text(built(site_dir, slug)).lower()
+        for banned in ("regional restriction", "get around", "circumvent", "evade", "detection"):
+            assert banned not in t, (slug, banned)
+
+
+def test_troubleshooting_covers_required_symptoms(site_dir):
+    t = page_text(built(site_dir, "help/troubleshooting"))
+    for needle in ("Your bot is missing required Discord intents!", "2.38", "UnsupportedClassVersionError",
+                   "file.encoding=UTF-8", "useOAuth", "applications.commands"):
+        assert needle in t, needle
+
+
+def test_lyrics_page_removed(site_dir):
+    assert not (site_dir / "features/lyrics/index.html").exists()

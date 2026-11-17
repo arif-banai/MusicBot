@@ -50,6 +50,6 @@ Screenshot: OAuth2 URL Generator with bot and applications.commands scopes and t
 ## Check it works
 
 Join a voice channel and type `/play` followed by a song name. Slash commands can take a minute to appear the
-first time. If they don't show up, see [Troubleshooting](../help/troubleshooting.md).
+first time. If they don't show up, see [Troubleshooting](../help/troubleshooting.md#slash-commands-dont-show-up).
 
 Next: [Run with Docker](docker.md), or keep it running with [Run as a service](service.md).

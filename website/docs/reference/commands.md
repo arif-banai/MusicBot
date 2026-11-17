@@ -91,7 +91,7 @@ when that's the case.
 | `setstatus` | — | Sets online, idle, do not disturb or invisible. | — |
 | `debug` | — | Shows debug information to paste into a bug report. | — |
 | `shutdown` | — | Shuts the bot down safely. | — |
-| `eval` | — | Runs code as the bot. Off unless `dangerous.eval = true`; see the warning below. | — |
+| `eval` | — | Runs code as the bot. Off unless `dangerous.eval = true`, and it needs a script engine that Java 25 doesn't include; see the warning below. | — |
 
 !!! danger "Leave `eval` off"
     `eval` runs any code you give it with full access to the bot and the computer it runs on. It's off by default

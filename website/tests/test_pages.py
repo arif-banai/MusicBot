@@ -4,7 +4,7 @@ EXPECTED = [
     "setup/index", "setup/java", "setup/bot-token", "setup/user-id", "setup/invite", "setup/first-run",
     "setup/docker", "setup/service", "setup/hosting", "features/slash-commands", "features/now-playing",
     "features/queue-history-playlists", "features/ytdlp-library", "features/dj-role", "features/sources",
-    "features/gui", "features/lyrics", "reference/commands", "reference/config", "reference/proxy",
+    "features/gui", "reference/commands", "reference/config", "reference/proxy",
     "reference/performance", "reference/wont-add", "migrating", "help/troubleshooting", "help/faq",
 ]
 

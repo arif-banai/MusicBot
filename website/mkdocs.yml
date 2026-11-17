@@ -84,7 +84,6 @@ nav:
       - DJ role and permissions: features/dj-role.md
       - Audio sources: features/sources.md
       - Desktop app: features/gui.md
-      - Lyrics: features/lyrics.md
   - Reference:
       - Commands: reference/commands.md
       - config.txt: reference/config.md
