@@ -190,3 +190,13 @@ def test_troubleshooting_covers_required_symptoms(site_dir):
 
 def test_lyrics_page_removed(site_dir):
     assert not (site_dir / "features/lyrics/index.html").exists()
+
+
+# ---------- Task 4: migration page ----------
+
+def test_migrating_page_covers_upgrade_steps(site_dir):
+    assert_written(site_dir, "migrating")
+    t = page_text(built(site_dir, "migrating"))
+    for needle in ("Java 25", "2.38", "Message Content Intent", "config.txt", "/play"):
+        assert needle in t, needle
+    assert soup(built(site_dir, "migrating")).select_one('.md-content a[href="https://github.com/jagrosh/MusicBot"]')
