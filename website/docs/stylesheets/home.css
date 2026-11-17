@@ -259,6 +259,11 @@
 
 .md-content__inner > .oa-feature { max-width: none; }
 
+@media (min-width: 901px) {
+  .md-typeset .oa-feature--flip { grid-template-columns: 1.2fr 1fr; }
+  .md-typeset .oa-feature--flip > :first-child { order: 2; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .oa-path { transition: none; }
 }

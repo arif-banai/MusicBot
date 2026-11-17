@@ -200,3 +200,9 @@ def test_migrating_page_covers_upgrade_steps(site_dir):
     for needle in ("Java 25", "2.38", "Message Content Intent", "config.txt", "/play"):
         assert needle in t, needle
     assert soup(built(site_dir, "migrating")).select_one('.md-content a[href="https://github.com/jagrosh/MusicBot"]')
+
+
+# ---------- Task 5: no stubs left ----------
+
+def test_no_stub_pages_remain(site_dir):
+    assert [str(p.relative_to(site_dir)) for p in html_pages(site_dir) if "Being written" in page_text(p)] == []

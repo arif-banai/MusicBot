@@ -54,3 +54,9 @@ def test_replica_times_use_bot_format(site_dir):
 def test_replica_clock_pads_minutes():
     js = (WEB / "docs/javascripts/now-playing.js").read_text(encoding="utf-8")
     assert re.search(r'm\s*<\s*10\s*\?\s*"0"', js)
+
+
+def test_home_has_six_feature_rows_alternating(site_dir):
+    rows = soup(site_dir / "index.html").select(".oa-feature")
+    assert len(rows) == 6
+    assert ["oa-feature--flip" in r.get("class", []) for r in rows] == [False, True] * 3
