@@ -35,8 +35,9 @@ Still on the **Bot** page, scroll to **Privileged Gateway Intents**, turn on **M
 select **Save Changes**.
 
 !!! warning "Message Content Intent must be on"
-    Without it, the bot can't read prefix commands such as `@JMusicBot play`. Slash commands still work, but most
-    servers use both. It's the only privileged intent the bot needs, so leave the others off.
+    The bot asks Discord for this intent when it logs in. If it's off, Discord refuses the connection and the bot
+    stops with "Your bot is missing required Discord intents!", so neither prefix nor slash commands work. It's the
+    only privileged intent the bot needs, so leave the others off.
 
 <figure class="oa-media oa-media--pending" markdown>
 Screenshot: Privileged Gateway Intents with Message Content on

@@ -17,7 +17,8 @@
   function clock(s) {
     var m = Math.floor(s / 60);
     var r = s % 60;
-    return m + ":" + (r < 10 ? "0" : "") + r;
+    // Same as TimeUtil.formatTime: minutes and seconds both zero-padded.
+    return (m < 10 ? "0" : "") + m + ":" + (r < 10 ? "0" : "") + r;
   }
 
   // Same rule as FormatUtil.progressBar: the dot sits at segment floor(fraction * 12).

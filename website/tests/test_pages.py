@@ -30,3 +30,20 @@ def test_forbidden_copy(site_dir):
         t = page_text(p).lower()
         assert "!play" not in t and "jmusicbot.com" not in t and "bypass" not in t, p
         assert "own risk" not in t and "may violate" not in t, p
+
+
+def test_bot_token_intent_warning_matches_bot(site_dir):
+    t = page_text(built(site_dir, "setup/bot-token"))
+    assert "Slash commands still work" not in t
+    assert "Your bot is missing required Discord intents!" in t
+
+
+def test_hero_copy_is_clean(site_dir):
+    hero = soup(site_dir / "index.html").select_one(".oa-hero").get_text(" ", strip=True).lower()
+    assert "!play" not in hero and "bypass" not in hero and "jmusicbot.com" not in hero
+
+
+def test_no_links_to_jmusicbot_com(site_dir):
+    bad = [(p, a["href"]) for p in html_pages(site_dir) for a in soup(p).select("a[href]")
+           if "jmusicbot.com" in a["href"]]
+    assert bad == []

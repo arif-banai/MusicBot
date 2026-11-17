@@ -112,3 +112,11 @@ def test_fonts_loaded_every_page(site_dir):
 def test_theme_css_linked_every_page(site_dir):
     for p in html_pages(site_dir):
         assert any("stylesheets/on-air.css" in l.get("href", "") for l in soup(p).select("link")), p
+
+
+def test_dark_default_ignores_os_preference(site_dir):
+    # With prefers-color-scheme media on the palette, a light-OS visitor gets light mode first.
+    # Without a media query the theme writes data-md-color-media="none", which never matches,
+    # so the first palette entry (slate) is used until the reader toggles.
+    medias = [i.get("data-md-color-media", "") for i in soup(site_dir / "index.html").select("input[name=__palette]")]
+    assert medias and not any("prefers-color-scheme" in m for m in medias)

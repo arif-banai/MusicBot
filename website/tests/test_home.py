@@ -41,3 +41,16 @@ def test_home_has_mobile_breakpoint():
 def test_footer_credits_original(site_dir):
     f = soup(site_dir / "index.html").select_one("footer")
     assert f.select_one('a[href="https://github.com/jagrosh/MusicBot"]') and "Apache 2.0" in f.get_text()
+
+
+def test_replica_times_use_bot_format(site_dir):
+    np = soup(site_dir / "index.html").select_one(".oa-np")
+    assert np.select_one(".oa-np__clock").get_text(strip=True) == "[01:23/03:51]"
+    durations = [f.select_one("span").get_text(strip=True) for f in np.select(".oa-np__field")
+                 if f.select_one("b").get_text(strip=True) == "Duration"]
+    assert durations == ["03:51"]
+
+
+def test_replica_clock_pads_minutes():
+    js = (WEB / "docs/javascripts/now-playing.js").read_text(encoding="utf-8")
+    assert re.search(r'm\s*<\s*10\s*\?\s*"0"', js)
