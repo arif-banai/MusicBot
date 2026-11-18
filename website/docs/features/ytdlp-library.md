@@ -8,8 +8,8 @@ The yt-dlp library is an optional feature for server owners. When a YouTube song
 it with your own copy of [yt-dlp](https://github.com/yt-dlp/yt-dlp), save it to a library folder, and play it from
 disk. Saved songs keep working, and the bot can offer them when someone asks for the same song again.
 
-<figure class="oa-media oa-media--pending" markdown>
-GIF: the Download button on now-playing, then the song in /library panel
+<figure class="oa-media" markdown>
+![Pressing Download on the now-playing panel, the bot confirming the song is saved to the library, then searching /library panel and finding it](../assets/media/ytdlp-download.webp){ width="560" }
 </figure>
 
 ## What you need

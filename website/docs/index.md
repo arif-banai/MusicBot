@@ -61,8 +61,8 @@ Browse what you've saved with `/library panel`.
 [See the yt-dlp library](features/ytdlp-library.md)
 </div>
 
-<figure class="oa-media oa-media--pending" markdown>
-GIF: the Download button on now-playing, then the song in /library panel
+<figure class="oa-media" markdown>
+![Pressing Download on the now-playing panel, the bot confirming the song is saved to the library, then searching /library panel and finding it](assets/media/ytdlp-download.webp){ width="560" }
 </figure>
 </div>
 
@@ -76,8 +76,8 @@ commands to one channel if you like.
 [See the DJ role](features/dj-role.md)
 </div>
 
-<figure class="oa-media oa-media--pending" markdown>
-Screenshot: /setdj choosing a role, and the bot confirming it
+<figure class="oa-media" markdown>
+![Typing /setdj in Discord, picking the DJ role, and the bot confirming that DJ commands can now be used by that role](assets/media/setdj.webp){ width="830" }
 </figure>
 </div>
 

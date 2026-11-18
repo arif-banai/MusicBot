@@ -7,8 +7,8 @@ description: Decide who can control the music in your server.
 Anyone can add songs and vote to skip. Controlling playback for everyone (pausing, stopping, changing the volume,
 skipping without a vote, reordering the queue) is for **DJs**. You choose who's a DJ by picking a role.
 
-<figure class="oa-media oa-media--pending" markdown>
-Screenshot: /setdj choosing a role, and the bot confirming it
+<figure class="oa-media" markdown>
+![Typing /setdj in Discord, picking the DJ role, and the bot confirming that DJ commands can now be used by that role](../assets/media/setdj.webp){ width="830" }
 </figure>
 
 ## Set the DJ role

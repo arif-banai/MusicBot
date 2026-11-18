@@ -7,8 +7,8 @@ description: The sites, streams and file formats the bot can play.
 The bot plays from links, from searches, and from files. Paste a link into `/play`, type a song name to search
 YouTube, or attach an audio file to a `play` message.
 
-<figure class="oa-media oa-media--pending" markdown>
-GIF: /play with a SoundCloud link, then a radio stream
+<figure class="oa-media" markdown>
+![Playing a SoundCloud search result, which shows Source: soundcloud, then an internet radio stream, which shows LIVE](../assets/media/sources.webp){ width="760" }
 </figure>
 
 ## Sites and streams
