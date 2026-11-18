@@ -63,3 +63,15 @@ Swap it for the real image or video, keeping the `oa-media` class so it gets the
 ```
 
 Keep each animation under about 1.5 MB and give every image alt text that says what it shows.
+
+## Link-preview card
+
+`docs/assets/images/og-card.png` is the image Discord, Slack and other sites show when someone shares a link to the
+site. It's the home page's hero, laid out at 1200x630 by `tools/og-card.css`. Re-render it after changing the hero:
+with `zensical serve -a localhost:8765` running, run
+
+```
+python tools/render_og_card.py "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"
+```
+
+Any Chromium-based browser works in place of Edge.

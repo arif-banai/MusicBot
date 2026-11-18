@@ -120,3 +120,21 @@ def test_dark_default_ignores_os_preference(site_dir):
     # so the first palette entry (slate) is used until the reader toggles.
     medias = [i.get("data-md-color-media", "") for i in soup(site_dir / "index.html").select("input[name=__palette]")]
     assert medias and not any("prefers-color-scheme" in m for m in medias)
+
+
+def _png_size(p):
+    b = p.read_bytes()
+    assert b[:8] == b"\x89PNG\r\n\x1a\n"
+    return int.from_bytes(b[16:20], "big"), int.from_bytes(b[20:24], "big")
+
+
+def test_og_image_is_absolute_png(site_dir):
+    want = "https://arif-banai.github.io/MusicBot/assets/images/og-card.png"
+    for p in html_pages(site_dir):
+        s = soup(p)
+        assert s.select_one('meta[property="og:image"]')["content"] == want, p
+        assert s.select_one('meta[name="twitter:card"]')["content"] == "summary_large_image", p
+
+
+def test_og_card_size():
+    assert _png_size(WEB / "docs/assets/images/og-card.png") == (1200, 630)

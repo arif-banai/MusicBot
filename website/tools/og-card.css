@@ -1,0 +1,19 @@
+/* Link-preview card (og:image): the home hero laid out at 1200x630. Used by tools/render_og_card.py. */
+html, body { overflow: hidden; }
+.md-header, .md-main, .md-footer, .oa-paths, .oa-stage__caption, .oa-hero__lede { display: none !important; }
+.oa-hero { border: 0; }
+.oa-hero__inner {
+  padding: 60px 56px !important;
+  grid-template-columns: 1fr 1.15fr !important;
+  gap: 40px !important;
+  min-height: 630px;
+  box-sizing: border-box;
+}
+.oa-hero__title { font-size: 64px !important; }
+.oa-hero__copy::after {
+  content: "arif-banai.github.io/MusicBot";
+  display: block;
+  margin-top: 28px;
+  font-size: 22px;
+  color: #8F97B8;
+}

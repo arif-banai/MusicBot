@@ -8,6 +8,10 @@
   <meta property="og:type" content="website">
   <meta property="og:title" content="{{ og_title | striptags }}">
   <meta property="og:description" content="{{ (page.meta.description if page and page.meta and page.meta.description else config.site_description) | e }}">
-  <meta property="og:image" content="{{ config.site_url }}assets/images/favicon.svg">
+  <meta property="og:image" content="{{ config.site_url }}assets/images/og-card.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="JMusicBot: the music bot you run yourself, with an example now-playing panel">
+  <meta name="twitter:card" content="summary_large_image">
   {% if page and page.canonical_url %}<meta property="og:url" content="{{ page.canonical_url }}">{% endif %}
 {% endblock %}
