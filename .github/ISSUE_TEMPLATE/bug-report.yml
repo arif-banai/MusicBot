@@ -49,7 +49,7 @@ body:
       label: Checklist
       description: Before submitting your issue, please affirm the following
       options:
-        - label: I have looked for information about this [within the documentation](https://jmusicbot.com/)
+        - label: I have looked for information about this [within the documentation](https://arif-banai.github.io/MusicBot/) and [Troubleshooting](https://arif-banai.github.io/MusicBot/help/troubleshooting/)
           required: true
         - label: I have searched for similar issues [on the issues page](https://github.com/arif-banai/MusicBot/issues?q=is%3Aissue)
           required: true

@@ -28,7 +28,7 @@ This version of JMusicBot changes/updates various dependencies. To ensure your b
     *   *Without this, the bot will not see your commands.*
 
 
-[![Setup](http://i.imgur.com/VvXYp5j.png)](https://jmusicbot.com/setup)
+[![Setup](http://i.imgur.com/VvXYp5j.png)](https://arif-banai.github.io/MusicBot/setup/)
 
 ## Features
   * Easy to run (just make sure Java is installed, and run!)
@@ -65,286 +65,25 @@ JMusicBot supports all sources and formats supported by [lavaplayer](https://git
 ## Example
 ![Loading Example...](https://i.imgur.com/kVtTKvS.gif)
 
-## Setup
-Please see the [Setup Page](https://jmusicbot.com/setup) to run this bot yourself!
-
-## Running Directly (Without Docker)
-
-When running JMusicBot directly (not in Docker), make sure to pass these JVM flags:
-
-**Linux / macOS / Windows (CMD):**
-```bash
-java -Dfile.encoding=UTF-8 -Dnogui=true --enable-native-access=ALL-UNNAMED -jar JMusicBot-0.6.2-All.jar
-```
-
-**Windows (PowerShell):** PowerShell treats `-D` as its own parameter. Quote each JVM option so they are passed to `java` correctly:
-```powershell
-java "-Dfile.encoding=UTF-8" "-Dnogui=true" "--enable-native-access=ALL-UNNAMED" "-jar" ".\JMusicBot-0.6.2-All.jar"
-```
-Alternatively, use the stop-parsing token so the rest of the line is passed literally: `java --% -Dfile.encoding=UTF-8 -Dnogui=true ...`
-
-`-Dfile.encoding=UTF-8` ensures non-English characters (Cyrillic, Japanese, etc.) display correctly in Discord. On Windows or older JDKs, omitting it can cause mojibake in slash-command autocomplete and embeds.
-
-### Linux System Requirements
-
-**Important:** Your system **must have glibc version 2.38 or higher**. Failure to meet this requirement will result in errors when using JDave and udpqueue.
-
-> **Note:** Ubuntu 24.04 "Noble" and Debian 13 "Trixie" already include a compatible glibc version out of the box.
-
-You can check your glibc version with:
-```bash
-ldd --version
-```
-
-On Debian/Ubuntu-based systems, you may also need to install the following native audio library dependencies:
-
-```bash
-# Install required native library dependencies
-sudo apt-get update
-sudo apt-get install -y libopus0 libsodium23
-```
-
-
-If your version is below 2.38, you will need to upgrade your system or use a compatible runtime. (You can also use Docker, which is recommended.)
-
-## Docker
-
-JMusicBot can be run using Docker for easy deployment and management. Pre-built images are available from the GitHub Container Registry. The container is configured to run headless and automatically generate a default `config.txt` on first run.
-
-### Quick Start
-
-#### For Existing Users (Migrating from JAR)
-
-If you already have a directory with your `config.txt`, `Playlists/` folder, and other bot files, either provide the path to that directory or run the container from within it:
-
-```bash
-docker run --rm -it \
-  --name jmusicbot \
-  -v "$(pwd):/musicbot" \
-  ghcr.io/arif-banai/musicbot:latest
-```
-
-This mounts your current directory as the musicbot volume, so the bot will use your existing configuration and playlists.
-
-#### For New Users
-
-1. **Create a directory for your bot and run the container:**
-   ```bash
-   mkdir -p /path/to/jmusicbot
-   
-   docker run --rm -it \
-     --name jmusicbot \
-     -v "/path/to/musicbot:/musicbot" \
-     ghcr.io/arif-banai/musicbot:latest
-   ```
-
-2. **First Run:**
-   - On first run, if the mounted directory is empty, the bot will automatically generate a default `config.txt` file.
-   - Edit `/path/to/musicbot/config.txt` on your host and add your Discord bot token.
-   - Run the container again.
-
-#### Using Docker Compose (Optional)
-
-If you prefer docker-compose, copy the example compose file and update the volume path:
-
-```bash
-cp docker-compose.example.yml docker-compose.yml
-# Edit docker-compose.yml and update the volume path
-docker-compose up -d
-```
-
-Example `docker-compose.yml`:
-
-```yaml
-services:
-  jmusicbot:
-    image: ghcr.io/arif-banai/musicbot:latest
-    container_name: jmusicbot
-    volumes:
-      - /path/to/musicbot:/musicbot
-    restart: unless-stopped
-```
-
-Check the [Docker Compose Example](docker-compose.example.yml) for more details.
-
-### Important Notes
-
-- **Config Persistence:** The `/musicbot` volume **must** be mounted for your configuration to persist. The bot reads and writes `config.txt` from `/musicbot` (the container's working directory).
-- **First Run:** If `config.txt` doesn't exist, the bot will generate a default one automatically. You'll need to edit it with your bot token before the bot can start.
-- **Image Tags:** 
-  - Use `ghcr.io/arif-banai/musicbot:latest` for the latest build from the master branch
-  - Use `ghcr.io/arif-banai/musicbot:0.6.1` (replace with actual version) to pin a specific release version
-  - **Recommendation:** For production, pin your image tag rather than using `latest`
-- **JAVA_OPTS:** The container uses ZGC and AlwaysPreTouch by default. Set `JAVA_OPTS` to add heap limits (e.g. `-Xms256m -Xmx512m`) or other flags. See [Performance Tuning](#performance-tuning) for details.
-
-
-To view published images, visit: `https://github.com/arif-banai/MusicBot/pkgs/container/musicbot`
-
-## Performance Tuning
-
-For optimal audio quality with minimal stuttering, the following JVM and configuration options are recommended.
-
-### JVM Flags (Recommended)
-
-The bot works best with ZGC (Z Garbage Collector) which provides sub-millisecond pause times:
-
-```bash
-java -Dfile.encoding=UTF-8 \
-     -XX:+UseZGC \
-     -XX:+AlwaysPreTouch \
-     -Dnogui=true \
-     --enable-native-access=ALL-UNNAMED \
-     -jar JMusicBot-*.jar
-```
-
-**Flag explanations:**
-- `-Dfile.encoding=UTF-8`: Ensures non-English characters display correctly in Discord (required on Windows or older JDKs)
-- `-XX:+UseZGC`: Sub-millisecond GC pauses (generational mode is default in JDK 24+)
-- `-XX:+AlwaysPreTouch`: Pre-allocates memory at startup to avoid page faults
-- `-Xms` / `-Xmx`: Optional; set heap size if you want to limit or fix memory (e.g. `-Xms256m -Xmx512m`)
-
-The Docker image uses ZGC and AlwaysPreTouch by default. Set `JAVA_OPTS` to add heap limits or override:
-```yaml
-environment:
-  - JAVA_OPTS=-Xms256m -Xmx512m -XX:+UseZGC -XX:+AlwaysPreTouch
-```
-
-### Audio Buffer Configuration
-
-The bot includes configurable audio buffers that protect against GC pauses. These can be tuned in `config.txt`:
-
-```hocon
-performance {
-  # NAS buffer duration in ms (protects against JVM pauses up to this duration)
-  nasBufferMs = 800
-  
-  # Lavaplayer frame buffer duration in ms (amount of decoded audio to buffer)
-  frameBufferMs = 2000
-}
-```
-
-Higher values provide more protection against stuttering but add latency. The defaults (800ms NAS, 2000ms frame buffer) should work well for most setups.
-
-## Proxy Configuration
-
-JMusicBot supports granular proxy configuration, allowing you to route specific components through a proxy while letting others connect directly. This is useful when you need to proxy audio traffic (e.g., to bypass regional restrictions) without affecting Discord API communication.
-
-### Configuration
-
-Add the following to your `config.txt`:
-
-```hocon
-proxy {
-  # Proxy server hostname and port
-  host = "127.0.0.1"
-  port = 8080
-  
-  # Enable proxy for specific components
-  lavaplayer = true   # Audio source requests (YouTube, SoundCloud, etc.)
-  jda = false         # Discord API traffic
-  github = false      # Version check requests
-}
-```
-
-### Common Use Cases
-
-**Route only audio traffic through proxy** (most common):
-```hocon
-proxy {
-  host = "127.0.0.1"
-  port = 18080
-  lavaplayer = true
-  jda = false
-  github = false
-}
-```
-
-**Route all traffic through proxy**:
-```hocon
-proxy {
-  host = "proxy.example.com"
-  port = 8080
-  lavaplayer = true
-  jda = true
-  github = true
-}
-```
-
-### Notes
-
-- Leave `host` empty or `port` as 0 to disable proxy entirely
-- Each component can be independently enabled/disabled
-- HTTP proxies are supported (SOCKS proxies are not currently supported)
-
-## yt-dlp Library (optional)
-
-When a YouTube song won't play, the bot can fall back to downloading it with the operator's own [yt-dlp](https://github.com/yt-dlp/yt-dlp) install, saving it into a permanent library folder and playing it from disk instead. Downloaded songs are tracked in a special playlist alongside the library.
-
-### Requirements
-
-- You install yt-dlp yourself, and keep it updated. The bot never installs or updates it.
-- yt-dlp needs a JavaScript runtime (e.g. [Deno](https://deno.com/)) on `PATH` to download from YouTube; install that yourself too.
-- ffmpeg is not required.
-- On Linux, run the bot with a UTF-8 locale (for example `LANG=C.UTF-8`). Without one, Java can't open files whose names have accented or non-Latin characters, and the bot logs a warning at startup. The Docker image already sets it.
-- The Docker image doesn't include yt-dlp or Deno. Add them in a derived image or mount them into the container (for example the standalone `yt-dlp_linux` build), put Deno on the container's `PATH`, and set `ytdlp.path` to the path inside the container.
-
-### Enabling it
-
-Set `ytdlp.path` in `config.txt` to your yt-dlp executable. Leave it blank (the default) to keep this feature off.
-
-```hocon
-ytdlp {
-  path = "/usr/local/bin/yt-dlp"
-  mode = "prompt"
-}
-```
-
-On Windows, write the path with forward slashes or doubled backslashes. A single backslash is an escape character in `config.txt`: `"C:\Users\..."` fails to load, and `"C:\tools\yt-dlp.exe"` silently turns `\t` into a tab.
-
-```hocon
-ytdlp {
-  path = "C:/tools/yt-dlp.exe"    # or "C:\\tools\\yt-dlp.exe"
-}
-```
-
-The path must point at the yt-dlp executable itself (such as `yt-dlp.exe`), not at a `.cmd` or `.bat` wrapper. `cmd.exe` would expand the `%(title)s`-style parts of the bot's output template and break downloads.
-
-At startup the bot runs `yt-dlp --version`. If that fails, it logs a warning and keeps the feature off until the next restart. Songs already in the library still play from disk while the feature is off.
-
-### Modes
-
-- **`prompt` (default):** when a YouTube song is blocked, the bot pauses it and posts "Download & play" and "Download all YouTube songs in queue" buttons in the request's channel. Only the requester or a DJ can press them. If nobody responds within `promptTimeoutSeconds`, the song is skipped. Live streams never get a prompt. Prompt buttons stop working when the bot restarts.
-- **`always`:** every YouTube song is downloaded and played through yt-dlp, with no buttons.
-
-### Other settings
-
-| Setting | Default | Description |
-|---|---|---|
-| `libraryFolder` | `"ytdlp-library"` | Folder where downloaded songs are kept |
-| `libraryPlaylist` | `"ytdlp-library"` | Playlist (in `Playlists/`) listing every downloaded song |
-| `delaySeconds` | `5` | Seconds to wait between downloads |
-| `timeoutSeconds` | `300` | Seconds before a single download is cancelled |
-| `extraArgs` | `[]` | Extra arguments passed to yt-dlp. They come after the bot's own arguments |
-| `promptTimeoutSeconds` | `120` | Seconds to wait for a button press in `prompt` mode before skipping |
-| `downloadButton` | `true` | Show a Download button on now-playing that saves the current song (DJs only) |
-| `matching.enabled` | `true` | Offer a similar song from the library when a song is queued or starts playing |
-| `matching.durationToleranceSeconds` | `10` | Allowed difference in length, in seconds (at least this; widens to 10% of the shorter song); 0-60 |
-| `matching.minScore` | `0.85` | How similar the cleaned-up titles and artists must be, 0.0-1.0 (higher is stricter) |
-| `matching.alignSwitch` | `true` | Line up a mid-song Switch with the stream; when off, Switch starts the library copy from the beginning |
-
-### Similar songs
-
-When a requested song is queued or starts playing, the bot may post "Looks like **X** by Y from your library" with **Switch to library copy** and **Not the same** buttons. The requester or a DJ can press them. On a queued song, **Switch** swaps the queue entry for the library copy. On a playing song, it continues the library copy at the matching point in the music when it can find it, and from the beginning otherwise. Either way it remembers the link, so later requests for that upload play the library copy directly. **Not the same** is remembered too, and that pair isn't suggested again. `/library unlink` (or `library unlink`, DJs only) removes the link for the song now playing.
-
-### Managing the library
-
-`/library panel` (DJs only) opens a private panel with the library's size and buttons to show the current song's library details (and unlink it), search the library and play, queue or remove a song, and rescan the folder. Removing can keep the file (index only; a rescan brings it back) or delete it.
-
-See [docs/ytdlp-library.md](docs/ytdlp-library.md) for how the library, matching and Switch work.
-
-### Adding songs you downloaded earlier
-
-Copy the files (any format the bot can play) into `libraryFolder` and restart the bot. It reads each new file's details from a yt-dlp `.info.json` file with the same name if there is one (`yt-dlp --write-info-json`), otherwise from a YouTube `[id]` at the end of the filename, otherwise from the file's tags and length, otherwise from the filename. Files are never moved, renamed or changed. Only new files are read, so later restarts stay fast.
+## Quick start
+1. Download `JMusicBot-<version>.jar` from the [latest release](https://github.com/arif-banai/MusicBot/releases/latest) and put it in a folder of its own.
+2. Run it from that folder: `java -Dfile.encoding=UTF-8 --enable-native-access=ALL-UNNAMED -jar JMusicBot-0.8.0.jar` (in Windows PowerShell, quote each option; the setup guide shows how)
+3. On the first run the bot asks for your bot token and your Discord user ID, then saves them to `config.txt`.
+
+The [setup guide](https://arif-banai.github.io/MusicBot/setup/) walks through every step, from making the bot token to inviting the bot. To run it in a container, see [Run with Docker](https://arif-banai.github.io/MusicBot/setup/docker/).
+
+## Documentation
+The full documentation lives at **[arif-banai.github.io/MusicBot](https://arif-banai.github.io/MusicBot/)**:
+
+* [Setup guide](https://arif-banai.github.io/MusicBot/setup/): Java, the bot token, inviting the bot and the first run
+* [Run with Docker](https://arif-banai.github.io/MusicBot/setup/docker/): the image, volumes and Docker Compose
+* [Commands](https://arif-banai.github.io/MusicBot/reference/commands/): every prefix and slash command
+* [config.txt](https://arif-banai.github.io/MusicBot/reference/config/): every setting, with its default
+* [yt-dlp library](https://arif-banai.github.io/MusicBot/features/ytdlp-library/): download songs that won't stream and play them from disk
+* [Performance tuning](https://arif-banai.github.io/MusicBot/reference/performance/): JVM flags and audio buffers
+* [Proxy](https://arif-banai.github.io/MusicBot/reference/proxy/): send the bot's traffic through a proxy
+* [Troubleshooting](https://arif-banai.github.io/MusicBot/help/troubleshooting/): fixes for common problems
+* [Coming from JMusicBot](https://arif-banai.github.io/MusicBot/migrating/): what changed if you ran the original bot
 
 ## Development Workflow
 

@@ -4,10 +4,10 @@ name: Docs
 on:
   pull_request:
     branches: [master, 'release/**']
-    paths: ['website/**', '.github/workflows/docs.yml']
+    paths: ['website/**', '.github/workflows/docs.yml', 'README.md', '.github/ISSUE_TEMPLATE/**']
   push:
     branches: [master]
-    paths: ['website/**', '.github/workflows/docs.yml']
+    paths: ['website/**', '.github/workflows/docs.yml', 'README.md', '.github/ISSUE_TEMPLATE/**']
   workflow_dispatch:
 
 concurrency:
