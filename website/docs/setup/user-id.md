@@ -13,20 +13,21 @@ username.
 Discord only shows IDs once Developer Mode is on.
 
 1. In Discord, open **User Settings** (the gear next to your name).
-2. Go to **Advanced**.
+2. Go to **Developer**, near the bottom of the list. Older versions of Discord call it **Advanced**.
 3. Turn on **Developer Mode**.
 
-<figure class="oa-media oa-media--pending" markdown>
-Screenshot: User Settings, Advanced, with Developer Mode on
+<figure class="oa-media" markdown>
+![Discord User Settings open on the Developer page, with Developer Mode turned on](../assets/media/discord-dev-mode.png)
 </figure>
 
 ## Copy your ID
 
-1. Click your avatar in the bottom-left corner of Discord, or find yourself in a server's member list.
-2. Right-click your name (long-press on a phone) and choose **Copy User ID**.
+1. Click your avatar in the bottom-left corner of Discord.
+2. Choose **Copy User ID** at the bottom of the menu that opens. You can also right-click your name in a server's
+   member list or on one of your messages (long-press on a phone) and choose **Copy User ID** there.
 
-<figure class="oa-media oa-media--pending" markdown>
-Screenshot: right-click menu on your name with Copy User ID
+<figure class="oa-media" markdown>
+![The menu that opens from your avatar in Discord, with Copy User ID at the bottom](../assets/media/discord-copy-id.png)
 </figure>
 
 You'll paste this number when the bot asks for the owner on its first run, or into `config.txt`:
