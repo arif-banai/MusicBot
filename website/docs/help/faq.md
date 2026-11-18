@@ -57,4 +57,3 @@ see [Hosting](../setup/hosting.md) and [Run as a service](../setup/service.md).
 
 Search the [issues](https://github.com/arif-banai/MusicBot/issues) first. Open a new issue for a bug you can
 reproduce, or start a [discussion](https://github.com/arif-banai/MusicBot/discussions) for questions and ideas.
-Check [Things that won't be added](../reference/wont-add.md) before asking for a feature.

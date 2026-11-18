@@ -54,8 +54,8 @@ backslashes, because a single backslash starts an escape sequence.
 ### Signing in to YouTube
 
 When `playback.youtube.useOAuth = true`, the bot prints a code on its next start (and messages it to the owner).
-Open `https://www.google.com/device`, sign in, and enter the code. You only do this once; the bot remembers the
-sign-in.
+Open `https://www.google.com/device`, sign in with a separate Google account rather than your main one, and enter
+the code. You only do this once; the bot remembers the sign-in.
 
 ## commands
 

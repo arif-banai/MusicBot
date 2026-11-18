@@ -100,7 +100,7 @@ def test_config_page_covers_every_key(site_dir):
 
 
 @pytest.mark.parametrize("slug", ["reference/commands", "reference/config", "reference/proxy",
-                                  "reference/performance", "reference/wont-add"])
+                                  "reference/performance"])
 def test_reference_pages_written(site_dir, slug):
     assert_written(site_dir, slug)
 

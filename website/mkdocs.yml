@@ -89,7 +89,6 @@ nav:
       - config.txt: reference/config.md
       - Proxy: reference/proxy.md
       - Performance tuning: reference/performance.md
-      - Things that won't be added: reference/wont-add.md
   - Coming from JMusicBot: migrating.md
   - Help:
       - Troubleshooting: help/troubleshooting.md
