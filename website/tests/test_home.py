@@ -68,3 +68,10 @@ def test_gui_row_is_text_only(site_dir):
     assert soup(site_dir / "features/gui/index.html").select(".md-content figure") == []
     assert re.search(r"\.oa-feature\.oa-feature--solo\s*\{[^}]*grid-template-columns:\s*1fr\s*;",
                      (WEB / "docs/stylesheets/home.css").read_text(encoding="utf-8"))
+
+
+def test_hero_backdrop_contained_on_mid_widths():
+    css = (WEB / "docs/stylesheets/home.css").read_text(encoding="utf-8")
+    block = re.search(r"@media \(min-width: 901px\) and \(max-width: 1320px\)\s*\{(.*?)\n\}", css, re.S)
+    assert block, "mid-width hero block missing"
+    assert re.search(r"\.oa-stage::before\s*\{\s*inset:\s*0 0 0 1\.2rem;", block.group(1))

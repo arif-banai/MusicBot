@@ -150,7 +150,9 @@
 
 .oa-np__body { padding-left: 2.6rem; }
 
-@media (min-width: 901px) and (max-width: 1100px) {
+@media (min-width: 901px) and (max-width: 1320px) {
+  .oa-stage::before { inset: 0 0 0 1.2rem; }
+  .oa-hero__inner { gap: 2rem; padding-left: 1.6rem; padding-right: 1.6rem; }
   .oa-np__body { padding-left: 0; }
 }
 
