@@ -1,0 +1,95 @@
+site_name: JMusicBot
+site_description: A Discord music bot you host yourself. Play YouTube, SoundCloud, radio streams and your own files.
+site_url: https://arif-banai.github.io/MusicBot/
+docs_dir: docs
+repo_url: https://github.com/arif-banai/MusicBot
+repo_name: arif-banai/MusicBot
+edit_uri: edit/master/website/docs/
+copyright: >
+  JMusicBot by <a href="https://github.com/jagrosh/MusicBot">jagrosh</a>.
+  This fork is maintained by arif-banai. Apache 2.0.
+
+theme:
+  name: material
+  custom_dir: overrides
+  font: false
+  logo: assets/images/logo.svg
+  favicon: assets/images/favicon.svg
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - content.code.copy
+    - search.highlight
+  palette:
+    - scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+    - scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+
+extra_css:
+  - stylesheets/on-air.css
+  - stylesheets/home.css
+
+extra_javascript:
+  - javascripts/now-playing.js
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/arif-banai/MusicBot
+      name: JMusicBot on GitHub
+    - icon: fontawesome/brands/discord
+      link: https://discord.gg/cyyUxNmmx6
+      name: Support server on Discord
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed:
+      alternate_style: true
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Setup:
+      - Overview: setup/index.md
+      - Install Java 25: setup/java.md
+      - Get a bot token: setup/bot-token.md
+      - Find your user ID: setup/user-id.md
+      - First run: setup/first-run.md
+      - Invite the bot: setup/invite.md
+      - Run with Docker: setup/docker.md
+      - Run as a service: setup/service.md
+      - Hosting: setup/hosting.md
+  - Features:
+      - Slash commands: features/slash-commands.md
+      - Now-playing panel: features/now-playing.md
+      - Queue, history and playlists: features/queue-history-playlists.md
+      - yt-dlp library: features/ytdlp-library.md
+      - DJ role and permissions: features/dj-role.md
+      - Audio sources: features/sources.md
+      - Desktop app: features/gui.md
+  - Reference:
+      - Commands: reference/commands.md
+      - config.txt: reference/config.md
+      - Proxy: reference/proxy.md
+      - Performance tuning: reference/performance.md
+  - Coming from JMusicBot: migrating.md
+  - Help:
+      - Troubleshooting: help/troubleshooting.md
+      - FAQ: help/faq.md

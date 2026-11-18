@@ -1,0 +1,292 @@
+/* Home page: hero, path cards, now-playing example and feature rows. */
+
+.oa-hero {
+  background: var(--oa-bg);
+  border-bottom: 1px solid var(--oa-line);
+}
+
+.oa-hero__inner {
+  display: grid;
+  grid-template-columns: 1.05fr 1fr;
+  gap: 3rem;
+  align-items: center;
+  padding: 3.6rem 0.8rem 4rem;
+}
+
+.oa-hero__title {
+  margin: 0 0 1.1rem;
+  max-width: 13ch;
+  font-family: var(--oa-display-font);
+  font-size: clamp(2.1rem, 1.2rem + 2.6vw, 2.9rem);
+  font-weight: 700;
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  color: var(--oa-text);
+}
+
+.oa-hero__lede {
+  margin: 0 0 1.8rem;
+  max-width: 46ch;
+  font-size: 1.05rem;
+  line-height: 1.6;
+  color: var(--oa-text-muted);
+}
+
+.oa-paths {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  max-width: 32rem;
+}
+
+.oa-path {
+  display: block;
+  padding: 0.95rem 1.1rem;
+  border: 1px solid var(--oa-line);
+  border-radius: 12px;
+  background: var(--oa-surface);
+  color: var(--oa-text);
+  text-decoration: none;
+}
+
+.oa-path strong {
+  display: block;
+  margin-bottom: 0.15rem;
+  font-size: 0.95rem;
+}
+
+.oa-path span {
+  display: block;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--oa-text-muted);
+}
+
+.oa-path:hover,
+.oa-path:focus-visible {
+  border-color: var(--oa-accent);
+  color: var(--oa-text);
+}
+
+.oa-path:focus-visible {
+  outline: 2px solid var(--oa-accent);
+  outline-offset: 3px;
+}
+
+.oa-path--go {
+  border-color: var(--oa-fill);
+  background: var(--oa-fill);
+  color: var(--oa-on-fill);
+}
+
+.oa-path--go span {
+  color: color-mix(in srgb, var(--oa-on-fill) 78%, var(--oa-fill));
+}
+
+.oa-path--go:hover,
+.oa-path--go:focus-visible {
+  border-color: var(--oa-on-fill);
+  color: var(--oa-on-fill);
+}
+
+/* ---------- Stage and now-playing example ----------
+   The message keeps Discord's own dark colors in both site schemes. */
+.oa-stage {
+  position: relative;
+  padding: 1.4rem 0;
+}
+
+.oa-stage::before {
+  content: "";
+  position: absolute;
+  inset: 0 -1.4rem 0 2rem;
+  border: 1px solid var(--oa-line);
+  border-radius: 22px;
+  background: var(--oa-surface);
+}
+
+.oa-np {
+  position: relative;
+  padding: 0.9rem 1rem 1rem;
+  border-radius: 8px;
+  background: #313338;
+  color: #DBDEE1;
+  font-family: "gg sans", "Noto Sans", "Onest", system-ui, sans-serif;
+  font-size: 0.78rem;
+  line-height: 1.375;
+  box-shadow: 0 30px 60px -30px rgba(0, 0, 0, 0.7);
+}
+
+.oa-np__head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.2rem;
+}
+
+.oa-np__avatar {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 2.1rem;
+  height: 2.1rem;
+  border-radius: 50%;
+  background: #5865F2;
+  font-size: 1rem;
+}
+
+.oa-np__name { color: #F2F3F5; font-weight: 600; }
+
+.oa-np__tag {
+  padding: 0 0.25rem;
+  border-radius: 3px;
+  background: #5865F2;
+  color: #FFFFFF;
+  font-size: 0.55rem;
+  font-weight: 700;
+}
+
+.oa-np__time { color: #949BA4; font-size: 0.65rem; }
+
+.oa-np__body { padding-left: 2.6rem; }
+
+@media (min-width: 901px) and (max-width: 1320px) {
+  .oa-stage::before { inset: 0 0 0 1.2rem; }
+  .oa-hero__inner { gap: 2rem; padding-left: 1.6rem; padding-right: 1.6rem; }
+  .oa-np__body { padding-left: 0; }
+}
+
+.oa-np__embed {
+  max-width: 27rem;
+  padding: 0.6rem 0.8rem 0.75rem;
+  border-left: 4px solid #F5B83D;
+  border-radius: 4px;
+  background: #2B2D31;
+}
+
+.oa-np__author {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.35rem;
+  color: #F2F3F5;
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
+.oa-np__guild {
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 50%;
+  background: #4CD6A0;
+}
+
+.oa-np__title {
+  margin-bottom: 0.4rem;
+  color: #00A8FC;
+  font-weight: 600;
+}
+
+.oa-np__status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  white-space: nowrap;
+}
+
+.oa-np__bar { letter-spacing: -0.06em; }
+
+.oa-np__clock {
+  padding: 0.05rem 0.25rem;
+  border-radius: 3px;
+  background: #1E1F22;
+  color: #DBDEE1;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 0.68rem;
+}
+
+.oa-np__line { margin-top: 0.15rem; }
+
+.oa-np__fields {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.35rem 0.8rem;
+  margin-top: 0.5rem;
+}
+
+.oa-np__field b { display: block; color: #F2F3F5; font-size: 0.7rem; }
+.oa-np__field--wide { grid-column: 1 / -1; }
+.oa-np__mention { padding: 0 0.15rem; border-radius: 3px; background: rgba(88, 101, 242, 0.3); color: #C9CDFB; }
+
+.oa-np__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.4rem;
+}
+
+.oa-np__btn {
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+  background: #4E5058;
+  color: #FFFFFF;
+  font-size: 0.64rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.oa-np__btn--primary { background: #5865F2; }
+.oa-np__btn--danger { background: #DA373C; }
+
+.oa-stage__caption {
+  position: relative;
+  margin: 0.9rem 0 0 2.6rem;
+  font-size: 0.75rem;
+  color: var(--oa-text-muted);
+}
+
+/* ---------- Feature rows (Markdown in index.md) ---------- */
+.md-typeset .oa-feature {
+  display: grid;
+  grid-template-columns: 1fr 1.2fr;
+  gap: 2rem;
+  align-items: center;
+  margin: 2.5rem 0;
+}
+
+.md-typeset .oa-feature h2 { margin-top: 0; }
+
+.md-typeset .oa-feature .oa-media { margin: 0; }
+
+.md-content__inner > .oa-feature { max-width: none; }
+
+@media (min-width: 901px) {
+  .md-typeset .oa-feature--flip { grid-template-columns: 1.2fr 1fr; }
+  .md-typeset .oa-feature--flip > :first-child { order: 2; }
+}
+
+.md-typeset .oa-feature.oa-feature--solo { grid-template-columns: 1fr; max-width: 38rem; }
+
+@media (prefers-reduced-motion: reduce) {
+  .oa-path { transition: none; }
+}
+
+@media (max-width: 900px) {
+  .oa-hero__inner {
+    grid-template-columns: 1fr;
+    gap: 2rem;
+    padding: 2.4rem 0.8rem 2.8rem;
+  }
+
+  .oa-stage::before { inset: 0 -0.4rem 0 0.8rem; }
+
+  .md-typeset .oa-feature { grid-template-columns: 1fr; gap: 1rem; }
+}
+
+@media (max-width: 480px) {
+  .oa-paths { grid-template-columns: 1fr; }
+  .oa-np__body { padding-left: 0; }
+  .oa-np__fields { grid-template-columns: 1fr 1fr; }
+  .oa-stage__caption { margin-left: 0; }
+}

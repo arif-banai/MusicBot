@@ -1,0 +1,73 @@
+{% extends "main.html" %}
+
+{% block hero %}
+<section class="oa-hero">
+  <div class="oa-hero__inner md-grid">
+    <div class="oa-hero__copy">
+      <h1 class="oa-hero__title">The music bot you run yourself</h1>
+      <p class="oa-hero__lede">Play YouTube, SoundCloud, radio streams and your own files in Discord. No API keys and no subscription: you need Java and a bot token.</p>
+      <div class="oa-paths">
+        <a class="oa-path oa-path--go" href="setup/">
+          <strong>Set up a new bot</strong>
+          <span>About 10 minutes, from token to first song</span>
+        </a>
+        <a class="oa-path" href="migrating/">
+          <strong>Coming from JMusicBot?</strong>
+          <span>What changed and how to move your config</span>
+        </a>
+      </div>
+    </div>
+
+    <div class="oa-stage">
+      {# A copy of the bot's full now-playing message (MessageFormatter.buildFullNowPlayingMessage,
+         nowPlaying.showProgressBar = true). Keep the buttons in the bot's order. #}
+      <div class="oa-np" role="img" aria-label="Example of the bot's now-playing message: Daft Punk, Something About Us, at 01:23 of 03:51, with buttons for Prev, Pause, Skip, Stop, Shuffle, Repeat, Favorite, and volume down and up.">
+        <div class="oa-np__head">
+          <span class="oa-np__avatar" aria-hidden="true">🎶</span>
+          <span class="oa-np__name">JMusicBot</span>
+          <span class="oa-np__tag">APP</span>
+          <span class="oa-np__time">Today at 9:41 PM</span>
+        </div>
+        <div class="oa-np__body">
+          <div class="oa-np__embed">
+            <div class="oa-np__author"><span class="oa-np__guild" aria-hidden="true"></span>Lounge Server</div>
+            <div class="oa-np__title">Daft Punk - Something About Us</div>
+            <div class="oa-np__status">
+              <span class="oa-np__state">▶</span>
+              <span class="oa-np__bar" data-segments="12">▬▬▬▬🔘▬▬▬▬▬▬▬</span>
+              <code class="oa-np__clock">[<span class="oa-np__pos" data-start="83" data-end="231">01:23</span>/03:51]</code>
+              <span>🔊</span>
+            </div>
+            <div class="oa-np__line"><b>Source:</b> youtube</div>
+            <div class="oa-np__fields">
+              <div class="oa-np__field oa-np__field--wide"><b>Author</b><span>Daft Punk</span></div>
+              <div class="oa-np__field"><b>Duration</b><span>03:51</span></div>
+              <div class="oa-np__field"><b>Queue</b><span>4</span></div>
+              <div class="oa-np__field"><b>Volume</b><span>70%</span></div>
+              <div class="oa-np__field oa-np__field--wide"><b>Requester</b><span class="oa-np__mention">@you</span></div>
+            </div>
+          </div>
+          <div class="oa-np__row">
+            <span class="oa-np__btn">⏮ Prev</span>
+            <span class="oa-np__btn oa-np__btn--primary">⏸ Pause</span>
+            <span class="oa-np__btn">⏭ Skip</span>
+            <span class="oa-np__btn oa-np__btn--danger">⏹ Stop</span>
+          </div>
+          <div class="oa-np__row">
+            <span class="oa-np__btn">🔀 Shuffle</span>
+            <span class="oa-np__btn">🔁 Repeat</span>
+            <span class="oa-np__btn">⭐ Favorite</span>
+            <span class="oa-np__btn">🔉 Vol -</span>
+            <span class="oa-np__btn">🔊 Vol +</span>
+          </div>
+        </div>
+      </div>
+      <p class="oa-stage__caption">Every song gets a control panel like this one. Anyone in the channel can use it, and DJs can do more.</p>
+    </div>
+  </div>
+</section>
+{% endblock %}
+
+{% block content %}
+  {{ page.content }}
+{% endblock %}

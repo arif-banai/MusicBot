@@ -25,3 +25,12 @@ Thumbs.db
 
 # Other
 *.lock
+
+# Docs website
+!website/requirements.txt
+/website/site/
+/website/.cache/
+/website/.venv/
+.superpowers/
+/website/**/__pycache__/
+/website/.pytest_cache/
