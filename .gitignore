@@ -23,6 +23,9 @@ Thumbs.db
 # Logs
 *.log
 
+# Local packaged jars (not for GitHub)
+/local-build/
+
 # Other
 *.lock
 

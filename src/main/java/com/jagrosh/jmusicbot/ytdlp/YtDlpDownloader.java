@@ -276,11 +276,22 @@ public final class YtDlpDownloader {
 
     private LibraryEntry download(Job job) throws IOException, InterruptedException {
         LOGGER.info("Downloading {} with yt-dlp", job.key);
-        ProcessResult result = runner.run(
-                YtDlpCommand.download(settings, job.url, YtDlpCommand.outputTemplate(job.key)),
-                Duration.ofSeconds(settings.timeoutSeconds()));
+        List<String> command = YtDlpCommand.download(settings, job.url, YtDlpCommand.outputTemplate(job.key));
+        Duration timeout = Duration.ofSeconds(settings.timeoutSeconds());
+        ProcessResult result = runner.run(command, timeout);
 
-        if (result.timedOut() || result.exitCode() != 0) {
+        // YouTube's media servers now and then refuse one request with a 403 that a second
+        // request a moment later doesn't get; yt-dlp doesn't retry a 403 at the start of a
+        // download, so try once more here.
+        if (failed(result) && isHttp403(result)) {
+            logFailedAttempt(job.key, result);
+            LOGGER.info("yt-dlp got HTTP 403 for {}; trying again in {} s", job.key, RETRY_DELAY.toSeconds());
+            sleeper.sleep(RETRY_DELAY);
+            result = runner.run(command, timeout);
+        }
+
+        if (failed(result)) {
+            logFailedAttempt(job.key, result);
             String summary = YtDlpCommand.errorSummary(result, settings.timeoutSeconds());
             if (summary.isBlank()) {
                 summary = "yt-dlp exited with code " + result.exitCode();
@@ -309,6 +320,24 @@ public final class YtDlpDownloader {
         LibraryEntry entry = library.record(job.key, file, job.info);
         LOGGER.info("Downloaded {} to {} ({} bytes)", job.key, entry.file(), sizeOf(entry.file()));
         return entry;
+    }
+
+    /** Wait before the one retry after an HTTP 403. */
+    private static final Duration RETRY_DELAY = Duration.ofSeconds(3);
+
+    private static boolean failed(ProcessResult result) {
+        return result.timedOut() || result.exitCode() != 0;
+    }
+
+    /** A 403 from yt-dlp itself; a timed-out run is never retried. */
+    private static boolean isHttp403(ProcessResult result) {
+        return !result.timedOut() && result.stderr() != null && result.stderr().contains("HTTP Error 403");
+    }
+
+    /** All of yt-dlp's stderr for a failed run, at DEBUG; the INFO line only carries the summary. */
+    private static void logFailedAttempt(String key, ProcessResult result) {
+        LOGGER.debug("yt-dlp output for {} (exit {}{}):\n{}", key, result.exitCode(),
+                result.timedOut() ? ", timed out" : "", result.stderr() == null ? "" : result.stderr().strip());
     }
 
     /**

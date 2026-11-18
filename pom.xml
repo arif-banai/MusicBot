@@ -4,12 +4,12 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.arifbanai</groupId>
     <artifactId>JMusicBot</artifactId>
-    <version>0.8.0</version>
+    <version>0.8.1-SNAPSHOT</version>
     <packaging>jar</packaging>
 
     <name>JMusicBot</name>
     <description>A cross-platform Discord music bot with a clean interface</description>
-    <url>https://jmusicbot.com</url>
+    <url>https://arif-banai.github.io/MusicBot/</url>
     <inceptionYear>2017</inceptionYear>
 
     <licenses>
@@ -22,7 +22,7 @@
 
     <organization>
         <name>JMusicBot</name>
-        <url>https://jmusicbot.com</url>
+        <url>https://arif-banai.github.io/MusicBot/</url>
     </organization>
 
     <developers>
@@ -524,6 +524,7 @@
                     <includes>
                         <include>**/unit/**/*Test.java</include>
                         <include>**/unit/**/*Tests.java</include>
+                        <include>**/audio/*Test.java</include>
                     </includes>
                 </configuration>
             </plugin>

@@ -56,6 +56,8 @@ The index is still loaded whenever the library folder exists. Exact library hits
 - Requests for the same key join one job and share its future.
 - yt-dlp runs with `-f bestaudio --no-playlist --write-info-json` and the bot's output template, followed by `extraArgs` (extra arguments passed to yt-dlp), then the page URL. ffmpeg is not needed.
 - The process is killed after `timeoutSeconds`. The file path is taken from yt-dlp's printed output, never rebuilt from the title.
+- A download that fails with HTTP 403 is tried once more after 3 s. Other failures and timeouts are not retried.
+- When a download fails, the INFO log carries a short summary (the `ERROR:` line), and yt-dlp's full output, warnings included, is logged at DEBUG.
 - A successful download records the entry (reading its sidecar) and appends the file to the library playlist.
 - Stop, Play now, or the bot leaving voice withdraws that guild from queued jobs. A job that is already running finishes into the library.
 
