@@ -56,7 +56,7 @@ public final class YtDlpCommand {
 
     /**
      * Builds the command line to download {@code url} into {@code settings}' library folder:
-     * {@code <path> --encoding utf-8 -f bestaudio --no-playlist --no-progress --no-warnings
+     * {@code <path> --encoding utf-8 -f bestaudio --no-playlist --no-progress
      * --write-info-json -o "<libraryFolder>/<outputTemplate>" --print after_move:filepath
      * <extraArgs...> <url>}. The sidecar lands next to the downloaded file under the same base
      * name; yt-dlp strips it of internal/private fields by default (its own {@code --clean-info-json}).
@@ -78,7 +78,6 @@ public final class YtDlpCommand {
         command.add("bestaudio");
         command.add("--no-playlist");
         command.add("--no-progress");
-        command.add("--no-warnings");
         command.add("--write-info-json");
         command.add("-o");
         command.add(settings.libraryFolder().resolve(outputTemplate).toString());
@@ -123,7 +122,9 @@ public final class YtDlpCommand {
     /**
      * Summarizes a failed run for logging/display: {@code "timed out after
      * <timeoutSeconds>s"} if the process was killed for exceeding its timeout,
-     * otherwise the last three non-blank lines of stderr, joined with newlines.
+     * otherwise the last three non-blank lines of stderr, joined with newlines. When stderr
+     * has an {@code ERROR:} line, {@code WARNING:} lines are left out, so the summary shows
+     * the error rather than whatever yt-dlp warned about around it.
      */
     public static String errorSummary(ProcessResult result, int timeoutSeconds) {
         if (result.timedOut()) {
@@ -138,6 +139,9 @@ public final class YtDlpCommand {
                     nonBlank.add(line);
                 }
             }
+        }
+        if (nonBlank.stream().anyMatch(line -> line.startsWith("ERROR:"))) {
+            nonBlank.removeIf(line -> line.startsWith("WARNING:"));
         }
         int from = Math.max(0, nonBlank.size() - 3);
         return String.join("\n", nonBlank.subList(from, nonBlank.size()));

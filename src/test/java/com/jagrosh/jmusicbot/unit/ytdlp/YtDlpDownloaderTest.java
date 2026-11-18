@@ -218,6 +218,64 @@ class YtDlpDownloaderTest {
     }
 
     @Test
+    @DisplayName("a 403 is retried once after 3 s, and a success on the retry lands in the library")
+    void http403_retriedOnce_thenSucceeds() throws Exception {
+        java.util.concurrent.atomic.AtomicInteger attempts = new java.util.concurrent.atomic.AtomicInteger();
+        runner.scriptUrl(url("v1"), () -> {
+            if (attempts.incrementAndGet() == 1) {
+                return new ProcessResult(1, "", "ERROR: unable to download video data: HTTP Error 403: Forbidden", false);
+            }
+            Path file = libraryFolder.resolve("Title [v1].webm");
+            Files.writeString(file, "audio");
+            return new ProcessResult(0, file + "\n", "", false);
+        });
+        CompletableFuture<LibraryEntry> future = downloader.request("v1", url("v1"), info("v1"), 1L, false);
+        downloader.start();
+
+        LibraryEntry entry = future.get(WAIT_SECONDS, TimeUnit.SECONDS);
+
+        assertEquals(libraryFolder.resolve("Title [v1].webm"), entry.file());
+        assertEquals(2, runner.calls().size());
+        assertEquals(Duration.ofSeconds(3), sleeper.durations().get(0));
+    }
+
+    @Test
+    @DisplayName("a 403 on the retry too gives up after one retry")
+    void http403_twice_givesUp() {
+        runner.script("v1", new ProcessResult(1, "", "ERROR: unable to download video data: HTTP Error 403: Forbidden", false));
+        CompletableFuture<LibraryEntry> future = downloader.request("v1", url("v1"), info("v1"), 1L, false);
+        downloader.start();
+
+        ExecutionException ex = assertThrows(ExecutionException.class,
+                () -> future.get(WAIT_SECONDS, TimeUnit.SECONDS));
+
+        assertTrue(ex.getCause().getMessage().contains("403"), ex.getCause().getMessage());
+        assertEquals(2, runner.calls().size());
+    }
+
+    @Test
+    @DisplayName("other failures are not retried")
+    void otherFailure_notRetried() {
+        runner.script("v1", new ProcessResult(1, "", "ERROR: [youtube] v1: Video unavailable", false));
+        CompletableFuture<LibraryEntry> future = downloader.request("v1", url("v1"), info("v1"), 1L, false);
+        downloader.start();
+
+        assertThrows(ExecutionException.class, () -> future.get(WAIT_SECONDS, TimeUnit.SECONDS));
+        assertEquals(1, runner.calls().size());
+    }
+
+    @Test
+    @DisplayName("a timeout is not retried, even with a 403 in its output")
+    void timeout_notRetried() {
+        runner.script("v1", new ProcessResult(-1, "", "ERROR: HTTP Error 403: Forbidden", true));
+        CompletableFuture<LibraryEntry> future = downloader.request("v1", url("v1"), info("v1"), 1L, false);
+        downloader.start();
+
+        assertThrows(ExecutionException.class, () -> future.get(WAIT_SECONDS, TimeUnit.SECONDS));
+        assertEquals(1, runner.calls().size());
+    }
+
+    @Test
     @DisplayName("exit 0 without a printed path is a failure")
     void missingPrintedPath_isFailure() {
         runner.script("v1", new ProcessResult(0, "", "", false));

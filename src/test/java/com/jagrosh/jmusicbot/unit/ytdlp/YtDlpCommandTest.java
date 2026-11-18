@@ -45,7 +45,7 @@ class YtDlpCommandTest {
         List<String> command = YtDlpCommand.download(settings, YT_URL, YtDlpCommand.outputTemplate("abc00000000"));
 
         assertEquals(List.of("yt-dlp", "--encoding", "utf-8", "-f", "bestaudio", "--no-playlist", "--no-progress",
-                "--no-warnings", "--write-info-json", "-o", Path.of("/lib").resolve("%(title)s [%(id)s].%(ext)s").toString(),
+                "--write-info-json", "-o", Path.of("/lib").resolve("%(title)s [%(id)s].%(ext)s").toString(),
                 "--print", "after_move:filepath",
                 YT_URL), command);
     }
@@ -149,5 +149,24 @@ class YtDlpCommandTest {
         String summary = YtDlpCommand.errorSummary(new ProcessResult(1, "", "a\nb\n\nc\nd\n", false), 300);
 
         assertEquals("b\nc\nd", summary);
+    }
+
+    @Test
+    @DisplayName("errorSummary() leaves out WARNING lines when there is an ERROR line")
+    void errorSummary_skipsWarningsWhenErrorPresent() {
+        String stderr = "WARNING: [youtube] No supported JavaScript runtime could be found\n"
+                + "ERROR: unable to download video data: HTTP Error 403: Forbidden\n"
+                + "WARNING: something after\n";
+        String summary = YtDlpCommand.errorSummary(new ProcessResult(1, "", stderr, false), 300);
+
+        assertEquals("ERROR: unable to download video data: HTTP Error 403: Forbidden", summary);
+    }
+
+    @Test
+    @DisplayName("errorSummary() keeps WARNING lines when there is no ERROR line")
+    void errorSummary_keepsWarningsWithoutError() {
+        String summary = YtDlpCommand.errorSummary(new ProcessResult(1, "", "WARNING: a\nWARNING: b\n", false), 300);
+
+        assertEquals("WARNING: a\nWARNING: b", summary);
     }
 }
