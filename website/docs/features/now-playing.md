@@ -7,8 +7,8 @@ description: The message under every song, with buttons to control playback.
 When a song starts, the bot posts a now-playing message in the channel: the song, who asked for it, and buttons
 to control playback. People can pause, skip or turn the volume up without typing a command.
 
-<figure class="oa-media oa-media--pending" markdown>
-GIF: pressing Pause, Skip and Vol + on the now-playing panel
+<figure class="oa-media" markdown>
+![The now-playing panel in Discord: pressing Pause and Resume, Skip to the next song, then Vol + raising the volume from 30% to 40%](../assets/media/np-buttons.gif)
 </figure>
 
 ## The buttons
@@ -35,8 +35,8 @@ There are two layouts. Admins pick one per server with `/nplayout`:
 - **full** (the default): a card with the song, author, length, queue size, volume and requester.
 - **minimal**: a shorter message with just the song, its progress and the volume.
 
-<figure class="oa-media oa-media--pending" markdown>
-Screenshot: the full layout and the minimal layout side by side
+<figure class="oa-media" markdown>
+![The same song shown in the full now-playing layout and in the smaller minimal layout, side by side](../assets/media/np-layouts.png)
 </figure>
 
 `/npbuttons off` hides the buttons in a server, for a plain message. `inherit` in either command goes back to what

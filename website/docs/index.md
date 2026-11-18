@@ -16,8 +16,8 @@ Choose the full layout or a compact one for each server.
 [See the now-playing panel](features/now-playing.md)
 </div>
 
-<figure class="oa-media oa-media--pending" markdown>
-GIF: pressing Pause, Skip and Vol + on the now-playing panel
+<figure class="oa-media" markdown>
+![The now-playing panel in Discord: pressing Pause and Resume, Skip to the next song, then Vol + raising the volume from 30% to 40%](assets/media/np-buttons.gif)
 </figure>
 </div>
 
@@ -31,8 +31,8 @@ Type `/play` and pick the right song from the suggestions before it plays. Every
 [See slash commands](features/slash-commands.md)
 </div>
 
-<figure class="oa-media oa-media--pending" markdown>
-GIF: typing /play, picking a suggestion, and the song starting
+<figure class="oa-media" markdown>
+![Typing /play in Discord, picking a song from the suggestions as you type, and the bot starting to play it](assets/media/slash-play.gif)
 </figure>
 </div>
 
