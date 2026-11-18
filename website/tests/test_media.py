@@ -9,7 +9,7 @@ from sitecheck import html_pages, local_refs, soup
 MEDIA = WEBSITE / "docs/assets/media"
 MAX_ANIM_BYTES = 1_600_000
 MAX_TOTAL_BYTES = 40_000_000
-ANIM = (".gif", ".mp4", ".webm")
+ANIM = (".gif", ".webp", ".mp4", ".webm")
 
 
 def media_files() -> list[Path]:

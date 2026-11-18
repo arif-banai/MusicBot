@@ -9,8 +9,8 @@ description: See what's coming up, replay what just played, and save lists of so
 Every song you ask for goes into the server's queue. `/queue` shows it a page at a time, with buttons to move
 between pages.
 
-<figure class="oa-media oa-media--pending" markdown>
-GIF: /queue with paging buttons
+<figure class="oa-media" markdown>
+![The /queue panel in Discord showing ten songs on page 1, then the arrow button moving to page 2 and back](../assets/media/queue-paging.webp){ width="543" }
 </figure>
 
 - `/remove` takes a song out by its number. `remove all` takes out everything you added.
