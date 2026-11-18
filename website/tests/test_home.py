@@ -60,3 +60,11 @@ def test_home_has_six_feature_rows_alternating(site_dir):
     rows = soup(site_dir / "index.html").select(".oa-feature")
     assert len(rows) == 6
     assert ["oa-feature--flip" in r.get("class", []) for r in rows] == [False, True] * 3
+
+
+def test_gui_row_is_text_only(site_dir):
+    last = soup(site_dir / "index.html").select(".oa-feature")[-1]
+    assert "oa-feature--solo" in last["class"] and last.select("figure") == []
+    assert soup(site_dir / "features/gui/index.html").select(".md-content figure") == []
+    assert re.search(r"\.oa-feature\.oa-feature--solo\s*\{[^}]*grid-template-columns:\s*1fr\s*;",
+                     (WEB / "docs/stylesheets/home.css").read_text(encoding="utf-8"))

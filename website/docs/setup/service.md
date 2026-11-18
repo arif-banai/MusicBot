@@ -33,7 +33,7 @@ and paths to match yours.
     User=jmusicbot
     Group=jmusicbot
     WorkingDirectory=/home/jmusicbot/bot
-    ExecStart=/usr/bin/env java -Dfile.encoding=UTF-8 -Dnogui=true -XX:+UseZGC -XX:+AlwaysPreTouch --enable-native-access=ALL-UNNAMED -jar JMusicBot-0.8.0-All.jar
+    ExecStart=/usr/bin/env java -Dfile.encoding=UTF-8 -Dnogui=true -XX:+UseZGC -XX:+AlwaysPreTouch --enable-native-access=ALL-UNNAMED -jar JMusicBot-0.8.0.jar
     Restart=always
     RestartSec=10
 
@@ -66,7 +66,7 @@ When you update, change the jar name in `ExecStart`, then run `sudo systemctl da
     ```bat
     @echo off
     cd /d "%~dp0"
-    java -Dfile.encoding=UTF-8 -Dnogui=true -XX:+UseZGC -XX:+AlwaysPreTouch --enable-native-access=ALL-UNNAMED -jar JMusicBot-0.8.0-All.jar
+    java -Dfile.encoding=UTF-8 -Dnogui=true -XX:+UseZGC -XX:+AlwaysPreTouch --enable-native-access=ALL-UNNAMED -jar JMusicBot-0.8.0.jar
     ```
 
 2. Open **Task Scheduler** and choose **Create Task**.

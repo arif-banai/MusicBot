@@ -264,6 +264,8 @@
   .md-typeset .oa-feature--flip > :first-child { order: 2; }
 }
 
+.md-typeset .oa-feature.oa-feature--solo { grid-template-columns: 1fr; max-width: 38rem; }
+
 @media (prefers-reduced-motion: reduce) {
   .oa-path { transition: none; }
 }

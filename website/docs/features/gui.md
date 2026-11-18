@@ -7,9 +7,7 @@ description: The window the bot opens on a computer with a screen.
 When you run the bot on a computer with a screen, it opens a window. The window shows what the bot is doing and
 lets you change its settings without opening `config.txt`. Closing the window stops the bot.
 
-<figure class="oa-media oa-media--pending" markdown>
-Screenshot: the desktop app window on its Performance tab
-</figure>
+<!-- screenshot: desktop app, Performance tab (deferred, see phase 4 plan) -->
 
 ## Tabs
 

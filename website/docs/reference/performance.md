@@ -20,7 +20,7 @@ java -Dfile.encoding=UTF-8 \
      -XX:+AlwaysPreTouch \
      -Dnogui=true \
      --enable-native-access=ALL-UNNAMED \
-     -jar JMusicBot-0.8.0-All.jar
+     -jar JMusicBot-0.8.0.jar
 ```
 
 | Flag | What it does |

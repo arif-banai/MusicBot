@@ -7,6 +7,8 @@ import pytest
 from sitecheck import html_pages, page_text, soup
 from test_pages import built
 
+WEB = Path(__file__).resolve().parents[1]
+
 REPO = Path(__file__).resolve().parents[2]
 JAVA = REPO / "src/main/java/com/jagrosh/jmusicbot"
 CATEGORIES = ("general", "music", "dj", "admin", "owner")
@@ -164,7 +166,8 @@ def test_feature_and_help_pages_written(site_dir, slug):
     assert_written(site_dir, slug)
 
 
-@pytest.mark.parametrize("slug", FEATURES)
+# The desktop app page has no media until its deferred screenshot exists (phase 4 plan, Task 1).
+@pytest.mark.parametrize("slug", [f for f in FEATURES if f != "features/gui"])
 def test_feature_pages_have_a_media_slot(site_dir, slug):
     assert soup(built(site_dir, slug)).select(".oa-media")
 
@@ -323,3 +326,10 @@ def test_no_false_eval_or_lyrics_claims(site_dir):
         assert "doesn't include Nashorn" not in t and "doesn't work out of the box" not in t, slug
     t = page_text(built(site_dir, "migrating"))
     assert "is still listed" not in t and "Skipping." not in t
+
+
+def test_jar_name_matches_release_asset():
+    bad = [(p.name, l) for p in (WEB / "docs").rglob("*.md") for l in p.read_text(encoding="utf-8").splitlines()
+           if "-All.jar" in l]
+    assert bad == []
+    assert "JMusicBot-0.8.0.jar" in (WEB / "docs/setup/first-run.md").read_text(encoding="utf-8")

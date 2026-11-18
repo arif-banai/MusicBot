@@ -81,7 +81,7 @@ commands to one channel if you like.
 </figure>
 </div>
 
-<div class="oa-feature oa-feature--flip" markdown>
+<div class="oa-feature oa-feature--flip oa-feature--solo" markdown>
 <div markdown>
 ## See what the bot is doing
 
@@ -90,8 +90,4 @@ runs quietly in the terminal or in Docker.
 
 [See the desktop app](features/gui.md)
 </div>
-
-<figure class="oa-media oa-media--pending" markdown>
-Screenshot: the desktop app window on its Performance tab
-</figure>
 </div>
