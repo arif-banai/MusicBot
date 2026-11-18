@@ -8,7 +8,7 @@ When a song starts, the bot posts a now-playing message in the channel: the song
 to control playback. People can pause, skip or turn the volume up without typing a command.
 
 <figure class="oa-media" markdown>
-![The now-playing panel in Discord: pressing Pause and Resume, Skip to the next song, then Vol + raising the volume from 30% to 40%](../assets/media/np-buttons.gif)
+![The now-playing panel in Discord: pressing Pause and Resume, Skip to the next song, then Vol + raising the volume from 40% to 50%](../assets/media/np-buttons.webp){ width="560" }
 </figure>
 
 ## The buttons

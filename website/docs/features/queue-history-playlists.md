@@ -28,8 +28,8 @@ The bot remembers the songs it played recently. `/history` lists them, with butt
 queue, or add them all. DJs and the bot owner also get a button to save them as a playlist. The Prev button on the [now-playing panel](now-playing.md) uses
 the same history.
 
-<figure class="oa-media oa-media--pending" markdown>
-GIF: /history, then Play Now and Save as playlist
+<figure class="oa-media" markdown>
+![The /history panel in Discord: picking a recently played song and pressing Play Now, then Save as playlist naming it and the bot confirming](../assets/media/history.webp){ width="560" }
 </figure>
 
 `playback.maxHistorySize` sets how many songs it remembers (40 by default; `0` turns history off).
@@ -51,8 +51,8 @@ Daft Punk - Something About Us
   the bot owner can also edit a playlist's songs from there.
 - `play playlist <name>` plays one with a text command.
 
-<figure class="oa-media oa-media--pending" markdown>
-GIF: /playlists, browsing, then Play Now
+<figure class="oa-media" markdown>
+![The /playlists panel in Discord: picking the docs-demo playlist and pressing Play Now, then the now-playing panel with the playlist queued](../assets/media/playlists.webp){ width="560" }
 </figure>
 
 The bot owner manages the files with the `playlist` command (`make`, `append`, `delete`, `all`), or by editing the

@@ -17,7 +17,7 @@ Choose the full layout or a compact one for each server.
 </div>
 
 <figure class="oa-media" markdown>
-![The now-playing panel in Discord: pressing Pause and Resume, Skip to the next song, then Vol + raising the volume from 30% to 40%](assets/media/np-buttons.gif)
+![The now-playing panel in Discord: pressing Pause and Resume, Skip to the next song, then Vol + raising the volume from 40% to 50%](assets/media/np-buttons.webp){ width="560" }
 </figure>
 </div>
 
@@ -32,7 +32,7 @@ Type `/play` and pick the right song from the suggestions before it plays. Every
 </div>
 
 <figure class="oa-media" markdown>
-![Typing /play in Discord, picking a song from the suggestions as you type, and the bot starting to play it](assets/media/slash-play.gif)
+![Typing /play in Discord, picking a song from the suggestions as you type, and the bot starting to play it](assets/media/slash-play.webp){ width="760" }
 </figure>
 </div>
 
@@ -46,8 +46,8 @@ turns between the people adding songs.
 [See queue, history and playlists](features/queue-history-playlists.md)
 </div>
 
-<figure class="oa-media oa-media--pending" markdown>
-GIF: /history, then Play Now and Save as playlist
+<figure class="oa-media" markdown>
+![The /history panel in Discord: picking a recently played song and pressing Play Now, then Save as playlist naming it and the bot confirming](assets/media/history.webp){ width="560" }
 </figure>
 </div>
 

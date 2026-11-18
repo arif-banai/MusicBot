@@ -9,7 +9,7 @@ Pick one, fill in the options Discord shows, and press Enter. You don't need to 
 syntax.
 
 <figure class="oa-media" markdown>
-![Typing /play in Discord, picking a song from the suggestions as you type, and the bot starting to play it](../assets/media/slash-play.gif)
+![Typing /play in Discord, picking a song from the suggestions as you type, and the bot starting to play it](../assets/media/slash-play.webp){ width="760" }
 </figure>
 
 ## How to use them
