@@ -912,7 +912,7 @@ public class AudioHandler extends AudioEventAdapter implements AudioSendHandler
             LOGGER.error(
                     "Track {} has failed to play: {}. "
                             + "You will need to sign in to Google to play YouTube tracks. "
-                            + "More info: https://jmusicbot.com/youtube-oauth2\n{}",
+                            + "More info: https://arif-banai.github.io/MusicBot/reference/config/#signing-in-to-youtube\n{}",
                     track.getIdentifier(),
                     exception.getMessage(),
                     errorDetails.toString()
