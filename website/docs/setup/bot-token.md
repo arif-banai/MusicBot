@@ -14,7 +14,7 @@ Developer Portal, and give it to the bot on its first run.
 3. Type the name you want people to see for the bot, agree to the terms, and select **Create**.
 
 <figure class="oa-media" markdown>
-![The Create a new app dialog in the Discord Developer Portal, with a name typed in and the terms box ready to tick](../assets/media/portal-new-app.png)
+![The Create a new app dialog in the Discord Developer Portal, with a name typed in and the terms box ready to tick](../assets/media/portal-new-app.png){ width="430" }
 </figure>
 
 ## Copy the token

@@ -29,7 +29,7 @@ Open the link, pick your server and select **Authorize**. The link already asks 
 4. Copy the generated URL at the bottom, open it, pick your server and select **Authorize**.
 
 <figure class="oa-media" markdown>
-![The OAuth2 URL Generator with the bot and applications.commands scopes and the bot's permissions ticked, and the generated invite URL below](../assets/media/portal-oauth-url.png)
+![The OAuth2 URL Generator with the bot and applications.commands scopes and the bot's permissions ticked, and the generated invite URL below](../assets/media/portal-oauth-url.png){ width="590" }
 </figure>
 
 ## Permissions the bot uses

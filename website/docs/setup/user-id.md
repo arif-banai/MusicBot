@@ -27,7 +27,7 @@ Discord only shows IDs once Developer Mode is on.
    member list or on one of your messages (long-press on a phone) and choose **Copy User ID** there.
 
 <figure class="oa-media" markdown>
-![The menu that opens from your avatar in Discord, with Copy User ID at the bottom](../assets/media/discord-copy-id.png)
+![The menu that opens from your avatar in Discord, with Copy User ID at the bottom](../assets/media/discord-copy-id.png){ width="264" }
 </figure>
 
 You'll paste this number when the bot asks for the owner on its first run, or into `config.txt`:
