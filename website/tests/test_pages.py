@@ -20,7 +20,7 @@ def test_every_outline_page_is_built(site_dir):
 def test_bot_token_page_is_real(site_dir):
     p = built(site_dir, "setup/bot-token")
     assert "Being written" not in page_text(p)
-    assert len(soup(p).select(".oa-media--pending")) == 3
+    assert len(soup(p).select("figure.oa-media img")) == 3
     tip = " ".join(a.get_text(" ") for a in soup(p).select(".admonition"))
     assert "Message Content Intent" in tip
 
