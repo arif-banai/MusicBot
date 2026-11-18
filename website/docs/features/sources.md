@@ -9,6 +9,7 @@ YouTube, or attach an audio file to a `play` message.
 
 <figure class="oa-media" markdown>
 ![Playing a SoundCloud search result, which shows Source: soundcloud, then an internet radio stream, which shows LIVE](../assets/media/sources.webp){ width="760" }
+<figcaption>This server has the extra prefix <code>!!</code> set. On a default install, type <code>@JMusicBot play</code> followed by the same link or <code>scsearch:</code> search.</figcaption>
 </figure>
 
 ## Sites and streams

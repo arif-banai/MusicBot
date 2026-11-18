@@ -333,3 +333,12 @@ def test_jar_name_matches_release_asset():
            if "-All.jar" in l]
     assert bad == []
     assert "JMusicBot-0.8.0.jar" in (WEB / "docs/setup/first-run.md").read_text(encoding="utf-8")
+
+
+def test_sources_clip_explains_its_prefix(site_dir):
+    # The clip was captured on a server whose extra prefix is "!!"; a default install has none (altPrefix = NONE).
+    fig = soup(built(site_dir, "features/sources")).select_one("figure.oa-media")
+    cap = fig.select_one("figcaption")
+    assert cap is not None
+    text = cap.get_text(" ", strip=True)
+    assert "!!" in text and "@JMusicBot play" in text
