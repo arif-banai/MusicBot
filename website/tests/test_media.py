@@ -16,7 +16,7 @@ def media_files() -> list[Path]:
     return sorted(f for f in MEDIA.rglob("*") if f.is_file() and f.name != ".gitkeep")
 
 
-@pytest.mark.xfail(strict=True, reason="phase 3 in progress")
+@pytest.mark.xfail(strict=True, reason="desktop app (GUI) screenshot deferred by owner; remove once gui.md and index.md have it")
 def test_no_pending_media(site_dir):
     left = [(str(p.relative_to(site_dir)), f.get_text(strip=True)) for p in html_pages(site_dir)
             for f in soup(p).select(".oa-media--pending")]
