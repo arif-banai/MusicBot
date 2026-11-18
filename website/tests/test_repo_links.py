@@ -32,11 +32,20 @@ def test_repo_site_links_resolve(site_dir):
 def test_readme_points_at_core_pages():
     r = text("README.md")
     for page in ["setup/", "setup/docker/", "reference/config/", "reference/commands/", "features/ytdlp-library/",
-                 "reference/performance/", "reference/proxy/", "help/troubleshooting/", "migrating/"]:
+                 "help/troubleshooting/", "migrating/"]:
         assert SITE + page in r, page
 
 
 def test_readme_has_no_stale_text():
     r = text("README.md")
-    for stale in ["0.6.2", "-All.jar", "generate a default", "bypass regional", "things-that-wont-be-added"]:
+    for stale in ["0.6.2", "-All.jar", "generate a default", "bypass regional", "things-that-wont-be-added",
+                  "imgur.com", "Java 25 Minimum", "## Example"]:
         assert stale not in r, stale
+
+
+def test_readme_header_is_the_site_card():
+    r = text("README.md")
+    first = r.lstrip().splitlines()[0]
+    assert "website/docs/assets/images/og-card.png" in first
+    assert (REPO / "website/docs/assets/images/og-card.png").is_file()
+    assert len(r.splitlines()) <= 60
