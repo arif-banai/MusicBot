@@ -13,23 +13,32 @@ echo "[INFO] JMusicBot Containerized"
 echo "[INFO] ========================================"
 echo "[INFO] Selected jar: $JAR"
 echo "[INFO] Working directory: $(pwd)"
-if [ -f "config.txt" ]; then
-  echo "[INFO] config.txt: Found (existing)"
-else
-  echo "[INFO] config.txt: Not found (will be generated on first run)"
+
+if [ ! -f "config.txt" ]; then
+  echo "[INFO] config.txt: Not found - generating default config"
+
+  # Safe to clean: no config exists = no other instance can be running.
+  # Prevents stale lock from blocking restarts on FUSE filesystems (Unraid).
+  rm -f .jmusicbot.lock
+
+  java -Dnogui=true --enable-native-access=ALL-UNNAMED -jar "$JAR" generate-config
+  echo "[INFO] ========================================"
+  echo "[INFO] Default config.txt created from reference.conf"
+  echo "[INFO] 1. Edit config.txt and set your bot token"
+  echo "[INFO] 2. Set your owner ID (Discord user ID)"
+  echo "[INFO] 3. Restart the container"
+  echo "[INFO] ========================================"
+  exit 0
 fi
+
+echo "[INFO] config.txt: Found (existing)"
 echo "[INFO] ========================================"
 
-# Default JVM options for optimal audio performance (ZGC with sub-ms pauses)
-# Set JAVA_OPTS to override; add -Xms/-Xmx for heap limits if desired
 : "${JAVA_OPTS:=-XX:+UseZGC -XX:+AlwaysPreTouch}"
 
-# Build argv
 set -- java -Dnogui=true --enable-native-access=ALL-UNNAMED
 
-# Append JAVA_OPTS (either default or user-provided)
 if [ -n "${JAVA_OPTS:-}" ]; then
-  # shellcheck disable=SC2086
   set -- "$@" $JAVA_OPTS
 fi
 
