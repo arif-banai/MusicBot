@@ -129,7 +129,11 @@ public class BilibiliAudioSourceManager implements AudioSourceManager
 
     private AudioItem loadVideo(HttpInterface httpInterface, String id, int page) throws IOException
     {
-        return buildTrack(apiClient.loadVideo(httpInterface, id, page));
+        BilibiliVideo video = apiClient.loadVideo(httpInterface, id, page);
+        if(video.memberOnly())
+            throw BilibiliApiClient.memberOnly();
+
+        return buildTrack(video);
     }
 
     /**

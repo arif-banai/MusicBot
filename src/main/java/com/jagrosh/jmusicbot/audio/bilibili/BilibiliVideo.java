@@ -27,10 +27,12 @@ package com.jagrosh.jmusicbot.audio.bilibili;
  * @param author the uploader's name
  * @param durationMs the length in milliseconds
  * @param thumbnailUrl an absolute https URL
+ * @param memberOnly true when only the uploader's paying supporters can play it
+ *        (充电专属); search results do not say, so they always carry false
  *
  * @author Arif Banai (arif-banai)
  */
 public record BilibiliVideo(String bvid, long cid, String title, String author,
-                            long durationMs, String thumbnailUrl)
+                            long durationMs, String thumbnailUrl, boolean memberOnly)
 {
 }

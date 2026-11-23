@@ -75,7 +75,8 @@ public final class BilibiliResponseParser
                 buildTitle(data.path("title").asText(), selected, pages.size(), index),
                 data.path("owner").path("name").asText(),
                 seconds * 1000L,
-                data.path("pic").asText());
+                data.path("pic").asText(),
+                data.path("is_upower_exclusive").asBoolean(false));
     }
 
     /**
@@ -97,6 +98,8 @@ public final class BilibiliResponseParser
     /**
      * Selects the best audio stream: the highest-bandwidth DASH entry when present,
      * otherwise the progressive {@code durl} that older videos still return.
+     *
+     * @throws BilibiliStreamWithheldException if Bilibili answered with a voucher instead
      */
     public static BilibiliAudioStream parseAudioStream(JsonNode root)
     {
@@ -119,6 +122,11 @@ public final class BilibiliResponseParser
         if(durl.isArray() && !durl.isEmpty())
             return new BilibiliAudioStream(durl.get(0).path("url").asText(),
                     readUrlList(durl.get(0).path("backup_url")), 0);
+
+        // A voucher in place of any stream means Bilibili is withholding it, either because
+        // the video is for paying supporters or because risk control flagged the request.
+        if(data.hasNonNull("v_voucher"))
+            throw new BilibiliStreamWithheldException();
 
         throw new FriendlyException("Bilibili returned no playable audio for this video",
                 FriendlyException.Severity.SUSPICIOUS, null);
@@ -145,7 +153,8 @@ public final class BilibiliResponseParser
                     stripHighlight(item.path("title").asText()),
                     item.path("author").asText(),
                     parseDuration(item.path("duration").asText("")),
-                    normalizeThumbnail(item.path("pic").asText(""))));
+                    normalizeThumbnail(item.path("pic").asText("")),
+                    false));
         }
         return videos;
     }

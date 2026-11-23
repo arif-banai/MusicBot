@@ -19,6 +19,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jagrosh.jmusicbot.audio.bilibili.BilibiliAudioStream;
 import com.jagrosh.jmusicbot.audio.bilibili.BilibiliResponseParser;
+import com.jagrosh.jmusicbot.audio.bilibili.BilibiliStreamWithheldException;
 import com.jagrosh.jmusicbot.audio.bilibili.BilibiliVideo;
 import com.sedmelluq.discord.lavaplayer.tools.FriendlyException;
 import org.junit.jupiter.api.DisplayName;
@@ -136,6 +137,30 @@ class BilibiliResponseParserTest
         FriendlyException thrown = assertThrows(FriendlyException.class,
                 () -> BilibiliResponseParser.parseAudioStream(empty));
         assertTrue(thrown.getMessage().toLowerCase().contains("audio"), thrown.getMessage());
+    }
+
+    @Test
+    @DisplayName("marks videos only the uploader's paying supporters can play")
+    void readsMemberOnlyFlag() throws Exception
+    {
+        assertTrue(BilibiliResponseParser.parseView(fixture("view-member-only.json"), 1).memberOnly());
+        assertFalse(BilibiliResponseParser.parseView(fixture("view-single-page.json"), 1).memberOnly());
+    }
+
+    @Test
+    @DisplayName("search results never claim to be member-only, since search does not say")
+    void searchResultsAreNotMarked() throws Exception
+    {
+        for(BilibiliVideo video : BilibiliResponseParser.parseSearch(fixture("search-video.json")))
+            assertFalse(video.memberOnly(), video.bvid());
+    }
+
+    @Test
+    @DisplayName("reports a withheld stream when Bilibili answers with a voucher")
+    void detectsVoucher() throws Exception
+    {
+        assertThrows(BilibiliStreamWithheldException.class,
+                () -> BilibiliResponseParser.parseAudioStream(fixture("playurl-voucher.json")));
     }
 
     @Test

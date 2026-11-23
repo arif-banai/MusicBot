@@ -58,11 +58,14 @@ public class BilibiliApiClient
      * The WBI variant. Bilibili brought the unsigned {@code x/web-interface/view} under
      * risk control in early September 2026, and it has answered HTTP 412 ever since.
      */
-    private static final String VIEW_URL = "https://api.bilibili.com/x/web-interface/wbi/view?";
-    private static final String PLAYURL_SIGNED = "https://api.bilibili.com/x/player/wbi/playurl?";
-    private static final String PLAYURL_PLAIN = "https://api.bilibili.com/x/player/playurl?";
-    private static final String SEARCH_URL = "https://api.bilibili.com/x/web-interface/wbi/search/type?";
-    private static final String NAV_URL = "https://api.bilibili.com/x/web-interface/nav";
+    private static final String VIEW_PATH = "/x/web-interface/wbi/view?";
+    private static final String PLAYURL_SIGNED_PATH = "/x/player/wbi/playurl?";
+    private static final String PLAYURL_PLAIN_PATH = "/x/player/playurl?";
+    private static final String SEARCH_PATH = "/x/web-interface/wbi/search/type?";
+    private static final String NAV_PATH = "/x/web-interface/nav";
+
+    /** Where Bilibili's web API lives. */
+    public static final String API_BASE = "https://api.bilibili.com";
 
     /** DASH format, which yields an audio-only stream instead of a full video download. */
     private static final String DASH_PARAMS = "&fnval=16&fnver=0&fourk=1";
@@ -70,6 +73,7 @@ public class BilibiliApiClient
     private static final long KEY_TTL_MS = 12L * 60 * 60 * 1000;
 
     private final BilibiliRequestThrottle throttle;
+    private final String apiBase;
 
     private volatile String cachedMixinKey;
     private volatile long cachedMixinKeyAt;
@@ -84,7 +88,16 @@ public class BilibiliApiClient
      */
     public BilibiliApiClient(BilibiliRequestThrottle throttle)
     {
+        this(throttle, API_BASE);
+    }
+
+    /**
+     * @param apiBase the API's scheme and host; tests point this at a local server
+     */
+    public BilibiliApiClient(BilibiliRequestThrottle throttle, String apiBase)
+    {
         this.throttle = throttle;
+        this.apiBase = apiBase;
     }
 
     /**
@@ -100,7 +113,7 @@ public class BilibiliApiClient
                 ? buildViewQuery(id, mixinKey, System.currentTimeMillis() / 1000L)
                 : buildUnsignedViewQuery(id);
 
-        return BilibiliResponseParser.parseView(getJson(http, VIEW_URL + query), page);
+        return BilibiliResponseParser.parseView(getJson(http, apiBase + VIEW_PATH + query), page);
     }
 
     /**
@@ -114,18 +127,39 @@ public class BilibiliApiClient
     public BilibiliAudioStream loadAudioStream(HttpInterface http, String bvid, long cid) throws IOException
     {
         long pageId = cid;
+        BilibiliVideo video = null;
         if(pageId <= 0)
         {
             // Search results arrive without a cid, so resolve it before asking for a stream.
-            pageId = loadVideo(http, bvid, 1).cid();
+            video = loadVideo(http, bvid, 1);
+            if(video.memberOnly())
+                throw memberOnly();
+            pageId = video.cid();
         }
 
         String mixinKey = mixinKey(http);
         String url = mixinKey != null
-                ? PLAYURL_SIGNED + buildPlayurlQuery(bvid, pageId, mixinKey, System.currentTimeMillis() / 1000L)
-                : PLAYURL_PLAIN + buildUnsignedPlayurlQuery(bvid, pageId);
+                ? apiBase + PLAYURL_SIGNED_PATH + buildPlayurlQuery(bvid, pageId, mixinKey, System.currentTimeMillis() / 1000L)
+                : apiBase + PLAYURL_PLAIN_PATH + buildUnsignedPlayurlQuery(bvid, pageId);
 
-        return BilibiliResponseParser.parseAudioStream(getJson(http, url));
+        try
+        {
+            return BilibiliResponseParser.parseAudioStream(getJson(http, url));
+        }
+        catch(BilibiliStreamWithheldException e)
+        {
+            // Bilibili withholds the stream in two cases that look identical here: the video
+            // is for the uploader's paying supporters, or risk control has flagged the bot.
+            // Only the second should pause requests, so tell them apart by the video itself.
+            if(video == null)
+                video = loadVideo(http, bvid, 1);
+            if(video.memberOnly())
+                throw memberOnly();
+
+            LOGGER.warn("Bilibili withheld the stream for {}; pausing Bilibili requests for a cooldown", bvid);
+            throttle.startCooldown();
+            throw BilibiliRequestThrottle.rateLimited();
+        }
     }
 
     /**
@@ -147,7 +181,7 @@ public class BilibiliApiClient
         params.put("page_size", Integer.toString(limit));
 
         String signed = WbiSigner.sign(params, mixinKey, System.currentTimeMillis() / 1000L);
-        return BilibiliResponseParser.parseSearch(getJson(http, SEARCH_URL + signed));
+        return BilibiliResponseParser.parseSearch(getJson(http, apiBase + SEARCH_PATH + signed));
     }
 
     /**
@@ -237,7 +271,7 @@ public class BilibiliApiClient
 
         try
         {
-            JsonNode wbi = getJson(http, NAV_URL).path("data").path("wbi_img");
+            JsonNode wbi = getJson(http, apiBase + NAV_PATH).path("data").path("wbi_img");
             String key = WbiSigner.mixinKey(
                     WbiSigner.keyFromUrl(wbi.path("img_url").asText()),
                     WbiSigner.keyFromUrl(wbi.path("sub_url").asText()));
@@ -281,6 +315,17 @@ public class BilibiliApiClient
     {
         request.setHeader("Referer", REFERER);
         request.setHeader("User-Agent", USER_AGENT);
+    }
+
+    /**
+     * The error users see for a video only the uploader's paying supporters (充电专属) can
+     * play. Anonymous playback cannot get its audio, so it is refused up front.
+     */
+    public static FriendlyException memberOnly()
+    {
+        return new FriendlyException(
+                "This Bilibili video is only for the uploader's paying supporters, so the bot can't play it.",
+                FriendlyException.Severity.COMMON, null);
     }
 
     private static String encode(String value)
