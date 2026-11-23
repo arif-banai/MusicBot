@@ -69,8 +69,23 @@ public class BilibiliApiClient
 
     private static final long KEY_TTL_MS = 12L * 60 * 60 * 1000;
 
+    private final BilibiliRequestThrottle throttle;
+
     private volatile String cachedMixinKey;
     private volatile long cachedMixinKeyAt;
+
+    public BilibiliApiClient()
+    {
+        this(new BilibiliRequestThrottle());
+    }
+
+    /**
+     * @param throttle spaces API calls and holds them off while Bilibili is pushing back
+     */
+    public BilibiliApiClient(BilibiliRequestThrottle throttle)
+    {
+        this.throttle = throttle;
+    }
 
     /**
      * Loads metadata for one page of a video.
@@ -144,6 +159,7 @@ public class BilibiliApiClient
     {
         HttpGet request = new HttpGet(shortUrl);
         applyHeaders(request);
+        throttle.acquire();
 
         try(CloseableHttpResponse response = http.execute(request))
         {
@@ -242,10 +258,18 @@ public class BilibiliApiClient
     {
         HttpGet request = new HttpGet(url);
         applyHeaders(request);
+        throttle.acquire();
 
         try(CloseableHttpResponse response = http.execute(request))
         {
             int status = response.getStatusLine().getStatusCode();
+            if(status == 412)
+            {
+                // 412 is Bilibili's risk control refusing the request outright.
+                LOGGER.warn("Bilibili answered HTTP 412; pausing Bilibili requests for a cooldown");
+                throttle.startCooldown();
+                throw BilibiliRequestThrottle.rateLimited();
+            }
             if(status != 200)
                 throw new IOException("Bilibili API returned HTTP " + status);
 
