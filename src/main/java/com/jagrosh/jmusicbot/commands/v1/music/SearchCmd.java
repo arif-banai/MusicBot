@@ -76,7 +76,47 @@ public class SearchCmd extends MusicCommand
                     bot.getAudioLoadWrapper().wrap(query, new ResultHandler(m,event))));
     }
     
-    private class ResultHandler implements AudioLoadResultHandler 
+    /**
+     * Renders one search result in the selection menu.
+     */
+    protected String formatChoice(AudioTrack track)
+    {
+        String trackTitle = FormatUtil.getTrackTitle(track);
+        return "`["+ TimeUtil.formatTime(track.getDuration())+"]` [**"+FormatUtil.filter(trackTitle == null ? "" : trackTitle)+"**]("+track.getInfo().uri+")";
+    }
+
+    /**
+     * Handles the result the user picked. Queues it as is; subclasses may check it first.
+     */
+    protected void onSelection(CommandEvent event, AudioTrack track)
+    {
+        queueSelection(event, track);
+    }
+
+    /**
+     * Queues a picked result and confirms it in the channel.
+     */
+    protected final void queueSelection(CommandEvent event, AudioTrack track)
+    {
+        String trackTitle = FormatUtil.getTrackTitle(track);
+        if(bot.getConfig().isTooLong(track))
+        {
+            event.replyWarning("This track (**"+trackTitle+"**) is longer than the allowed maximum: `"
+                    + TimeUtil.formatTime(track.getDuration())+"` > `"+bot.getConfig().getMaxTime()+"`");
+            return;
+        }
+        AudioHandler handler = (AudioHandler)event.getGuild().getAudioManager().getSendingHandler();
+        QueuedTrack qtrack = new QueuedTrack(track, RequestMetadata.fromResultHandler(track, event));
+        int rawPos = handler.addTrack(qtrack);
+        if(rawPos >= 0)
+            handler.considerQueuedSuggestion(qtrack);
+        int pos = rawPos+1;
+        event.replySuccess("Added **" + FormatUtil.filter(trackTitle)
+                + "** (`" + TimeUtil.formatTime(track.getDuration()) + "`) " + (pos==0 ? "to begin playing"
+                    : " to the queue at position "+pos));
+    }
+
+    private class ResultHandler implements AudioLoadResultHandler
     {
         private final Message m;
         private final CommandEvent event;
@@ -115,35 +155,12 @@ public class SearchCmd extends MusicCommand
             builder.setColor(event.getSelfMember().getColor())
                     .setText(FormatUtil.filter(event.getClient().getSuccess()+" Search results for `"+event.getArgs()+"`:"))
                     .setChoices(new String[0])
-                    .setSelection((msg,i) -> 
-                    {
-                        AudioTrack track = playlist.getTracks().get(i-1);
-                        String trackTitle = FormatUtil.getTrackTitle(track);
-                        if(bot.getConfig().isTooLong(track))
-                        {
-                            event.replyWarning("This track (**"+trackTitle+"**) is longer than the allowed maximum: `"
-                                    + TimeUtil.formatTime(track.getDuration())+"` > `"+bot.getConfig().getMaxTime()+"`");
-                            return;
-                        }
-                        AudioHandler handler = (AudioHandler)event.getGuild().getAudioManager().getSendingHandler();
-                        QueuedTrack qtrack = new QueuedTrack(track, RequestMetadata.fromResultHandler(track, event));
-                        int rawPos = handler.addTrack(qtrack);
-                        if(rawPos >= 0)
-                            handler.considerQueuedSuggestion(qtrack);
-                        int pos = rawPos+1;
-                        event.replySuccess("Added **" + FormatUtil.filter(trackTitle)
-                                + "** (`" + TimeUtil.formatTime(track.getDuration()) + "`) " + (pos==0 ? "to begin playing" 
-                                    : " to the queue at position "+pos));
-                    })
+                    .setSelection((msg,i) -> onSelection(event, playlist.getTracks().get(i-1)))
                     .setCancel((msg) -> {})
                     .setUsers(event.getAuthor())
                     ;
             for(int i=0; i<4 && i<playlist.getTracks().size(); i++)
-            {
-                AudioTrack track = playlist.getTracks().get(i);
-                String trackTitle = FormatUtil.getTrackTitle(track);
-                builder.addChoices("`["+ TimeUtil.formatTime(track.getDuration())+"]` [**"+FormatUtil.filter(trackTitle == null ? "" : trackTitle)+"**]("+track.getInfo().uri+")");
-            }
+                builder.addChoices(formatChoice(playlist.getTracks().get(i)));
             builder.build().display(m);
         }
 
