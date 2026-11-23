@@ -122,7 +122,7 @@ public enum AudioSource
         "bilibili",
         "Bilibili (哔哩哔哩) videos and search",
         25,
-        (manager, config) -> manager.registerSourceManager(new BilibiliAudioSourceManager())
+        (manager, config) -> manager.registerSourceManager(new BilibiliAudioSourceManager(config.useBilibiliBrowserCookie()))
     ),
     
     // Catch-all sources (priority 100+) - registered last as fallbacks

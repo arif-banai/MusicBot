@@ -16,6 +16,7 @@
 package com.jagrosh.jmusicbot.audio.bilibili;
 
 import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
@@ -63,6 +64,7 @@ public class BilibiliApiClient
     private static final String PLAYURL_PLAIN_PATH = "/x/player/playurl?";
     private static final String SEARCH_PATH = "/x/web-interface/wbi/search/type?";
     private static final String NAV_PATH = "/x/web-interface/nav";
+    private static final String SPI_PATH = "/x/frontend/finger/spi";
 
     /** Where Bilibili's web API lives. */
     public static final String API_BASE = "https://api.bilibili.com";
@@ -71,9 +73,14 @@ public class BilibiliApiClient
     private static final String DASH_PARAMS = "&fnval=16&fnver=0&fourk=1";
 
     private static final long KEY_TTL_MS = 12L * 60 * 60 * 1000;
+    private static final long COOKIE_RETRY_MS = 10L * 60 * 1000;
 
     private final BilibiliRequestThrottle throttle;
     private final String apiBase;
+    private final boolean browserCookie;
+
+    private volatile String cachedCookie;
+    private volatile long cookieRetryAt;
 
     private volatile String cachedMixinKey;
     private volatile long cachedMixinKeyAt;
@@ -96,8 +103,18 @@ public class BilibiliApiClient
      */
     public BilibiliApiClient(BilibiliRequestThrottle throttle, String apiBase)
     {
+        this(throttle, apiBase, false);
+    }
+
+    /**
+     * @param browserCookie send the browser id cookies ({@code buvid3}/{@code buvid4}) a
+     *        browser would, which makes Bilibili's risk control less likely to flag the bot
+     */
+    public BilibiliApiClient(BilibiliRequestThrottle throttle, String apiBase, boolean browserCookie)
+    {
         this.throttle = throttle;
         this.apiBase = apiBase;
+        this.browserCookie = browserCookie;
     }
 
     /**
@@ -292,6 +309,9 @@ public class BilibiliApiClient
     {
         HttpGet request = new HttpGet(url);
         applyHeaders(request);
+        String cookie = browserCookie(http);
+        if(cookie != null)
+            request.setHeader("Cookie", cookie);
         throttle.acquire();
 
         try(CloseableHttpResponse response = http.execute(request))
@@ -308,6 +328,54 @@ public class BilibiliApiClient
                 throw new IOException("Bilibili API returned HTTP " + status);
 
             return MAPPER.readTree(response.getEntity().getContent());
+        }
+    }
+
+    /**
+     * Gets the browser id cookies, fetching them once from Bilibili's own endpoint.
+     *
+     * @return the Cookie header value, or null when disabled or unavailable; requests then
+     *         go out without it rather than failing
+     */
+    private String browserCookie(HttpInterface http)
+    {
+        if(!browserCookie)
+            return null;
+
+        String cached = cachedCookie;
+        if(cached != null || System.currentTimeMillis() < cookieRetryAt)
+            return cached;
+
+        synchronized(this)
+        {
+            if(cachedCookie != null || System.currentTimeMillis() < cookieRetryAt)
+                return cachedCookie;
+
+            HttpGet request = new HttpGet(apiBase + SPI_PATH);
+            applyHeaders(request);
+            try
+            {
+                throttle.acquire();
+                try(CloseableHttpResponse response = http.execute(request))
+                {
+                    JsonNode data = MAPPER.readTree(response.getEntity().getContent()).path("data");
+                    String b3 = data.path("b_3").asText("");
+                    String b4 = data.path("b_4").asText("");
+                    if(b3.isBlank())
+                        throw new IOException("no buvid3 in response (HTTP " + response.getStatusLine().getStatusCode() + ")");
+
+                    cachedCookie = "buvid3=" + b3 + (b4.isBlank() ? "" : "; buvid4=" + b4);
+                    return cachedCookie;
+                }
+            }
+            catch(Exception e)
+            {
+                if(e instanceof InterruptedIOException)
+                    Thread.currentThread().interrupt();
+                cookieRetryAt = System.currentTimeMillis() + COOKIE_RETRY_MS;
+                LOGGER.debug("Could not get Bilibili browser cookies, continuing without them: {}", e.getMessage());
+                return null;
+            }
         }
     }
 

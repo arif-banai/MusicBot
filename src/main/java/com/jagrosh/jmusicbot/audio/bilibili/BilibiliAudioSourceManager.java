@@ -47,7 +47,9 @@ import org.slf4j.LoggerFactory;
  * track: the page named by {@code ?p=}, or page 1 when none is given. Expanding every
  * part into the queue would flood it with content the user did not ask for.
  *
- * <p>Works anonymously; no account or cookie is required.
+ * <p>Works anonymously; no account is required. By default it sends the anonymous browser
+ * id cookie a browser would get, which Bilibili's risk control treats more kindly.
+ * {@code playback.bilibili.browserCookie} turns that off.
  *
  * @author Arif Banai (arif-banai)
  */
@@ -64,7 +66,15 @@ public class BilibiliAudioSourceManager implements AudioSourceManager
 
     public BilibiliAudioSourceManager()
     {
-        this.apiClient = new BilibiliApiClient();
+        this(false);
+    }
+
+    /**
+     * @param browserCookie send browser id cookies with API calls; see {@link BilibiliApiClient}
+     */
+    public BilibiliAudioSourceManager(boolean browserCookie)
+    {
+        this.apiClient = new BilibiliApiClient(new BilibiliRequestThrottle(), BilibiliApiClient.API_BASE, browserCookie);
         this.httpInterfaceManager = HttpClientTools.createDefaultThreadLocalManager();
         this.httpInterfaceManager.configureBuilder(BilibiliAudioSourceManager::configureHeaders);
     }
