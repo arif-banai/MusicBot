@@ -15,7 +15,8 @@
  */
 package com.jagrosh.jmusicbot.audio.bilibili;
 
-import java.net.URI;
+import java.util.ArrayList;
+import java.util.List;
 
 import com.sedmelluq.discord.lavaplayer.container.mpeg.MpegAudioTrack;
 import com.sedmelluq.discord.lavaplayer.source.AudioSourceManager;
@@ -78,11 +79,14 @@ public class BilibiliAudioTrack extends DelegatedAudioTrack
             BilibiliAudioStream stream = sourceManager.getApiClient()
                     .loadAudioStream(httpInterface, trackInfo.identifier, cid);
 
-            LOGGER.debug("Streaming Bilibili {} at {} bps", trackInfo.identifier, stream.bandwidth());
+            List<String> urls = new ArrayList<>();
+            urls.add(stream.url());
+            urls.addAll(stream.backupUrls());
 
-            try(BilibiliHttpStream inputStream =
-                        new BilibiliHttpStream(httpInterface, new URI(stream.url()), null))
+            try(BilibiliHttpStream inputStream = BilibiliHttpStream.openFirstAvailable(httpInterface, urls))
             {
+                LOGGER.debug("Streaming Bilibili {} at {} bps from {}", trackInfo.identifier,
+                        stream.bandwidth(), inputStream.getUri().getHost());
                 processDelegate(new MpegAudioTrack(trackInfo, inputStream), executor);
             }
         }

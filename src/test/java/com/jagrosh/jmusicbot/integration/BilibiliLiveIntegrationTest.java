@@ -26,7 +26,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 
-import java.net.URI;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -65,8 +64,11 @@ class BilibiliLiveIntegrationTest
             assertTrue(stream.url().startsWith("http"), stream.url());
 
             // Proves the Referer/User-Agent headers are actually reaching the CDN: without
-            // them Bilibili answers 403 and no bytes arrive.
-            try(BilibiliHttpStream input = new BilibiliHttpStream(http, new URI(stream.url()), null))
+            // them Bilibili answers 403 and no bytes arrive. Goes through the same mirror
+            // fallback as playback, since the first mirror listed can refuse the bot.
+            List<String> urls = new java.util.ArrayList<>(List.of(stream.url()));
+            urls.addAll(stream.backupUrls());
+            try(BilibiliHttpStream input = BilibiliHttpStream.openFirstAvailable(http, urls))
             {
                 byte[] header = new byte[12];
                 assertEquals(12, input.read(header, 0, 12), "should read the container header");
