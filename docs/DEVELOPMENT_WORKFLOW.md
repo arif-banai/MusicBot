@@ -131,15 +131,14 @@ The `build-and-test.yml` workflow runs on:
 
 ### Docker Build
 
-The `docker-build.yml` workflow builds and publishes Docker images on:
-- Pushes to `master` ΓåÆ tags as `:latest` and version (if not SNAPSHOT)
-- Pushes to short-lived branches ΓåÆ tags as `:<branch-name>` (e.g., `:feature-new-player-ui`)
-- Version tags (e.g., `v0.6.3`) ΓåÆ tags as `:0.6.3`
+`docker-publish.yml` publishes images to `ghcr.io/arif-banai/musicbot`:
+- Release tags (e.g., `v0.9.0`, pushed when a release is published): `:0.9.0`, plus `:latest` when that tag is
+  the repository's latest GitHub release. Pre-releases and rebuilds of older tags never move `:latest`.
+- Pushes to `master` (after Build and Test passes): `:master`. Master builds never get a version tag, so they
+  can't overwrite a released version.
+- Every build also gets `:sha-<short sha>`.
 
-**Image tags:**
-- `master`: `ghcr.io/arif-banai/musicbot:latest` (+ version tag if applicable)
-- Feature branch: `ghcr.io/arif-banai/musicbot:feature-new-player-ui`
-- Version tag: `ghcr.io/arif-banai/musicbot:0.6.3`
+`publish-preview-image.yml` (run by hand) publishes any branch, tag or SHA as `:preview-<ref>`.
 
 ## Best Practices
 
@@ -200,7 +199,7 @@ The `docker-build.yml` workflow builds and publishes Docker images on:
    - Attach JAR file from workflow artifacts
 
 5. **Docker image is automatically built** from the tag
-   - Tagged as `ghcr.io/arif-banai/musicbot:0.6.3`
+   - Tagged as `ghcr.io/arif-banai/musicbot:0.6.3`, and `:latest` if it's the latest release
 
 ### Release Branch (for stabilization)
 
