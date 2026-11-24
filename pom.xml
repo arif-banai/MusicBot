@@ -4,7 +4,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.arifbanai</groupId>
     <artifactId>JMusicBot</artifactId>
-    <version>0.9.0-SNAPSHOT</version>
+    <version>0.9.0</version>
     <packaging>jar</packaging>
 
     <name>JMusicBot</name>
@@ -603,7 +603,7 @@
         <maven.compiler.release>25</maven.compiler.release>
 
         <!-- Reproducible builds -->
-        <project.build.outputTimestamp>2026-11-24T01:38:35Z</project.build.outputTimestamp>
+        <project.build.outputTimestamp>2026-11-24T01:54:49Z</project.build.outputTimestamp>
 
         <!-- Dependency versions -->
         <!-- 6.7.0+ is required once Discord makes channel obfuscation mandatory (2026-11-16) -->
