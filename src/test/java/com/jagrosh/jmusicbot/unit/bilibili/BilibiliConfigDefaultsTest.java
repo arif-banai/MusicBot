@@ -36,9 +36,9 @@ class BilibiliConfigDefaultsTest
     }
 
     @Test
-    @DisplayName("the browser cookie is opt-in: no cookies are sent unless the owner turns it on")
-    void browserCookieOffByDefault()
+    @DisplayName("the browser cookie is on by default: Bilibili withholds audio from requests without it")
+    void browserCookieOnByDefault()
     {
-        assertFalse(ConfigOption.BILIBILI_BROWSER_COOKIE.getBoolean(reference));
+        assertTrue(ConfigOption.BILIBILI_BROWSER_COOKIE.getBoolean(reference));
     }
 }

@@ -173,6 +173,15 @@ public class BilibiliApiClient
             if(video.memberOnly())
                 throw memberOnly();
 
+            if(!browserCookie)
+            {
+                // Bilibili withholds every stream from requests without its visitor cookie, so
+                // waiting won't help; say which setting fixes it instead of pausing requests.
+                LOGGER.warn("Bilibili withheld the stream for {}. Bilibili sends no audio without its anonymous "
+                        + "visitor cookie: set playback.bilibili.browserCookie = true in config.txt", bvid);
+                throw cookieRequired();
+            }
+
             LOGGER.warn("Bilibili withheld the stream for {}; pausing Bilibili requests for a cooldown", bvid);
             throttle.startCooldown();
             throw BilibiliRequestThrottle.rateLimited();
@@ -389,6 +398,17 @@ public class BilibiliApiClient
      * The error users see for a video only the uploader's paying supporters (充电专属) can
      * play. Anonymous playback cannot get its audio, so it is refused up front.
      */
+    /**
+     * The error for a stream withheld because the browser cookie is turned off.
+     */
+    public static FriendlyException cookieRequired()
+    {
+        return new FriendlyException(
+                "Bilibili won't send audio to this bot. The bot owner needs to set "
+                        + "`playback.bilibili.browserCookie = true` in config.txt.",
+                FriendlyException.Severity.COMMON, null);
+    }
+
     public static FriendlyException memberOnly()
     {
         return new FriendlyException(

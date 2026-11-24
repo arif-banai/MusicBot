@@ -54,6 +54,7 @@ class BilibiliApiClientRiskControlTest
 
     private MockWebServer server;
     private BilibiliAudioSourceManager manager;
+    private BilibiliRequestThrottle throttle;
     private BilibiliApiClient client;
 
     private String view = "view-single-page.json";
@@ -80,19 +81,26 @@ class BilibiliApiClientRiskControlTest
                     return json(fixture(view));
                 if(path.startsWith("/x/player/wbi/playurl"))
                     return json(fixture(playurl)).setResponseCode(playurlStatus);
+                if(path.startsWith("/x/frontend/finger/spi"))
+                    return json("{\"code\":0,\"data\":{\"b_3\":\"B3-ID\",\"b_4\":\"B4-ID\"}}");
                 return new MockResponse().setResponseCode(404);
             }
         });
         server.start();
 
         manager = new BilibiliAudioSourceManager();
-        BilibiliRequestThrottle throttle = new BilibiliRequestThrottle(1000, 120_000, now::get, ms ->
+        throttle = new BilibiliRequestThrottle(1000, 120_000, now::get, ms ->
         {
             sleeps.add(ms);
             now.addAndGet(ms);
         });
+        client = client(false);
+    }
+
+    private BilibiliApiClient client(boolean browserCookie)
+    {
         String base = server.url("/").toString();
-        client = new BilibiliApiClient(throttle, base.substring(0, base.length() - 1));
+        return new BilibiliApiClient(throttle, base.substring(0, base.length() - 1), browserCookie);
     }
 
     @AfterEach
@@ -152,10 +160,11 @@ class BilibiliApiClientRiskControlTest
     }
 
     @Test
-    @DisplayName("backs off when an ordinary video's stream is withheld")
+    @DisplayName("backs off when an ordinary video's stream is withheld despite the browser cookie")
     void voucherStartsCooldown() throws Exception
     {
         playurl = "playurl-voucher.json";
+        client = client(true);
 
         try(HttpInterface http = manager.getHttpInterface())
         {
@@ -167,6 +176,27 @@ class BilibiliApiClientRiskControlTest
             assertThrows(FriendlyException.class,
                     () -> client.loadAudioStream(http, "BV1DTbv6xEHK", 40990605342L));
             assertEquals(sent, paths.size(), "no request may go out during the cooldown");
+        }
+    }
+
+    @Test
+    @DisplayName("names the setting to turn on when a stream is withheld and the browser cookie is off")
+    void voucherWithoutCookieNamesTheSetting() throws Exception
+    {
+        playurl = "playurl-voucher.json";
+
+        try(HttpInterface http = manager.getHttpInterface())
+        {
+            FriendlyException thrown = assertThrows(FriendlyException.class,
+                    () -> client.loadAudioStream(http, "BV1DTbv6xEHK", 40990605342L));
+            assertEquals(FriendlyException.Severity.COMMON, thrown.severity);
+            assertTrue(thrown.getMessage().contains("playback.bilibili.browserCookie"), thrown.getMessage());
+
+            // Waiting doesn't help without the cookie, so no cooldown: the next request still goes out.
+            int sent = paths.size();
+            assertThrows(FriendlyException.class,
+                    () -> client.loadAudioStream(http, "BV1DTbv6xEHK", 40990605342L));
+            assertTrue(paths.size() > sent, "a request should go out: there is no cooldown");
         }
     }
 
