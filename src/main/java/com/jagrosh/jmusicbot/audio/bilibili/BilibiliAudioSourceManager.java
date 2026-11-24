@@ -47,9 +47,9 @@ import org.slf4j.LoggerFactory;
  * track: the page named by {@code ?p=}, or page 1 when none is given. Expanding every
  * part into the queue would flood it with content the user did not ask for.
  *
- * <p>Works anonymously; no account is required. By default it sends the anonymous browser
- * id cookie a browser would get, which Bilibili's risk control treats more kindly.
- * {@code playback.bilibili.browserCookie} turns that off.
+ * <p>Works anonymously; no account is required. {@code playback.bilibili.browserCookie}
+ * (off by default) makes it send the anonymous browser id cookie a browser would get,
+ * which Bilibili's risk control may treat more kindly.
  *
  * @author Arif Banai (arif-banai)
  */
