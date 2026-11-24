@@ -66,7 +66,7 @@ You can also set a proxy for the whole Java process on the command line. This ap
 ```bash
 java -Dhttp.proxyHost=proxy.example.com -Dhttp.proxyPort=8080 \
      -Dhttps.proxyHost=proxy.example.com -Dhttps.proxyPort=8080 \
-     -jar JMusicBot-0.8.0.jar
+     -jar JMusicBot-0.9.0.jar
 ```
 
 Restart the bot after changing any proxy setting.

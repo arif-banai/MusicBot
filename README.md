@@ -10,7 +10,7 @@ kept working and updated.
 [![Discord](https://discordapp.com/api/guilds/1453856673004392634/widget.png?v=1)](https://discord.gg/cyyUxNmmx6)
 [![Build and Test](https://github.com/arif-banai/MusicBot/actions/workflows/build-and-test.yml/badge.svg)](https://github.com/arif-banai/MusicBot/actions/workflows/build-and-test.yml)
 
-- Plays YouTube, SoundCloud, internet radio and your own files, with no API keys
+- Plays YouTube, SoundCloud, Bilibili, internet radio and your own files, with no API keys
 - Slash commands that suggest songs as you type
 - A now-playing panel with buttons for pause, skip, volume and more
 - Queue, history and saved playlists

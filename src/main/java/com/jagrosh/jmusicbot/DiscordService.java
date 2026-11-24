@@ -31,21 +31,29 @@ import org.slf4j.LoggerFactory;
 
 import java.net.Proxy;
 import java.util.Arrays;
+import java.util.List;
 
 public class DiscordService {
     private static final Logger LOG = LoggerFactory.getLogger(DiscordService.class);
 
+    /**
+     * Caches the bot has no use for. JDA turns every cache on by default and warns about each
+     * one whose gateway intent the bot doesn't request, so those are listed here too.
+     */
+    public static final List<CacheFlag> DISABLED_CACHE = List.of(
+            CacheFlag.ACTIVITY,
+            CacheFlag.CLIENT_STATUS,
+            CacheFlag.EMOJI,
+            CacheFlag.ONLINE_STATUS,
+            CacheFlag.STICKER,
+            CacheFlag.SCHEDULED_EVENTS,
+            CacheFlag.SOUNDBOARD_SOUNDS
+    );
+
     public static JDA createJDA(BotConfig config, Bot bot, EventWaiter waiter, CommandClient client, UserInteraction userInteraction) throws Exception {
         JDABuilder jdaBuilder = JDABuilder.create(config.getToken(), Arrays.asList(JMusicBot.INTENTS))
                 .enableCache(CacheFlag.MEMBER_OVERRIDES, CacheFlag.VOICE_STATE)
-                .disableCache(
-                        CacheFlag.ACTIVITY,
-                        CacheFlag.CLIENT_STATUS,
-                        CacheFlag.EMOJI,
-                        CacheFlag.ONLINE_STATUS,
-                        CacheFlag.STICKER,
-                        CacheFlag.SCHEDULED_EVENTS
-                )
+                .disableCache(DISABLED_CACHE)
                 .setActivity(config.isGameNone() ? null : Activity.playing("loading..."))
                 .setStatus(config.getStatus() == OnlineStatus.INVISIBLE || config.getStatus() == OnlineStatus.OFFLINE
                         ? OnlineStatus.INVISIBLE

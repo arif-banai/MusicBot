@@ -62,7 +62,7 @@ public class BotConfig {
     private String token, prefix, altprefix, helpWord, playlistsFolder, logLevel,
             successEmoji, warningEmoji, errorEmoji, loadingEmoji, searchingEmoji,
             evalEngine, guiTheme;
-    private boolean stayInChannel, songInGame, npImages, npMinimalMessage, npShowButtons, showNpProgressBar, updatealerts, useEval, dbots, useYouTubeOauth, guiEnabled;
+    private boolean stayInChannel, songInGame, npImages, npMinimalMessage, npShowButtons, showNpProgressBar, updatealerts, useEval, dbots, useYouTubeOauth, useBilibiliBrowserCookie, guiEnabled;
     private long owner, maxSeconds, aloneTimeUntilStop;
     private long clearChannelAgeDays;
     private int maxYTPlaylistPages, maxHistorySize, guiFontSize, nasBufferMs, frameBufferMs, proxyPort, clearChannelDeleteLimit;
@@ -271,6 +271,7 @@ public class BotConfig {
         maxYTPlaylistPages = MAX_YT_PLAYLIST_PAGES.getInt(config);
         maxHistorySize = MAX_HISTORY_SIZE.getInt(config);
         useYouTubeOauth = USE_YOUTUBE_OAUTH.getBoolean(config);
+        useBilibiliBrowserCookie = BILIBILI_BROWSER_COOKIE.getBoolean(config);
         aloneTimeUntilStop = ALONE_TIME_UNTIL_STOP.getLong(config);
         playlistsFolder = PLAYLISTS_FOLDER.getString(config);
         aliases = ALIASES.getConfig(config);
@@ -521,6 +522,10 @@ public class BotConfig {
 
     public boolean useYouTubeOauth() {
         return useYouTubeOauth;
+    }
+
+    public boolean useBilibiliBrowserCookie() {
+        return useBilibiliBrowserCookie;
     }
 
     public String getMaxTime() {

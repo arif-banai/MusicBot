@@ -2,6 +2,13 @@ name: Publish Docker Image
 
 # Docker publishing workflow - gated by successful build-and-test completion
 # This ensures images are only published after tests pass on master
+#
+# Image tags:
+# - Release tag builds (v0.9.0): `0.9.0`, plus `latest` when that tag is the repository's
+#   latest GitHub release (so pre-releases and rebuilds of old tags never move `latest`)
+# - Master builds: `master`. Never a version tag: master can be ahead of the last release,
+#   and its pom version is not a release until Make Release tags it
+# - Every build: `sha-<short sha>`
 on:
   # Triggered after successful build-and-test on master
   # Note: The branches filter checks workflow_run.head_branch, which is the source branch
@@ -60,30 +67,34 @@ jobs:
           TIMESTAMP=$(git log -1 --format=%cI)
           
           # Determine if this is a tag build or master branch build
+          IS_LATEST_RELEASE="false"
           if [[ "${{ github.event_name }}" == "push" && "${{ github.ref_type }}" == "tag" ]]; then
             # For tag builds, use the git tag version (strip 'v' prefix)
             VERSION="${GITHUB_REF#refs/tags/v}"
             IS_TAG_BUILD="true"
+
+            # Publishing a release pushes its tag, so by now GitHub already reports it as the
+            # latest release, unless it is a pre-release or an older tag being rebuilt
+            LATEST_RELEASE=$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name 2>/dev/null || true)
+            if [[ -n "$LATEST_RELEASE" && "$LATEST_RELEASE" == "$GITHUB_REF_NAME" ]]; then
+              IS_LATEST_RELEASE="true"
+            fi
+            echo "Latest GitHub release: ${LATEST_RELEASE:-<none found>}"
           else
             # For master builds, use pom.xml version
             VERSION="$POM_VERSION"
             IS_TAG_BUILD="false"
           fi
-          
-          # Check if version is a SNAPSHOT
-          if [[ "$VERSION" =~ -SNAPSHOT$ ]]; then
-            IS_SNAPSHOT="true"
-          else
-            IS_SNAPSHOT="false"
-          fi
-          
+
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "pom_version=$POM_VERSION" >> "$GITHUB_OUTPUT"
           echo "sha=$SHA_SHORT" >> "$GITHUB_OUTPUT"
           echo "timestamp=$TIMESTAMP" >> "$GITHUB_OUTPUT"
           echo "is_tag_build=$IS_TAG_BUILD" >> "$GITHUB_OUTPUT"
-          echo "is_snapshot=$IS_SNAPSHOT" >> "$GITHUB_OUTPUT"
-          echo "Extracted version: $VERSION (pom: $POM_VERSION), SHA: $SHA_SHORT, is_tag: $IS_TAG_BUILD, is_snapshot: $IS_SNAPSHOT"
+          echo "is_latest_release=$IS_LATEST_RELEASE" >> "$GITHUB_OUTPUT"
+          echo "Extracted version: $VERSION (pom: $POM_VERSION), SHA: $SHA_SHORT, is_tag: $IS_TAG_BUILD, is_latest_release: $IS_LATEST_RELEASE"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Generate Docker metadata
         id: meta
@@ -94,13 +105,15 @@ jobs:
           DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          # Tag rules:
-          # - For tag builds: version tag (from git tag) + sha tag
-          # - For master builds: latest + sha + version (if not SNAPSHOT)
+          # Tag rules (see the top of this file):
+          # - Tag builds: version (from git tag) + latest (if it is the latest release) + sha
+          # - Master builds: master + sha
+          flavor: |
+            latest=false
           tags: |
             type=raw,value=${{ steps.metadata.outputs.version }},enable=${{ steps.metadata.outputs.is_tag_build == 'true' }}
-            type=raw,value=latest,enable=${{ steps.metadata.outputs.is_tag_build == 'false' }}
-            type=raw,value=${{ steps.metadata.outputs.version }},enable=${{ steps.metadata.outputs.is_tag_build == 'false' && steps.metadata.outputs.is_snapshot == 'false' }}
+            type=raw,value=latest,enable=${{ steps.metadata.outputs.is_latest_release == 'true' }}
+            type=raw,value=master,enable=${{ steps.metadata.outputs.is_tag_build == 'false' }}
             type=raw,value=sha-${{ steps.metadata.outputs.sha }}
           # Labels are automatically generated from git context by metadata-action
           # No need to specify them - metadata-action will create standard OCI labels

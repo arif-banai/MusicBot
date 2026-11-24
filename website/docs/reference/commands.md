@@ -39,6 +39,7 @@ when that's the case.
 | `play` | `/play` | Plays a song: a title to search for, a link, or an audio file attached to your message. With nothing after it, a DJ can resume a paused song. `play playlist <name>` plays one of the server's playlists. | — |
 | `search` | `/search` | Searches YouTube and lets you pick a result. | `ytsearch` |
 | `scsearch` | — | Searches SoundCloud and lets you pick a result. | — |
+| `bilisearch` | — | Searches Bilibili and lets you pick a result. | `bsearch` |
 | `nowplaying` | `/nowplaying` | Shows the song that's playing, with the [now-playing panel](../features/now-playing.md). `/np` does the same. | `np`, `current` |
 | — | `/np` | Short form of `/nowplaying`. | — |
 | `queue` | `/queue` | Shows the queue, a page at a time. | `list` |

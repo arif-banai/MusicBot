@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   jmusicbot:
-    image: ghcr.io/arif-banai/musicbot:latest # or ghcr.io/arif-banai/musicbot:0.6.1 for a specific version
+    image: ghcr.io/arif-banai/musicbot:latest # the newest release, or ghcr.io/arif-banai/musicbot:0.9.0 for a specific version
     container_name: jmusicbot
     # The container runs as non-root user 'jmusicbot' (UID 10001) for security.
     # Ensure the mounted volume directory is readable/writable by UID 10001,

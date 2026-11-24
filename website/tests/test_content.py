@@ -294,8 +294,10 @@ def test_docker_moving_covers_folder_owner(site_dir):
 
 
 def test_docker_latest_tag_is_described_correctly(site_dir):
+    # docker-publish.yml: release tags set `latest`; master builds go to `master` and never to `latest`.
     t = page_text(built(site_dir, "setup/docker"))
-    assert "the newest release" not in t and "master" in t
+    assert re.search(r"latest\s*:\s*the newest release", t), t
+    assert re.search(r"master\s*:\s*the newest build of the\s*master\s*branch", t), t
 
 
 def test_playlist_write_permissions(site_dir):
@@ -328,11 +330,28 @@ def test_no_false_eval_or_lyrics_claims(site_dir):
     assert "is still listed" not in t and "Skipping." not in t
 
 
+def release_version():
+    # pom.xml holds x.y.z-SNAPSHOT while a release is prepared and x.y.z once Make Release tags it; the docs
+    # name the jar of that release either way.
+    pom = (WEB.parent / "pom.xml").read_text(encoding="utf-8")
+    version = re.search(r"<artifactId>JMusicBot</artifactId>\s*<version>([^<]+)</version>", pom).group(1)
+    return version.removesuffix("-SNAPSHOT")
+
+
 def test_jar_name_matches_release_asset():
     bad = [(p.name, l) for p in (WEB / "docs").rglob("*.md") for l in p.read_text(encoding="utf-8").splitlines()
            if "-All.jar" in l]
     assert bad == []
-    assert "JMusicBot-0.8.0.jar" in (WEB / "docs/setup/first-run.md").read_text(encoding="utf-8")
+    jar = f"JMusicBot-{release_version()}.jar"
+    assert jar in (WEB / "docs/setup/first-run.md").read_text(encoding="utf-8")
+    stale = [(p.name, m) for p in (WEB / "docs").rglob("*.md")
+             for m in re.findall(r"JMusicBot-\d+\.\d+\.\d+\.jar", p.read_text(encoding="utf-8")) if m != jar]
+    assert stale == [], f"docs name an old jar; the release is {jar}"
+
+
+def test_docker_pin_matches_release():
+    pins = re.findall(r"ghcr\.io/arif-banai/musicbot:(\d+\.\d+\.\d+)", (WEB / "docs/setup/docker.md").read_text(encoding="utf-8"))
+    assert pins and set(pins) == {release_version()}
 
 
 def test_sources_clip_explains_its_prefix(site_dir):

@@ -1,0 +1,176 @@
+{
+  "code": 0,
+  "message": "OK",
+  "ttl": 1,
+  "data": {
+    "bvid": "BV1GFbk6LEVm",
+    "aid": 117114228840083,
+    "videos": 4,
+    "tid": 172,
+    "tid_v2": 2064,
+    "tname": "",
+    "tname_v2": "",
+    "copyright": 3,
+    "pic": "http://i0.hdslb.com/bfs/archive/336279f99106e119149a1e24a2c9933e674a2b1c.jpg",
+    "title": "《鸣潮》共鸣者「清宵」PV | 修行",
+    "pubdate": 1787022000,
+    "ctime": 1787021538,
+    "desc": "“玄方地界，还需要镇玄司骑。”\n“这……也是我的修行。”\n\n中文CV\n清宵：姜贺\n卜灵：张晔\n\n日文CV\n清宵：生天目仁美\n卜灵：千本木彩花\n\n英文CV\n清宵：Kirsty Rider\n卜灵：Elizabeth Chu\n\n韩文CV\n清宵：박리나\n卜灵：이이로",
+    "desc_v2": [
+      {
+        "raw_text": "“玄方地界，还需要镇玄司骑。”\n“这……也是我的修行。”\n\n中文CV\n清宵：姜贺\n卜灵：张晔\n\n日文CV\n清宵：生天目仁美\n卜灵：千本木彩花\n\n英文CV\n清宵：Kirsty Rider\n卜灵：Elizabeth Chu\n\n韩文CV\n清宵：박리나\n卜灵：이이로",
+        "type": 1,
+        "biz_id": 0
+      }
+    ],
+    "state": 0,
+    "duration": 1050,
+    "rights": {
+      "bp": 0,
+      "elec": 0,
+      "download": 1,
+      "movie": 0,
+      "pay": 0,
+      "hd5": 0,
+      "no_reprint": 0,
+      "autoplay": 1,
+      "ugc_pay": 0,
+      "is_cooperation": 0,
+      "ugc_pay_preview": 0,
+      "no_background": 0,
+      "clean_mode": 0,
+      "is_stein_gate": 0,
+      "is_360": 0,
+      "no_share": 0,
+      "arc_pay": 0,
+      "free_watch": 0
+    },
+    "owner": {
+      "mid": 1955897084,
+      "name": "鸣潮",
+      "face": "https://i2.hdslb.com/bfs/face/0abd6b9df304334a9388e968740b5b9b7d1a84be.jpg"
+    },
+    "stat": {
+      "aid": 117114228840083,
+      "view": 500931,
+      "danmaku": 3699,
+      "reply": 5939,
+      "favorite": 7740,
+      "coin": 21885,
+      "share": 10080,
+      "now_rank": 0,
+      "his_rank": 0,
+      "like": 35711,
+      "dislike": 0,
+      "evaluation": "",
+      "vt": 0
+    },
+    "argue_info": {
+      "argue_msg": "",
+      "argue_type": 0,
+      "argue_link": ""
+    },
+    "dynamic": "#鸣潮# #鸣潮3.6版本# #鸣潮清宵#\n《鸣潮》共鸣者「清宵」PV | 修行\n“玄方地界，还需要镇玄司骑。”\n“这……也是我的修行。”\n\n中文CV\n清宵：姜贺\n卜灵：张晔\n\n日文CV\n清宵：生天目仁美\n卜灵：千本木彩花\n\n英文CV\n清宵：Kirsty Rider\n卜灵：Elizabeth Chu\n\n韩文CV\n清宵：박리나\n卜灵：이이로",
+    "cid": 41013150303,
+    "dimension": {
+      "width": 2340,
+      "height": 1080,
+      "rotate": 0
+    },
+    "premiere": null,
+    "teenage_mode": 1,
+    "is_chargeable_season": false,
+    "is_story": false,
+    "is_upower_exclusive": false,
+    "is_upower_play": false,
+    "is_upower_preview": false,
+    "enable_vt": 0,
+    "vt_display": "",
+    "is_upower_exclusive_with_qa": false,
+    "is_hua_sheng": false,
+    "no_cache": false,
+    "pages": [
+      {
+        "cid": 41013150303,
+        "page": 1,
+        "from": "vupload",
+        "part": "【中】《鸣潮》共鸣者「清宵」PV | 修行",
+        "duration": 267,
+        "vid": "",
+        "weblink": "",
+        "dimension": {
+          "width": 2340,
+          "height": 1080,
+          "rotate": 0
+        },
+        "first_frame": "http://i1.hdslb.com/bfs/storyff/_00003hriha931t0cb2rvx2qzdp368hb_firsti.jpg",
+        "ctime": 1787021538
+      },
+      {
+        "cid": 41013151201,
+        "page": 2,
+        "from": "vupload",
+        "part": "【日】《鸣潮》共鸣者「清宵」PV | 修行",
+        "duration": 261,
+        "vid": "",
+        "weblink": "",
+        "dimension": {
+          "width": 2340,
+          "height": 1080,
+          "rotate": 0
+        },
+        "first_frame": "http://i0.hdslb.com/bfs/storyff/_000004wkyzs2o3cy22u3xljrx9po1jb_firsti.jpg",
+        "ctime": 1787021538
+      },
+      {
+        "cid": 41013152270,
+        "page": 3,
+        "from": "vupload",
+        "part": "【英】《鸣潮》共鸣者「清宵」PV | 修行",
+        "duration": 261,
+        "vid": "",
+        "weblink": "",
+        "dimension": {
+          "width": 2340,
+          "height": 1080,
+          "rotate": 0
+        },
+        "first_frame": "http://i1.hdslb.com/bfs/storyff/_000019nz4on1cvs4e2043fxvzl3r1rb_firsti.jpg",
+        "ctime": 1787021538
+      },
+      {
+        "cid": 41013153218,
+        "page": 4,
+        "from": "vupload",
+        "part": "【韩】《鸣潮》共鸣者「清宵」PV | 修行",
+        "duration": 261,
+        "vid": "",
+        "weblink": "",
+        "dimension": {
+          "width": 2340,
+          "height": 1080,
+          "rotate": 0
+        },
+        "first_frame": "http://i1.hdslb.com/bfs/storyff/_00002agkjawb80ycb2ippsea403nwgb_firsti.jpg",
+        "ctime": 1787021538
+      }
+    ],
+    "subtitle": {
+      "allow_submit": false,
+      "list": []
+    },
+    "label": {
+      "type": 1
+    },
+    "is_season_display": false,
+    "user_garb": {
+      "url_image_ani_cut": ""
+    },
+    "honor_reply": {},
+    "like_icon": "",
+    "need_jump_bv": false,
+    "disable_show_up_info": false,
+    "is_story_play": 0,
+    "is_view_self": false
+  }
+}

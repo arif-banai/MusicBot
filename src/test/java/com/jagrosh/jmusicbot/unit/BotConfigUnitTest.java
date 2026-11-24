@@ -424,6 +424,7 @@ class BotConfigUnitTest extends BaseConfigTest {
                   beam = false
                   getyarn = true
                   nico = true
+                  bilibili = true
                   http = true
                   local = true
                 }
@@ -436,8 +437,8 @@ class BotConfigUnitTest extends BaseConfigTest {
             
             Set<AudioSource> sources = config.getEnabledAudioSources();
             
-            // Should have 8 sources enabled (10 total - 2 disabled)
-            assertEquals(8, sources.size(), "Should have 8 sources enabled");
+            // Should have 9 sources enabled (11 total - 2 disabled)
+            assertEquals(9, sources.size(), "Should have 9 sources enabled");
             
             // Enabled sources
             assertTrue(config.isAudioSourceEnabled(AudioSource.YOUTUBE));
@@ -446,6 +447,7 @@ class BotConfigUnitTest extends BaseConfigTest {
             assertTrue(config.isAudioSourceEnabled(AudioSource.TWITCH));
             assertTrue(config.isAudioSourceEnabled(AudioSource.GETYARN));
             assertTrue(config.isAudioSourceEnabled(AudioSource.NICO));
+            assertTrue(config.isAudioSourceEnabled(AudioSource.BILIBILI));
             assertTrue(config.isAudioSourceEnabled(AudioSource.HTTP));
             assertTrue(config.isAudioSourceEnabled(AudioSource.LOCAL));
             
@@ -474,6 +476,7 @@ class BotConfigUnitTest extends BaseConfigTest {
                   beam = false
                   getyarn = false
                   nico = false
+                  bilibili = false
                   http = false
                   local = false
                 }
@@ -659,6 +662,7 @@ class BotConfigUnitTest extends BaseConfigTest {
                   beam = false
                   getyarn = false
                   nico = false
+                  bilibili = false
                   http = true
                   local = false
                 }

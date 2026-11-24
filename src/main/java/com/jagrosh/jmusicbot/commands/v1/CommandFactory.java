@@ -79,6 +79,7 @@ public class CommandFactory {
                     new RemoveCmd(bot),
                     new SearchCmd(bot),
                     new SCSearchCmd(bot),
+                    new BiliSearchCmd(bot),
                     new SeekCmd(bot),
                     new ShuffleCmd(bot),
                     new SkipCmd(bot),
