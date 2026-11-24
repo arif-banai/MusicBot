@@ -10,7 +10,7 @@ It runs on x86 (amd64) and ARM64 machines, including a Raspberry Pi 4 or 5 with 
 The image is `ghcr.io/arif-banai/musicbot`. Tags:
 
 - `latest`: the newest release.
-- A version, such as `0.9.0`: that release only. Pin a version for anything you rely on, and update on purpose.
+- A version, such as `0.9.1`: that release only. Pin a version for anything you rely on, and update on purpose.
 - `master`: the newest build of the `master` branch, which can be ahead of the last release. Use it to try a fix
   before it's released.
 
@@ -61,7 +61,7 @@ Save this as `docker-compose.yml`, changing the folder path:
 ```yaml
 services:
   jmusicbot:
-    image: ghcr.io/arif-banai/musicbot:0.9.0
+    image: ghcr.io/arif-banai/musicbot:0.9.1
     container_name: jmusicbot
     volumes:
       - ~/jmusicbot:/musicbot

@@ -39,6 +39,11 @@ for SoundCloud.
 A video with several parts (分P) always plays exactly one part: the one named by `?p=` in the link, or part 1 when
 the link doesn't say. It is never expanded into the whole queue.
 
+Bilibili sends no audio to requests without the anonymous visitor cookie it gives every browser, so the bot sends
+it (no account is involved). If Bilibili songs fail with "Bilibili won't send audio to this bot" or "Bilibili is
+limiting requests from this bot", check that `config.txt` has `browserCookie = true` under `playback.bilibili`. Bot
+version 0.9.0 added it set to `false`.
+
 ### Turning sources off
 
 Each source can be turned off in `config.txt`, for example to stop people playing files from the bot's computer:

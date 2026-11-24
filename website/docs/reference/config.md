@@ -39,7 +39,7 @@ backslashes, because a single backslash starts an escape sequence.
 | `playback.maxHistorySize` | `40` | How many played songs to remember for `history` and the Prev button. `0` turns history off. |
 | `playback.skipRatio` | `0.55` | Share of listeners who must vote to skip a song. Servers can override it with `setskip`. |
 | `playback.youtube.useOAuth` | `false` | If YouTube songs fail with "Sign in to confirm you're not a bot" or "Video unavailable", set this to `true`. See [below](#signing-in-to-youtube). |
-| `playback.bilibili.browserCookie` | `false` | Send the anonymous browser ID cookie Bilibili gives every visitor. Try it if Bilibili keeps rate-limiting the bot. No account is involved. |
+| `playback.bilibili.browserCookie` | `true` | Send the anonymous browser ID cookie Bilibili gives every visitor. Bilibili sends no audio without it, so keep it on to play Bilibili. No account is involved. |
 | `playback.audioSources.youtube` | `true` | Allow YouTube. |
 | `playback.audioSources.soundcloud` | `true` | Allow SoundCloud. |
 | `playback.audioSources.bandcamp` | `true` | Allow Bandcamp. |

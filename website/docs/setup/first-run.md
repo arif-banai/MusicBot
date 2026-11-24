@@ -7,7 +7,7 @@ description: Download the bot, start it, and answer its two questions.
 ## Download the bot
 
 Go to the [latest release](https://github.com/arif-banai/MusicBot/releases/latest) and download
-`JMusicBot-0.9.0.jar` (the version number changes with each release). Put it in a folder of its own, such as
+`JMusicBot-0.9.1.jar` (the version number changes with each release). Put it in a folder of its own, such as
 `Documents/JMusicBot` or `/home/you/jmusicbot`. The bot keeps its settings, playlists and logs in that folder.
 
 ## Start it
@@ -19,19 +19,19 @@ Open a terminal in that folder and run the command for your system.
     PowerShell needs each `-D` option in quotes:
 
     ```powershell
-    java "-Dfile.encoding=UTF-8" "--enable-native-access=ALL-UNNAMED" -jar .\JMusicBot-0.9.0.jar
+    java "-Dfile.encoding=UTF-8" "--enable-native-access=ALL-UNNAMED" -jar .\JMusicBot-0.9.1.jar
     ```
 
 === "Windows (Command Prompt)"
 
     ```bat
-    java -Dfile.encoding=UTF-8 --enable-native-access=ALL-UNNAMED -jar JMusicBot-0.9.0.jar
+    java -Dfile.encoding=UTF-8 --enable-native-access=ALL-UNNAMED -jar JMusicBot-0.9.1.jar
     ```
 
 === "macOS and Linux"
 
     ```bash
-    java -Dfile.encoding=UTF-8 --enable-native-access=ALL-UNNAMED -jar JMusicBot-0.9.0.jar
+    java -Dfile.encoding=UTF-8 --enable-native-access=ALL-UNNAMED -jar JMusicBot-0.9.1.jar
     ```
 
 `-Dfile.encoding=UTF-8` makes song titles in other alphabets show correctly. `--enable-native-access` lets the
